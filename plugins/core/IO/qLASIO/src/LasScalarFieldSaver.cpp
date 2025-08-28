@@ -1,19 +1,19 @@
-//##########################################################################
-//#                                                                        #
-//#                CLOUDCOMPARE PLUGIN: LAS-IO Plugin                      #
-//#                                                                        #
-//#  This program is free software; you can redistribute it and/or modify  #
-//#  it under the terms of the GNU General Public License as published by  #
-//#  the Free Software Foundation; version 2 of the License.               #
-//#                                                                        #
-//#  This program is distributed in the hope that it will be useful,       #
-//#  but WITHOUT ANY WARRANTY; without even the implied warranty of        #
-//#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         #
-//#  GNU General Public License for more details.                          #
-//#                                                                        #
-//#                   COPYRIGHT: Thomas Montaigu                           #
-//#                                                                        #
-//##########################################################################
+// ##########################################################################
+// #                                                                        #
+// #                CLOUDCOMPARE PLUGIN: LAS-IO Plugin                      #
+// #                                                                        #
+// #  This program is free software; you can redistribute it and/or modify  #
+// #  it under the terms of the GNU General Public License as published by  #
+// #  the Free Software Foundation; version 2 of the License.               #
+// #                                                                        #
+// #  This program is distributed in the hope that it will be useful,       #
+// #  but WITHOUT ANY WARRANTY; without even the implied warranty of        #
+// #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         #
+// #  GNU General Public License for more details.                          #
+// #                                                                        #
+// #                   COPYRIGHT: Thomas Montaigu                           #
+// #                                                                        #
+// ##########################################################################
 
 #include "LasScalarFieldSaver.h"
 
@@ -166,6 +166,18 @@ void LasScalarFieldSaver::handleScalarFields(size_t pointIndex, laszip_point& po
 			}
 			break;
 		}
+	}
+
+	if (point.extended_point_type)
+	{
+		// We set the 'legacy' data members earlier
+		// but we need to also set the extended_classification_flags
+		// otherwise laszip will throw an error if the overflap flag
+		// (which is also stored extended_classification_flags)
+		// has a value set
+		point.extended_classification_flags |= point.synthetic_flag;
+		point.extended_classification_flags |= point.keypoint_flag << 1;
+		point.extended_classification_flags |= point.withheld_flag << 2;
 	}
 }
 

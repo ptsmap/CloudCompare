@@ -166,12 +166,12 @@ LasSaveDialog::LasSaveDialog(ccPointCloud* cloud, QWidget* parent)
 	m_extraFieldsDataTypesModel->setStringList(extraFieldsDataTypeNames);
 
 	connect(versionComboBox,
-	        (void (QComboBox::*)(const QString&))(&QComboBox::currentIndexChanged),
+	        (void(QComboBox::*)(const QString&))(&QComboBox::currentIndexChanged),
 	        this,
 	        &LasSaveDialog::handleSelectedVersionChange);
 
 	connect(pointFormatComboBox,
-	        (void (QComboBox::*)(int))(&QComboBox::currentIndexChanged),
+	        (void(QComboBox::*)(int))(&QComboBox::currentIndexChanged),
 	        this,
 	        &LasSaveDialog::handleSelectedPointFormatChange);
 
@@ -508,11 +508,21 @@ void LasSaveDialog::setExtraScalarFields(const std::vector<LasExtraScalarField>&
 		return;
 	}
 
+	// We received extra scalar fields spec saved from the file's metadata
+	// But we may have already default-assigned some fields as extra scalar fields
+	// so we have to clear them
+	unassignDefaultFields();
+
 	for (const LasExtraScalarField& field : extraScalarFields)
 	{
 		auto* card = createCard();
 		extraScalarFieldsLayout->insertWidget(extraScalarFieldsLayout->count(), card);
 		card->fillFrom(field);
+	}
+
+	if (shouldAutomaticallyAssignLeftoverSFsAsExtra())
+	{
+		assignLeftoverScalarFieldsAsExtra();
 	}
 }
 
@@ -840,7 +850,7 @@ void LasSaveDialog::setOffsets(const QMap<Offset, CCVector3d>& availableOffsets,
 		else if (!outputOffsets.contains(selectedOffsetType))
 		{
 			ccLog::Warning("Internal error: selected output offset is not in the input map");
-			//we choose the custom one
+			// we choose the custom one
 			useCustomLASOffsetRadioButton->setChecked(true);
 		}
 	}

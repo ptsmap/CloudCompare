@@ -53,10 +53,32 @@ New features:
 		
 	- 3DMASC: add verticality (VERT) to the neighborhood features (PCA1, PCA2, PCA3, SPHER, LINEA, etc.)
 
-New plugin
+	- New tool: 'Display > Current 3D view Information'
+		- display some pieces of information on the current 3D view (resolution, pixel size, image size, camera orientation, etc.)
+		- also available via the new 'info' button of the 'Display > Render to file' option (taking into account a potential scaling)
+
+	- Display > Lock rotation about an axis
+		- now a proper 'turntable' rotation mode
+		- dedicated icon in the left 'View' toolbar
+		- choice is now persistent, and will be reactivated when running CC again, or creating a new 3D view
+		- currently ignored by 3D mice and controllers
+
+	- New setting dialog to customize keyboard shortcuts for common CC actions
+
+	- DB tree: new context menu option 'Export images'
+		- to export as PNG files all images highlighted or children of highlighted entities (recursive)
+		- thanks to https://github.com/stolariks for the initial contribution
+
+New plugins
+
+	- G3 Point: granulometry made simple in CloudCompare
+		- github repository: https://github.com/p-leroy/qG3Point
+		- author page: https://lidar.univ-rennes.fr/en/g3point
 
 	- VoxFall: non-parametric volumetric change detection for rockfalls
 		- computes volume differences between 2 meshes, with some visual representation
+  		- exports detected volumes as individual meshes
+		- option to generate CSV report
 
 Improvements:
 
@@ -84,6 +106,10 @@ Improvements:
 			this means the user really wants to apply the input Global shift to all the entities (instead of showing the dialog again and again)
 
 	- Command line:
+		- new options
+			- -DISTANCES_FROM_SENSOR [-SQUARED]
+			- -SCATTERING_ANGLES [-DEGREES]
+			- -OCTREE_NORMALS {radius} [-WITH_GRIDS {angle}] [-ORIENT WITH_GRIDS] [-ORIENT WITH_SENSOR] 
 		- the -SF_OP command now supports MIN/DISP_MIN/SAT_MIN/N_SIGMA_MIN/MAX/DISP_MAX/SAT_MAX/N_SIGMA_MAX as input values
 		- Rename -CSF command's resulting clouds to be able to select them later:
 			- {original cloud name} + '_ground_points'
@@ -123,6 +149,7 @@ Improvements:
 		- it will then restore these pieces of information when saving the clouds and images back as an E57 file, effectively
 			preserving the image sensor definition
 		- CC will now properly handle the case when a reflective transformation has been applied to a cloud (see bug fixes)
+		- Empty scans will not trigger an error anymore (just a warning message)
 
 	- the Subsampling dialog won't allow the user to input sampling modulation parameters if all SF values are the same
 
@@ -155,6 +182,10 @@ Improvements:
 			or the camera FOV and other parameters
 		- option to export the colors as RGB
 
+	- M3C2 plugin
+		- better handling of the normal mode
+		- option to select either 2 (ref + comp) or 3 (ref + comp + core) clouds to activate the plugin
+
 	- TreeIso plugin
 		- updated version, faster and more robust
 		- detection of ill-formed clouds (i.e. with ground points for instance)
@@ -163,12 +194,30 @@ Improvements:
 		- the 'Export cloud info' and 'Export plane info' tools will now also export the center global coordinates
 			(in case the clouds or planes have been shifted to a local coordinate system)
 
+	- 'Display > Render to file'
+		- new 'info' button, to display some pieces of information about the exported image (resolution, pixel size,
+			image size, camera orientation, etc.) taking into account a potential scaling
+
+	- 'Tools > Fit > Sphere'
+		- introduction of a dialog to let the user set the fitting parameters or force the sphere radius
+
+	- 'Edit > Normals > Compute'
+		- When "use scan grid(s) whenever possible" is checked for Neighbors, it is now possible to use a preferred orientation when "Use scan grid(s) whenever possible" and "Use sensor(s) whenever possible" are unchecked
+
+	- Color scales:
+		- New default color scales: ASPRS classes and ASPRS classes with labels
+			- The 'ASPRS classes' scale will now be used by default when loading the LAS classification field
+		- Improvement of the color scale preview (better accuracy)
+
 	- Others:
-		- The shortcut to the 'Level' tool in the 'View' toolbar (left) has been removed. Contrarily to the other options in this toolbar,
+		- the shortcut to the 'Level' tool in the 'View' toolbar (left) has been removed. Contrarily to the other options in this toolbar,
 			the Level tool can change the cloud coordinates, and not only the camera position. This could lead to strange issues when the
 			GUI is frozen, but not the View toolbar.
 		- the Box primitive is now a real box mesh, with only 8 vertices, instead of 6 independent planes.
-		- Better naming of M3C2 output clouds
+		- better naming of M3C2 output clouds
+		- Ukrainian translation is now available
+		- CSV matrix files can now be loaded with empty cells
+		- the 'Escape' key should now allow to close any currently opened 'overlay' dialog in the top right corner of the 3D views (point picking, rotate/translate, etc.)
 
 Bug fixes:
 	- editing the Global Shift & Scale information of a polyline would make CC crash
@@ -182,7 +231,9 @@ Bug fixes:
 	- When specifying some scalar fields by name or by index as weights to the ICP command line, those would be ignored
 	- E57/PCD: when saving a cloud after having applied a 'reflection' transformation (e.g. inverting a single axis), the saved
 		sensor pose was truncated due to the internal representation of these formats (as a quaternion)
-	- M3C2: 
+	- E57: the local (sensor) pose was not applied to normals at saving time
+	- M3C2:
+		- bug corrected: when the "use other cloud" is checked, do not propose the use of cloud #1 as a possible source for the normals
 		- force the vertical mode in CLI call when NormalMode=3 is requested (needed in case of multiple calls in the same command line)
 	- Waveform
 		- each LAS point with missing waveform data was triggering a warning message
@@ -197,6 +248,13 @@ Bug fixes:
 	- The 'conical span ratio' of the Unroll dialog was not properly restored from persistent settings
 	- The circular cursor of the 'Cloud layers' and 'Compass' plugins was not displayed at the right position on high DPI screens
 	- The Compass plugin was not transferring the Global Shift & Scale information from the cloud to the generated planes or polylines
+	- UHD screens were not properly supported (rotation center picking with double click, entity selection with a rectangle, etc.)
+	- ASCII cloud file import will now respect empty fields instead of shifting all following columns left
+	- The ICP registration tool could lead to mirrored transformations in some cases (since version 2.12.0)
+	- The 'Display > Adjust zoom' could result in a wrong pixel size if the height of the 3D view was larger than its width
+	- CC could crash when merging 2 meshes, one having texture (coordinates) and the other not
+	- The list of shortcuts displayed in ccViewer was outdated/wrong. It has been updated, and some shortcuts restored (+/=).
+	- Some SHP files could not be opened due to longer records than specified
 
 v2.13.2 (Kharkiv) - (06/30/2024)
 ----------------------
