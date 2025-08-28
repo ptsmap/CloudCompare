@@ -1,4 +1,4 @@
-option( PLUGIN_STANDARD_QFACETS "Check to install qFACETS plugin" OFF )
+option( PLUGIN_STANDARD_QFACETS "Check to install qFACETS plugin" ON )
 
 if( PLUGIN_STANDARD_QFACETS )
 	if( NOT OPTION_USE_SHAPE_LIB )

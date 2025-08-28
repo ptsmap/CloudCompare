@@ -1,4 +1,4 @@
-option(PLUGIN_IO_QLAS "LAS IO plugin using laszip" OFF)
+option(PLUGIN_IO_QLAS "LAS IO plugin using laszip" ON)
 
 if (PLUGIN_IO_QLAS)
     project(QLAS_IO_PLUGIN)

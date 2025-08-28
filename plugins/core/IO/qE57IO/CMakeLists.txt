@@ -1,5 +1,5 @@
 
-option( PLUGIN_IO_QE57 "Install qE57_IO plugin to read & write E57 files using libE57Format" OFF )
+option( PLUGIN_IO_QE57 "Install qE57_IO plugin to read & write E57 files using libE57Format" ON )
 
 if ( PLUGIN_IO_QE57 )
 	project( QE57_IO_PLUGIN )

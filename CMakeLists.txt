@@ -61,6 +61,12 @@ include( Install )
 # Add external libraries
 include( CMakeExternalLibs )
 
+# Add VSG library
+set(VSG_DIR "/Users/gsl/work/pointsMap/CloudCompareVSG/VulkanSceneGraph")
+find_package(VSG REQUIRED)
+include_directories(${VSG_INCLUDE_DIRS})
+link_directories(${VSG_LIBRARY_DIRS})
+
 # Internal libs used by both CloudCompare & ccViewer
 add_subdirectory( libs )
 

@@ -1,4 +1,4 @@
-option( PLUGIN_STANDARD_QRANSAC_SD "Install qRansac_SD (Shape Detection) plugin" OFF )
+option( PLUGIN_STANDARD_QRANSAC_SD "Install qRansac_SD (Shape Detection) plugin" ON )
 
 if( PLUGIN_STANDARD_QRANSAC_SD )
 	project( QRANSAC_SD_PLUGIN )

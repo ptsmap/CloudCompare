@@ -1,4 +1,4 @@
-option( PLUGIN_STANDARD_QCSF "Install qCSF plugin" OFF )
+option( PLUGIN_STANDARD_QCSF "Install qCSF plugin" ON )
 
 if( PLUGIN_STANDARD_QCSF )
 	project( QCSF_PLUGIN )
