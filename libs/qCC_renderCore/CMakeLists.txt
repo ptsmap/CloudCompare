@@ -11,6 +11,7 @@ target_link_libraries( ${PROJECT_NAME}
     PUBLIC
         Qt6::Core
         Qt6::Gui
+        Qt6::Widgets
 )
 
 InstallSharedLibrary( TARGET ${PROJECT_NAME} )

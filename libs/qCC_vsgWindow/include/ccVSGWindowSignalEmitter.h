@@ -1,6 +1,7 @@
+#pragma once
 // ##########################################################################
 // #                                                                        #
-// #                              CLOUDCOMPARE                              #
+// #                            CLOUDCOMPARE                                #
 // #                                                                        #
 // #  This program is free software; you can redistribute it and/or modify  #
 // #  it under the terms of the GNU General Public License as published by  #
@@ -11,17 +12,38 @@
 // #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
 // #  GNU General Public License for more details.                          #
 // #                                                                        #
-// #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
+// #          COPYRIGHT: CloudCompare project                               #
 // #                                                                        #
 // ##########################################################################
 
-#include "../include/ccGLWindowSignalEmitter.h"
+// Local
+#include "qCC_vsgWindow.h"
 
-#include "../include/ccGLWindowInterface.h"
+// qCC_db
+#include <ccViewSignalEmitter.h>
 
-ccGLWindowSignalEmitter::ccGLWindowSignalEmitter(ccGLWindowInterface* associatedWindow, QObject* parent)
-    : ccViewSignalEmitter(parent)
-    , m_associatedWindow(associatedWindow)
+// Qt
+#include <QObject>
+
+class ccVSGWindowInterface;
+
+//! ccVSGWindow signal emitter
+/** Derives from ccViewSignalEmitter so that the backend agnostic code
+    (ccPickingHub, interactive tools, ...) can connect to a VSG view exactly
+    like it connects to an OpenGL one.
+**/
+class CCVSGWINDOW_LIB_API ccVSGWindowSignalEmitter : public ccViewSignalEmitter
 {
-	setObjectName(QString("Signal emitter @ GL Window #%1").arg(associatedWindow->getUniqueID()));
-}
+	Q_OBJECT
+
+  public:
+	ccVSGWindowSignalEmitter(ccVSGWindowInterface* associatedView, QObject* parent = nullptr);
+
+Q_SIGNALS:
+
+	//! Signal emitted when the associated view is about to close
+	void aboutToClose(ccVSGWindowInterface* view);
+
+  protected:
+	ccVSGWindowInterface* m_associatedView = nullptr;
+};

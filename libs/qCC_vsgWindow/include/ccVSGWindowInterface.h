@@ -20,6 +20,7 @@
 #include "qCC_vsgWindow.h"
 #include "vsg/ccVSGCameraAdapter.h"
 #include "vsg/ccVSGCameraManipulator.h"
+#include "ccVSGWindowSignalEmitter.h"
 #include "vsg/ccVSGSceneBuilder.h"
 
 // qCC_renderCore
@@ -202,6 +203,15 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   //! Sets the camera center
   void setCameraPos(const CCVector3d& P);
 
+  // ----------------------------------------------------------------------
+  // Signals
+  // ----------------------------------------------------------------------
+
+  ccVSGWindowSignalEmitter* signalEmitter() override
+  {
+  	return m_signalEmitter;
+  }
+
   protected:
   //! Updates the VSG camera from the (backend agnostic) viewport parameters
   /** Computes:
@@ -224,6 +234,9 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 
   //! Keeps the VSG scene graph in sync with the ccHObject tree
   ccVSGSceneBuilder m_sceneBuilder;
+
+  //! Qt signal emitter (the interface itself is not a QObject)
+  ccVSGWindowSignalEmitter* m_signalEmitter = nullptr;
 
 	// scene
 	ccHObject* m_globalDBRoot = nullptr;

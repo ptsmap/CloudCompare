@@ -1,6 +1,6 @@
 // ##########################################################################
 // #                                                                        #
-// #                              CLOUDCOMPARE                              #
+// #                            CLOUDCOMPARE                                #
 // #                                                                        #
 // #  This program is free software; you can redistribute it and/or modify  #
 // #  it under the terms of the GNU General Public License as published by  #
@@ -11,17 +11,17 @@
 // #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
 // #  GNU General Public License for more details.                          #
 // #                                                                        #
-// #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
+// #          COPYRIGHT: CloudCompare project                               #
 // #                                                                        #
 // ##########################################################################
 
-#include "../include/ccGLWindowSignalEmitter.h"
+// Local
+#include "ccVSGWindowSignalEmitter.h"
 
-#include "../include/ccGLWindowInterface.h"
-
-ccGLWindowSignalEmitter::ccGLWindowSignalEmitter(ccGLWindowInterface* associatedWindow, QObject* parent)
+// NOTE: this file must exist so that AUTOMOC generates the moc code for
+// ccVSGWindowSignalEmitter (CMake AUTOMOC matches headers with a same name source).
+ccVSGWindowSignalEmitter::ccVSGWindowSignalEmitter(ccVSGWindowInterface* associatedView, QObject* parent)
     : ccViewSignalEmitter(parent)
-    , m_associatedWindow(associatedWindow)
+    , m_associatedView(associatedView)
 {
-	setObjectName(QString("Signal emitter @ GL Window #%1").arg(associatedWindow->getUniqueID()));
 }

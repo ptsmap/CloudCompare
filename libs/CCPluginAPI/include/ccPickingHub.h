@@ -20,7 +20,16 @@
 #include "CCPluginAPI.h"
 #include "ccPickingListener.h"
 
+// qCC_db
+#include <ccViewSignalEmitter.h>
+
+// qCC_renderCore
+#include <ccViewInterface.h>
+
 // qCC_glWindow
+// Kept for backward compatibility: several plugins rely on this header to get
+// the ccGLWindowInterface declaration (they still call GL specific methods
+// such as ccMainAppInterface::getActiveGLWindow()).
 #include <ccGLWindowInterface.h>
 
 // Qt
@@ -56,10 +65,10 @@ class CCPLUGIN_LIB_API ccPickingHub : public QObject
 	    \param mode sets the picking mode (warning: may be rejected if another listener is currently registered with another mode)
 	    \return success
 	***/
-	bool addListener(ccPickingListener*                listener,
-	                 bool                              exclusive        = false,
-	                 bool                              autoStartPicking = true,
-	                 ccGLWindowInterface::PICKING_MODE mode             = ccGLWindowInterface::POINT_OR_TRIANGLE_PICKING);
+	bool addListener(ccPickingListener*            listener,
+	                 bool                          exclusive        = false,
+	                 bool                          autoStartPicking = true,
+	                 ccViewInterface::PICKING_MODE mode             = ccViewInterface::POINT_OR_TRIANGLE_PICKING);
 
 	//! Removes a listener
 	/** \param listener listener to be removed
@@ -77,10 +86,10 @@ class CCPLUGIN_LIB_API ccPickingHub : public QObject
 	//! Manual start / stop of the picking mode on the active window
 	void togglePickingMode(bool state);
 
-	//! Returns the currently active window
-	ccGLWindowInterface* activeWindow() const
+	//! Returns the currently active view (whatever the render backend)
+	ccViewInterface* activeWindow() const
 	{
-		return m_activeGLWindow;
+		return m_activeView;
 	}
 
 	//! Returns whether the picking mechanism is currently locked (i.e. an exclusive listener is registered)
@@ -91,7 +100,7 @@ class CCPLUGIN_LIB_API ccPickingHub : public QObject
 
   public:
 	void onActiveWindowChanged(QMdiSubWindow*);
-	void onActiveWindowDeleted(ccGLWindowInterface*);
+	void onActiveWindowDeleted(ccViewInterface*);
 	void processPickedItem(ccHObject*, unsigned, int, int, const CCVector3&, const CCVector3d&);
 
   protected:
@@ -101,15 +110,15 @@ class CCPLUGIN_LIB_API ccPickingHub : public QObject
 	//! Associated application
 	ccMainAppInterface* m_app;
 
-	//! Active GL window
-	ccGLWindowInterface* m_activeGLWindow;
-
 	//! Default picking mode
-	ccGLWindowInterface::PICKING_MODE m_pickingMode;
+	ccViewInterface::PICKING_MODE m_pickingMode;
 
-	//! Automatically enables the picking mechanism on activated GL windows
+	//! Automatically enables the picking mechanism on activated windows
 	bool m_autoEnableOnActivatedWindow;
 
 	//! Exclusive mode
 	bool m_exclusive;
+
+	//! Active view (OpenGL or VSG)
+	ccViewInterface* m_activeView;
 };

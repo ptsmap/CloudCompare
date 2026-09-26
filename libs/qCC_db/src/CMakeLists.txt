@@ -65,5 +65,6 @@ target_sources( ${PROJECT_NAME}
 	    ${CMAKE_CURRENT_LIST_DIR}/ccSubMesh.cpp
 	    ${CMAKE_CURRENT_LIST_DIR}/ccTorus.cpp
 	    ${CMAKE_CURRENT_LIST_DIR}/ccViewportParameters.cpp
+	    ${CMAKE_CURRENT_LIST_DIR}/ccViewSignalEmitter.cpp
 	    ${CMAKE_CURRENT_LIST_DIR}/ccWaveform.cpp
 )

@@ -23,8 +23,8 @@
 // qCC_db
 #include <ccSphere.h>
 
-// qCC_glWindow
-#include <ccGLWindowInterface.h>
+// qCC_renderCore
+#include <ccViewInterface.h>
 
 // Qt
 #include <QMdiSubWindow>
@@ -33,10 +33,10 @@
 ccPickingHub::ccPickingHub(ccMainAppInterface* app, QObject* parent /*=nullptr*/)
     : QObject(parent)
     , m_app(app)
-    , m_activeGLWindow(nullptr)
-    , m_pickingMode(ccGLWindowInterface::POINT_OR_TRIANGLE_PICKING)
+    , m_pickingMode(ccViewInterface::POINT_OR_TRIANGLE_PICKING)
     , m_autoEnableOnActivatedWindow(true)
     , m_exclusive(false)
+    , m_activeView(nullptr)
 {
 }
 
@@ -49,40 +49,42 @@ ccPickingHub::ccPickingHub(ccMainAppInterface* app, QObject* parent /*=nullptr*/
 void ccPickingHub::togglePickingMode(bool state)
 {
 	// ccLog::Warning(QString("Toggle picking mode: ") + (state ? "ON" : "OFF") + " --> " + (m_activeGLWindow ? QString("View ") + QString::number(m_activeGLWindow->getUniqueID()) : QString("no view")));
-	if (m_activeGLWindow)
+	if (m_activeView)
 	{
-		m_activeGLWindow->setPickingMode(state ? m_pickingMode : ccGLWindowInterface::DEFAULT_PICKING);
+		m_activeView->setPickingMode(state ? m_pickingMode : ccViewInterface::DEFAULT_PICKING);
 	}
 }
 
 void ccPickingHub::onActiveWindowChanged(QMdiSubWindow* mdiSubWindow)
 {
-	ccGLWindowInterface* glWindow = (mdiSubWindow ? ccGLWindowInterface::FromWidget(mdiSubWindow->widget()) : nullptr);
-	// if (glWindow)
-	//	ccLog::Warning("New active GL window: " + QString::number(glWindow->getUniqueID()));
-	// else
-	//	ccLog::Warning("No more active GL window");
+	// backend agnostic: works for both ccGLWindow and ccVSGWindow
+	ccViewInterface* view = (mdiSubWindow ? ccViewInterface::FromWidget(mdiSubWindow->widget()) : nullptr);
 
-	if (m_activeGLWindow == glWindow)
+	if (m_activeView == view)
 	{
 		// nothing to do
 		return;
 	}
 
-	if (m_activeGLWindow)
+	if (m_activeView)
 	{
-		// take care of the previously linked window
+		// take care of the previously linked view
 		togglePickingMode(false);
-		disconnect(m_activeGLWindow->signalEmitter());
-		m_activeGLWindow = nullptr;
+		QObject::disconnect(m_activeView->signalEmitter(), nullptr, this, nullptr);
+		m_activeView = nullptr;
 	}
 
-	if (glWindow)
+	if (view)
 	{
-		// link this new window
-		connect(glWindow->signalEmitter(), &ccGLWindowSignalEmitter::itemPicked, this, &ccPickingHub::processPickedItem, Qt::UniqueConnection);
-		connect(glWindow->signalEmitter(), &ccGLWindowSignalEmitter::aboutToClose, this, &ccPickingHub::onActiveWindowDeleted);
-		m_activeGLWindow = glWindow;
+		// link this new view. Both backends expose their signals through a
+		// ccViewSignalEmitter (see qCC_db).
+		ccViewSignalEmitter* emitter = qobject_cast<ccViewSignalEmitter*>(view->signalEmitter());
+		if (emitter)
+		{
+			connect(emitter, &ccViewSignalEmitter::itemPicked, this, &ccPickingHub::processPickedItem, Qt::UniqueConnection);
+		}
+
+		m_activeView = view;
 
 		if (m_autoEnableOnActivatedWindow && !m_listeners.empty())
 		{
@@ -91,11 +93,11 @@ void ccPickingHub::onActiveWindowChanged(QMdiSubWindow* mdiSubWindow)
 	}
 }
 
-void ccPickingHub::onActiveWindowDeleted(ccGLWindowInterface* glWindow)
+void ccPickingHub::onActiveWindowDeleted(ccViewInterface* view)
 {
-	if (m_activeGLWindow && glWindow == m_activeGLWindow)
+	if (m_activeView && view == m_activeView)
 	{
-		m_activeGLWindow = nullptr;
+		m_activeView = nullptr;
 	}
 }
 
@@ -121,7 +123,7 @@ void ccPickingHub::processPickedItem(ccHObject* entity, unsigned itemIndex, int 
 
 			if (s_pickSphereCenter != QMessageBox::YesToAll && s_pickSphereCenter != QMessageBox::NoToAll)
 			{
-				s_pickSphereCenter = QMessageBox::question(m_activeGLWindow->asWidget(), tr("Sphere picking"), tr("From now on, do you want to pick sphere centers instead of a point on their surface?"), QMessageBox::YesToAll | QMessageBox::Yes | QMessageBox::No | QMessageBox::NoToAll, QMessageBox::YesToAll);
+				s_pickSphereCenter = QMessageBox::question(m_activeView->asWidget(), tr("Sphere picking"), tr("From now on, do you want to pick sphere centers instead of a point on their surface?"), QMessageBox::YesToAll | QMessageBox::Yes | QMessageBox::No | QMessageBox::NoToAll, QMessageBox::YesToAll);
 			}
 			if (s_pickSphereCenter == QMessageBox::Yes || s_pickSphereCenter == QMessageBox::YesToAll)
 			{
@@ -143,10 +145,10 @@ void ccPickingHub::processPickedItem(ccHObject* entity, unsigned itemIndex, int 
 	}
 }
 
-bool ccPickingHub::addListener(ccPickingListener*                listener,
-                               bool                              exclusive /*=false*/,
-                               bool                              autoStartPicking /*=true*/,
-                               ccGLWindowInterface::PICKING_MODE mode /*=ccGLWindowInterface::POINT_OR_TRIANGLE_PICKING*/)
+bool ccPickingHub::addListener(ccPickingListener*            listener,
+                               bool                          exclusive /*=false*/,
+                               bool                          autoStartPicking /*=true*/,
+                               ccViewInterface::PICKING_MODE mode /*=ccViewInterface::POINT_OR_TRIANGLE_PICKING*/)
 {
 	if (!listener)
 	{

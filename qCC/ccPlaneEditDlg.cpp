@@ -214,7 +214,8 @@ void ccPlaneEditDlg::onItemPicked(const PickedItem& pi)
 		return;
 	}
 
-	m_pickingWin = m_pickingHub->activeWindow();
+	// activeWindow() is backend agnostic: only remember it if it is an OpenGL view
+	m_pickingWin = dynamic_cast<ccGLWindowInterface*>(m_pickingHub->activeWindow());
 
 	cxAxisDoubleSpinBox->setValue(pi.P3D.x);
 	cyAxisDoubleSpinBox->setValue(pi.P3D.y);

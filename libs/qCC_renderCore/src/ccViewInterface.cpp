@@ -1,6 +1,6 @@
 // ##########################################################################
 // #                                                                        #
-// #                              CLOUDCOMPARE                              #
+// #                            CLOUDCOMPARE                                #
 // #                                                                        #
 // #  This program is free software; you can redistribute it and/or modify  #
 // #  it under the terms of the GNU General Public License as published by  #
@@ -11,17 +11,24 @@
 // #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
 // #  GNU General Public License for more details.                          #
 // #                                                                        #
-// #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
+// #          COPYRIGHT: CloudCompare project                               #
 // #                                                                        #
 // ##########################################################################
 
-#include "../include/ccGLWindowSignalEmitter.h"
+// Local
+#include <ccViewInterface.h>
 
-#include "../include/ccGLWindowInterface.h"
+// Qt
+#include <QWidget>
 
-ccGLWindowSignalEmitter::ccGLWindowSignalEmitter(ccGLWindowInterface* associatedWindow, QObject* parent)
-    : ccViewSignalEmitter(parent)
-    , m_associatedWindow(associatedWindow)
+ccViewInterface* ccViewInterface::FromWidget(QWidget* widget)
 {
-	setObjectName(QString("Signal emitter @ GL Window #%1").arg(associatedWindow->getUniqueID()));
+	if (!widget)
+	{
+		return nullptr;
+	}
+
+	// both ccGLWindow and ccVSGWindow derive from QWidget *and* from
+	// ccViewInterface, so a cross cast does the job
+	return dynamic_cast<ccViewInterface*>(widget);
 }

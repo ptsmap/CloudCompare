@@ -41,6 +41,8 @@
 
 ccVSGWindowInterface::ccVSGWindowInterface()
 {
+	m_signalEmitter = new ccVSGWindowSignalEmitter(this);
+
 	// Conservative defaults: they are refined once the Vulkan device is known
 	// (see M0/M3 - point size and wide lines are the two critical features).
 	m_renderCapabilities.backendName             = QStringLiteral("VSG");
@@ -52,7 +54,11 @@ ccVSGWindowInterface::ccVSGWindowInterface()
 	m_renderCapabilities.msaaSupported           = true;
 }
 
-ccVSGWindowInterface::~ccVSGWindowInterface() = default;
+ccVSGWindowInterface::~ccVSGWindowInterface()
+{
+	delete m_signalEmitter;
+	m_signalEmitter = nullptr;
+}
 
 bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, vsgQt::Window* vsgWindow)
 {

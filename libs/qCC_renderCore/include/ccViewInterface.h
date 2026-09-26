@@ -23,6 +23,7 @@
 
 // Qt
 #include <QCursor>
+#include <QObject>
 #include <QString>
 
 class ccHObject;
@@ -192,6 +193,23 @@ class CC_RENDER_CORE_LIB_API ccViewInterface
 	{
 		return nullptr;
 	}
+
+	// ----------------------------------------------------------------------
+	// Signals
+	// ----------------------------------------------------------------------
+
+	//! Returns the Qt signal emitter of this view (never null)
+	/** The actual type is a ccViewSignalEmitter (see qCC_db), which both the
+	    OpenGL and the VSG backends derive from. Backend agnostic code can
+	    therefore connect to ccViewSignalEmitter::itemPicked.
+	 **/
+	virtual QObject* signalEmitter() = 0;
+
+	//! Returns the view implemented by a given Qt widget (nullptr if none)
+	/** Backend agnostic replacement of ccGLWindowInterface::FromWidget(): it
+	    works for both ccGLWindow and ccVSGWindow.
+	 **/
+	static ccViewInterface* FromWidget(QWidget* widget);
 };
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(ccViewInterface::INTERACTION_FLAGS)

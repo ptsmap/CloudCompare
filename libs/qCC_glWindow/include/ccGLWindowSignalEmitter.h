@@ -22,6 +22,7 @@
 
 // qCC_db
 #include <ccHObject.h>
+#include <ccViewSignalEmitter.h>
 
 // Qt
 #include <QObject>
@@ -33,7 +34,10 @@
 class ccGLWindowInterface;
 
 //! ccGLWindow Signal emitter
-class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public QObject
+/** Derives from ccViewSignalEmitter so that the backend agnostic code can
+    connect to 'itemPicked' / 'aboutToClose' without knowing the backend.
+ **/
+class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public ccViewSignalEmitter
 {
 	Q_OBJECT
 
@@ -53,16 +57,6 @@ class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public QObject
 	void entitySelectionChanged(ccHObject* entity);
 	//! Signal emitted when multiple entities are selected in the 3D view
 	void entitiesSelectionChanged(std::unordered_set<int> entIDs);
-
-	//! Signal emitted when a point (or a triangle) is picked
-	/** \param entity 'picked' entity
-	    \param subEntityID point or triangle index in entity
-	    \param x mouse cursor x position
-	    \param y mouse cursor y position
-	    \param P the picked point
-	    \param uvw barycentric coordinates of the point (if picked on a mesh)
-	**/
-	void itemPicked(ccHObject* entity, unsigned subEntityID, int x, int y, const CCVector3& P, const CCVector3d& uvw);
 
 	//! Signal emitted when an item is picked (FAST_PICKING mode only)
 	/** \param entity entity

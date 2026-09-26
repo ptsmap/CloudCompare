@@ -11,17 +11,16 @@
 // #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
 // #  GNU General Public License for more details.                          #
 // #                                                                        #
-// #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
+// #          COPYRIGHT: CloudCompare project                               #
 // #                                                                        #
 // ##########################################################################
 
-#include "../include/ccGLWindowSignalEmitter.h"
+// Local
+#include "../include/ccViewSignalEmitter.h"
 
-#include "../include/ccGLWindowInterface.h"
-
-ccGLWindowSignalEmitter::ccGLWindowSignalEmitter(ccGLWindowInterface* associatedWindow, QObject* parent)
-    : ccViewSignalEmitter(parent)
-    , m_associatedWindow(associatedWindow)
+// NOTE: this file must exist so that AUTOMOC generates the moc code for
+// ccViewSignalEmitter (CMake AUTOMOC matches headers with a same name source).
+ccViewSignalEmitter::ccViewSignalEmitter(QObject* parent)
+    : QObject(parent)
 {
-	setObjectName(QString("Signal emitter @ GL Window #%1").arg(associatedWindow->getUniqueID()));
 }

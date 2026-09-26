@@ -1,3 +1,4 @@
+#pragma once
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -15,13 +16,42 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "../include/ccGLWindowSignalEmitter.h"
+// Local
+#include "qCC_db.h"
 
-#include "../include/ccGLWindowInterface.h"
+// CCCoreLib
+#include <CCGeom.h>
 
-ccGLWindowSignalEmitter::ccGLWindowSignalEmitter(ccGLWindowInterface* associatedWindow, QObject* parent)
-    : ccViewSignalEmitter(parent)
-    , m_associatedWindow(associatedWindow)
+// Qt
+#include <QObject>
+
+class ccHObject;
+class ccViewInterface;
+
+//! Signals that any 3D view must expose, whatever the render backend
+/** ccGLWindowSignalEmitter and ccVSGWindowSignalEmitter both derive from this
+    class so that backend agnostic code (ccPickingHub, the interactive tools,
+    ...) can connect to a view without knowing which backend is in use.
+
+    \note It lives in qCC_db because it needs the CCCoreLib geometry types and
+    because qCC_db is the lowest level library shared by both backends.
+**/
+class QCC_DB_LIB_API ccViewSignalEmitter : public QObject
 {
-	setObjectName(QString("Signal emitter @ GL Window #%1").arg(associatedWindow->getUniqueID()));
-}
+	Q_OBJECT
+
+  public:
+	explicit ccViewSignalEmitter(QObject* parent = nullptr);
+
+Q_SIGNALS:
+
+	//! Signal emitted when a point (or a triangle) is picked
+	/** \param entity 'picked' entity
+	    \param subEntityID point or triangle index in entity
+	    \param x mouse cursor x position
+	    \param y mouse cursor y position
+	    \param P the picked point
+	    \param uvw barycentric coordinates of the point (if picked on a mesh)
+	**/
+	void itemPicked(ccHObject* entity, unsigned subEntityID, int x, int y, const CCVector3& P, const CCVector3d& uvw);
+};

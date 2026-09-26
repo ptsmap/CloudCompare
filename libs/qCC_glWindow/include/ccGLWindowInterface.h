@@ -794,7 +794,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 		return m_signalEmitter;
 	}
 	//! Returns the signal emitter
-	ccGLWindowSignalEmitter* signalEmitter()
+	ccGLWindowSignalEmitter* signalEmitter() override
 	{
 		return m_signalEmitter;
 	}
