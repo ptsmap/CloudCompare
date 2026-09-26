@@ -37,7 +37,8 @@
 	components (database, 3D views, console, etc.) - see the ccMainAppInterface
 	class in ccMainAppInterface.h.
 **/
-class ExamplePlugin : public QObject, public ccStdPluginInterface
+// 继承 ccPickingListener 以支持选点功能
+class ExamplePlugin : public QObject, public ccStdPluginInterface, public ccPickingListener
 {
 	Q_OBJECT
 	Q_INTERFACES( ccPluginInterface ccStdPluginInterface )
@@ -55,6 +56,13 @@ public:
 	void onNewSelection( const ccHObject::Container &selectedEntities ) override;
 	QList<QAction *> getActions() override;
 
+	// Inherited from ccPickingListener
+	void onItemPicked(const PickedItem& pi) override;
+
+	// 选点模式开关
+	void startPicking();
+	void stopPicking();
+
 private:
 	//! Default action
 	/** You can add as many actions as you want in a plugin.
@@ -62,4 +70,6 @@ private:
 		toolbar and an entry in the plugin menu.
 	**/
 	QAction* m_action;
+	QAction* m_pickPointAction = nullptr; // 选点动作
+	bool m_picking = false; // 是否处于选点模式
 };

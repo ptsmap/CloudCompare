@@ -51,45 +51,80 @@ ExamplePlugin::ExamplePlugin( QObject *parent )
 // depending on the currently selected entities ('selectedEntities').
 void ExamplePlugin::onNewSelection( const ccHObject::Container &selectedEntities )
 {
-	if ( m_action == nullptr )
-	{
-		return;
-	}
-	
-	// If you need to check for a specific type of object, you can use the methods
-	// in ccHObjectCaster.h or loop and check the objects' classIDs like this:
-	//
-	//	for ( ccHObject *object : selectedEntities )
-	//	{
-	//		if ( object->getClassID() == CC_TYPES::VIEWPORT_2D_OBJECT )
-	//		{
-	//			// ... do something with the viewports
-	//		}
-	//	}
-	
-	// For example - only enable our action if something is selected.
-	m_action->setEnabled( !selectedEntities.empty() );
+	if ( m_action )
+		m_action->setEnabled( !selectedEntities.empty() );
+	if ( m_pickPointAction )
+		m_pickPointAction->setEnabled( m_app && m_app->pickingHub() );
 }
 
 // This method returns all the 'actions' your plugin can perform.
 // getActions() will be called only once, when plugin is loaded.
 QList<QAction *> ExamplePlugin::getActions()
 {
-	// default action (if it has not been already created, this is the moment to do it)
 	if ( !m_action )
 	{
-		// Here we use the default plugin name, description, and icon,
-		// but each action should have its own.
 		m_action = new QAction( getName(), this );
 		m_action->setToolTip( getDescription() );
 		m_action->setIcon( getIcon() );
-		
-		// Connect appropriate signal
 		connect( m_action, &QAction::triggered, this, [this]()
 		{
 			Example::performActionA( m_app );
 		});
 	}
+	if ( !m_pickPointAction )
+	{
+		m_pickPointAction = new QAction( tr("Pick Point"), this );
+		m_pickPointAction->setToolTip( tr("Pick a point in 3D view and print coordinates to log"));
+		m_pickPointAction->setIcon( QIcon::fromTheme("crosshair") );
+		connect( m_pickPointAction, &QAction::triggered, this, [this]() { startPicking(); });
+	}
+	return { m_action, m_pickPointAction };
+}
+#include <ccLog.h>
+#include <ccPickingHub.h>
 
-	return { m_action };
+// 启动选点模式
+void ExamplePlugin::startPicking()
+{
+	if ( m_picking || !m_app )
+		return;
+	ccPickingHub* hub = m_app->pickingHub();
+	if ( !hub )
+	{
+		ccLog::Warning(tr("PickingHub not available!"));
+		return;
+	}
+	if ( hub->addListener(this, false, true) )
+	{
+		m_picking = true;
+		ccLog::Print(tr("[ExamplePlugin] Pick mode enabled. Click a point in the 3D view."));
+	}
+	else
+	{
+		ccLog::Warning(tr("Failed to register picking listener!"));
+	}
+}
+
+// 停止选点模式
+void ExamplePlugin::stopPicking()
+{
+	if ( !m_picking || !m_app )
+		return;
+	ccPickingHub* hub = m_app->pickingHub();
+	if ( hub )
+		hub->removeListener(this, true);
+	m_picking = false;
+	ccLog::Print(tr("[ExamplePlugin] Pick mode disabled."));
+}
+
+// 处理选点事件
+void ExamplePlugin::onItemPicked(const PickedItem& pi)
+{
+	if ( !m_picking )
+		return;
+	stopPicking();
+	ccLog::Print(tr("[ExamplePlugin] Picked point: (%1, %2, %3)")
+				 .arg(pi.P3D.x, 0, 'g', 8)
+				 .arg(pi.P3D.y, 0, 'g', 8)
+				 .arg(pi.P3D.z, 0, 'g', 8));
 }
