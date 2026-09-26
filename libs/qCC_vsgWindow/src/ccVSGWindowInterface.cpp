@@ -67,6 +67,29 @@ bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, 
 
 	// Root of the VSG scene graph. It is kept in sync with the ccHObject tree
 	// by ccVSGSceneBuilder (see M3).
+	// Query the real device capabilities (M0 spike: never hardcode these, they
+	// differ per GPU / driver - e.g. wideLines is unavailable on Metal/MoltenVK).
+	if (vsg::ref_ptr<vsg::PhysicalDevice> physicalDevice = window->getOrCreatePhysicalDevice())
+	{
+		const VkPhysicalDeviceProperties& properties = physicalDevice->getProperties();
+		const VkPhysicalDeviceFeatures&   features   = physicalDevice->getFeatures();
+		const VkPhysicalDeviceLimits&     limits     = properties.limits;
+
+		m_renderCapabilities.deviceName = QString::fromUtf8(properties.deviceName);
+
+		m_renderCapabilities.pointSizeSupported = limits.pointSizeRange[1] > limits.pointSizeRange[0] + 1e-6f;
+		m_renderCapabilities.maxPointSize       = limits.pointSizeRange[1];
+
+		m_renderCapabilities.wideLinesSupported = (features.wideLines == VK_TRUE)
+		                                          && (limits.lineWidthRange[1] > limits.lineWidthRange[0] + 1e-6f);
+		m_renderCapabilities.maxLineWidth = limits.lineWidthRange[1];
+
+		m_renderCapabilities.integerPickingSupported = true;
+		m_renderCapabilities.msaaSupported           = true;
+	}
+
+	// Root of the VSG scene graph. It is kept in sync with the ccHObject tree
+	// by ccVSGSceneBuilder (see M3).
 	m_sceneRoot = vsg::Group::create();
 
 	vsg::ref_ptr<vsg::CommandGraph> commandGraph = vsg::createCommandGraphForView(window, m_camera, m_sceneRoot);

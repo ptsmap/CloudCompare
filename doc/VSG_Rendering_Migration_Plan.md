@@ -848,9 +848,9 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 
 | ID | 风险 | 影响 | 概率 | 缓解措施 |
 |---|---|---|---|---|
-| **R1** | **PointSize**：Metal/MoltenVK 不支持 `gl_PointSize > 1`，macOS 上点云只能渲染成 1px | 高（CC 核心交互） | 高 | M0.2 验证。缓解 A：billboard quad 实例化（`vsg_Translation_scaleDistance` + `VSG_BILLBOARD` define，VSG 内建支持）；缓解 B：几何着色器/顶点扩展把点扩成 quad。默认用 POINT_LIST，检测到不支持时自动切 billboard |
-| **R2** | **线宽**：`wideLines` 特性多数设备不支持，折线粗度丢失 | 中 | 高 | M0.3 验证。用 quad 扩展（CPU 生成三角带）实现粗线；或线宽固定 1 并在 UI 标注 |
-| **R3** | **SDF 字体**：`vsg::Text` 需要 SDF 图集；生成可能依赖 vsgXchange/freetype；中文字形量大 | 中（标签/消息全靠它） | 中 | M0.4 验证。方案 A：引入 vsgXchange；方案 B：随包预生成常用字符 SDF 图集（构建期脚本）；方案 C：屏幕文字退化为 Qt `QWidget` overlay（半透明子窗口绘制），3D 标注仍用 `vsg::Text` |
+| **R1** | ~~**PointSize**：Metal/MoltenVK 不支持 `gl_PointSize > 1`~~ —— **M0 实测：结论相反，设备支持** | ~~高~~ → **已解除** | ~~高~~ | **M0 实测（Apple M2 / MoltenVK 1.2.9 / Vulkan 1.2.283）：`pointSizeRange = [1 .. 511]`，granularity=1。可直接用 `POINT_LIST` + `gl_PointSize`。** 仍需保留 billboard quad 回退分支（其它 GPU/驱动可能不同），并在 M3 用截图对比做最终确认 |
+| **R2** | **线宽**：`wideLines` 特性多数设备不支持，折线粗度丢失 | 中 | **已确认发生** | **M0 实测：`wideLines = NOT supported`，`lineWidthRange = [1 .. 1]`。** 必须实现 quad 扩展（CPU 生成三角带/triangle strip）来画粗线；这是 M4 的既定工作量，不再是"可能" |
+| **R3** | **SDF 字体**：`vsg::Text` 需要 SDF 图集；生成依赖 vsgXchange/freetype；中文字形量大 | 中（标签/消息全靠它） | 中 | **M0 实测：freetype 2.14.3 可用，系统自带中日韩字体且覆盖完整（Hiragino Sans GB 29352 字形，中/文/点/云 全部命中，可正常栅格化）。** 但**已安装的 vsgXchange 1.1.6 与 vsg 1.1.14 ABI 不兼容，无法用于生成 `vsg::Font`**（见 R15）。方案：① 重建 vsgXchange；② 自写 freetype → `vsg::Font` 构建器（约 200 行，无新增依赖）；③ 屏幕 2D 文字退化为 Qt overlay |
 | **R4** | **深度精度与 NDC 差异**（GL [-1,1] vs Vulkan [0,1]）导致反投影、深度点选、near/far 裁剪结果错误 | 高 | 中 | 统一在适配层转换；M0.5 专项验证；用 D32_SFLOAT + 动态 near/far（已有逻辑复用） |
 | **R5** | **Shader 变体爆炸**：CC 的 GLSL 按 attribute 位组合动态生成，Vulkan 下无法运行时随意拼 | 中 | 中 | 收敛到有限变体集（点/线/面 × 颜色模式 × 法线 × 纹理），构建期用 `vsgshaderset` 预生成并内嵌；或依赖 glslang 运行时编译并缓存 `ShaderSet::variants` |
 | **R6** | **插件 GL 直调**导致 VSG-only 构建下大量插件失效 | 中 | 高（确定会发生） | 插件 metadata 声明后端能力；VSG-only 构建自动跳过；提供 `ccRenderCommandSink` 迁移路径；一期默认 `Both` 构建规避 |
@@ -862,6 +862,8 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | **R12** | **vsgXchange 缺失**导致纹理/字体解码需自研 | 低（本工作区 `/usr/local` 已安装 `vsgXchange`，`find_package(vsgXchange)` 命中） | 低 | 自实现 `vsg::ReaderWriter`，用 `QImage`/`QFont` 解码后填 `vsg::Data`（CC 已依赖 Qt，无新增依赖） |
 | **R13** | **macOS 工具链**：Qt 6.8.2 在 macOS 26 上链接 `-framework AGL`（Apple 已移除该框架二进制），导致**所有**库链接失败；homebrew `ccache` 与 `fmt` 版本不匹配导致崩溃 | 高（完全阻塞构建） | 已发生，已解决 | 见附录 D：改用 homebrew Qt6 + 本地 AGL stub 框架 + `brew reinstall ccache`。**这是环境问题，非本次改造引入** |
 | **R14** | **子模块漂移**：`CCCoreLib` 子模块停留在 2025-02-24 的 Qt5 版本，而 master 期望 2026-09-23 的 Qt6 版本；`MeshIO`/`quazip`/`hidapi`/`cc3DFin`/`qG3Point` 未初始化 | 高（阻塞配置） | 已发生，已解决 | `git submodule update --init <paths>`；CI 中显式初始化子模块 |
+| **R15** | **vsg / vsgXchange 版本不一致**：`/usr/local` 头文件为 vsg **1.1.14** 而静态库 `libvsg.a` 运行时自报 **1.1.11**；vsgXchange 1.1.6 引用的 `vsg::Data::computeValueCountIncludingMipmaps(ulong,ulong,ulong,uint)` 在当前 libvsg 中已变成无参成员函数，导致**链接失败** | 中（阻塞字体方案，且头文件/库版本不一致有隐患） | 已发生 | 统一重建并安装 vsg 1.1.14 + vsgXchange（同一源码树、同一编译器）；或改用自写 freetype 构建器绕开 vsgXchange |
+| **R16** | **PointSize 实测结论仅来自单台机器**（Apple M2 / MoltenVK 1.2.9）。其它 GPU、驱动、Windows/Linux 上可能不同 | 中 | 中 | `ccRenderCapabilities::pointSizeSupported` 必须在**运行时**由 `VkPhysicalDeviceLimits::pointSizeRange` 决定，不能写死；M3 验收时做点云截图对比 |
 
 ---
 
@@ -1227,3 +1229,31 @@ cmake --install build-qt6
 - **M2** `ccVSGCameraManipulator`（派生 `vsg::Trackball`）+ `ccViewportParameters` ⇄ `vsg::Camera` 双向同步 + Vulkan NDC z∈[0,1] 适配
 - **M3** `ccVSGSceneBuilder`（`ccHObject` 树 → VSG 场景图增量同步）+ 点云渲染
 - 遗留：`ccGenericGLDisplayMock`（qMPlane 测试）需补齐新增纯虚函数
+
+### D.6 M0 Spike 结果（2026-09-26 实测）
+
+验证程序：`CloudCompareVSG/vsgSpike/`（独立 CMake 工程，不进入 CloudCompare 构建）
+
+```bash
+cd CloudCompareVSG/vsgSpike
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
+./build/vsgSpike
+```
+
+测试环境：Apple M2 / macOS 26.6 / Vulkan loader 1.3.290 / **MoltenVK 1.2.9** / Vulkan API 1.2.283 / vsg 1.1.14(头文件)
+
+| Spike | 判定 | 实测数据 | 对方案的影响 |
+|---|---|---|---|
+| **1. PointSize** | ✅ **支持**（推翻原假设 R1） | `pointSizeRange = [1.000 .. 511.000]`，`pointSizeGranularity = 1.000` | 点云可直接用 `POINT_LIST` + `gl_PointSize`，**不需要** billboard quad 主路径。但仍保留回退分支，且**必须运行时**由 `pointSizeRange` 决定（见 R16） |
+| **2. wideLines** | ❌ **不支持**（R2 确认发生） | `wideLines` feature = NOT supported；`lineWidthRange = [1.000 .. 1.000]`，granularity 0 | 粗线**必须**用 quad 扩展（CPU 生成三角带）。这是 M4（`ccPolyline`、网格线框）的既定工作量 |
+| **3. 字体 / CJK** | ⚠️ **freetype 与字体都可用，但 vsgXchange 不可用** | freetype **2.14.3**；Hiragino Sans GB（29352 字形）与 STHeiti Light（52268 字形）对 `中/文/点/云` 全部命中且可正常栅格化（32px 下 26x31 / 24x29）；Arial Bold 对 CJK 全部返回 0（符合预期） | 中文显示**可行**。但已装 vsgXchange 1.1.6 与 vsg 1.1.14 ABI 不兼容（见 R15），需重建 vsgXchange 或自写 freetype → `vsg::Font` 构建器 |
+
+**附带发现（环境问题，见 R15）**
+
+- `/usr/local` 的 vsg **头文件为 1.1.14**，但 `libvsg.a` 运行时自报 **1.1.11** —— 版本不一致。
+- 静态库符号佐证：`/usr/local/lib/libvsg.a` 定义的是无参版 `vsg::Data::computeValueCountIncludingMipmaps() const`；而工作区自编译的 `VulkanSceneGraph/lib/libvsg.a` 定义的是 4 参旧版 `...(ulong,ulong,ulong,uint)`。vsgXchange 1.1.6 引用的是 4 参版 → 与 /usr/local 的库不匹配。
+- 建议：统一从同一源码树重建并安装 vsg + vsgXchange，消除头文件/库版本错位。
+
+**未做的验证（延后）**
+
+- PointSize 的**端到端渲染**验证（画一个 `gl_PointSize=32` 的点并回读像素确认）本次只做了设备能力查询。设备能力是 Vulkan 规范中的权威指标，最终确认放在 **M3 验收**（点云截图与 OpenGL 后端对比）。
