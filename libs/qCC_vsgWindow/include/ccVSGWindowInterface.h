@@ -20,6 +20,7 @@
 #include "qCC_vsgWindow.h"
 #include "vsg/ccVSGCameraAdapter.h"
 #include "vsg/ccVSGCameraManipulator.h"
+#include "vsg/ccVSGSceneBuilder.h"
 
 // qCC_renderCore
 #include <ccViewInterface.h>
@@ -220,6 +221,9 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   vsg::ref_ptr<ccVSGCameraManipulator> m_manipulator;
   vsg::ref_ptr<vsg::Group>             m_sceneRoot;
   bool                                 m_initialized = false;
+
+  //! Keeps the VSG scene graph in sync with the ccHObject tree
+  ccVSGSceneBuilder m_sceneBuilder;
 
 	// scene
 	ccHObject* m_globalDBRoot = nullptr;

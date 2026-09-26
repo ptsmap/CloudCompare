@@ -1281,6 +1281,36 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
 - 双击设 pivot（依赖深度反投影）属 M6
 - 场景包围盒目前用 `getBB_recursive()`，M3 引入 `ccVSGSceneBuilder` 后可改用 VSG 场景图的包围体
 
+### D.8 M3 进展：点云渲染与场景同步（进行中）
+
+新增文件（`libs/qCC_vsgWindow/`）：
+
+| 文件 | 作用 |
+|---|---|
+| `include/vsg/ccVSGShaders.h` / `src/vsg/ccVSGShaders.cpp` | `createPointCloudShaderSet()`：POINT_LIST 着色器，支持动态 `gl_PointSize` |
+| `include/vsg/ccVSGPointCloudBuilder.h` / `.cpp` | `ccPointCloud` → VSG 节点，按 65536 点分块，每块带包围球供视锥裁剪；管线/描述符经 `vsg::SharedObjects` 复用 |
+| `include/vsg/ccVSGSceneBuilder.h` / `.cpp` | `ccHObject` 树 → VSG 场景图；根节点保持稳定（只替换内容），使 CommandGraph 引用不失效 |
+
+为什么必须自定义着色器：VSG 内建 flat/phong/pbr 的顶点着色器里是 `gl_PointSize = 1.0;`（见生成文件 `src/vsg/utils/shaders/flat_ShaderSet.cpp` 中 `VSG_POINT_SPRITE` 分支），**写死为 1**，无法满足 CloudCompare 的点大小交互。
+
+自定义着色器遵循 VSG 约定（已从生成的 ShaderSet 二进制还原确认）：
+```
+push constant : mat4 projection; mat4 modelView;   (128 字节，由 VSG 自动推送)
+attributes    : vsg_Vertex(location 0), vsg_Color(location 6)
+material      : descriptor set 1 (MATERIAL_DESCRIPTOR_SET) binding 0 = point size
+```
+
+已确认的前置条件：
+- `VSG_SUPPORTS_ShaderCompiler = 1`（`/usr/local/include/vsg/core/Version.h:40`），运行时 GLSL → SPIR-V 可用
+- `ShaderSet::createPipelineLayout()` 对 `range.first` 之前的集合会补空 `DescriptorSetLayout`，因此仅声明 set 1 的写法与 VSG 自带 ShaderSet 模式一致
+
+**尚未验证（重要）**：以上都是编译期验证，**运行时渲染结果未验证**（当前环境无法启动 GUI 程序）。首次运行需重点确认：
+1. 着色器能否成功编译（失败会在 `viewer->compile()` 处报错）
+2. set 0（view descriptor）与本管线布局是否兼容
+3. 点大小 > 1 是否真的生效（M0 只查了设备能力 `pointSizeRange=[1..511]`）
+
+待办：标量场着色（color ramp 纹理）、全局 shift（`ccShiftedObject`）处理、网格/折线/传感器（M4）、增量更新（当前是全量重建）。
+
 **未做的验证（延后）**
 
 - PointSize 的**端到端渲染**验证（画一个 `gl_PointSize=32` 的点并回读像素确认）本次只做了设备能力查询。设备能力是 Vulkan 规范中的权威指标，最终确认放在 **M3 验收**（点云截图与 OpenGL 后端对比）。

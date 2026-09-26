@@ -100,7 +100,7 @@ bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, 
 
 	// Root of the VSG scene graph. It is kept in sync with the ccHObject tree
 	// by ccVSGSceneBuilder (see M3).
-	m_sceneRoot = vsg::Group::create();
+	m_sceneRoot = m_sceneBuilder.sceneRoot();
 
 	vsg::ref_ptr<vsg::CommandGraph> commandGraph = vsg::createCommandGraphForView(window, m_camera, m_sceneRoot);
 	m_viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
@@ -174,6 +174,11 @@ void ccVSGWindowInterface::updateCamera()
 	{
 		return;
 	}
+
+	// ----------------------------------------------------------------------
+	// Point size (part of the viewport parameters)
+	// ----------------------------------------------------------------------
+	m_sceneBuilder.pointCloudBuilder().setPointSize(m_viewportParams.defaultPointSize);
 
 	// ----------------------------------------------------------------------
 	// View matrix: strictly identical to the OpenGL backend
@@ -301,8 +306,19 @@ void ccVSGWindowInterface::setSceneDB(ccHObject* root)
 
 	m_globalDBRoot = root;
 
-	// TODO(M3): synchronize the ccHObject tree with the VSG scene graph
-	//           (ccVSGSceneBuilder)
+	// synchronize the ccHObject tree with the VSG scene graph
+	m_sceneBuilder.setRoot(root);
+	m_sceneBuilder.update();
+
+	// the new nodes have to be compiled before they can be rendered
+	if (m_viewer)
+	{
+		m_viewer->compile();
+	}
+
+	// the visible bounding box changed: near/far must be recomputed
+	updateCamera();
+
 	redraw();
 }
 
