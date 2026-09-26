@@ -1,0 +1,89 @@
+#pragma once
+// ##########################################################################
+// #                                                                        #
+// #                            CLOUDCOMPARE                                #
+// #                                                                        #
+// #  This program is free software; you can redistribute it and/or modify  #
+// #  it under the terms of the GNU General Public License as published by  #
+// #  the Free Software Foundation; version 2 or later of the License.      #
+// #                                                                        #
+// #  This program is distributed in the hope that it will be useful,       #
+// #  but WITHOUT ANY WARRANTY; without even the implied warranty of        #
+// #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
+// #  GNU General Public License for more details.                          #
+// #                                                                        #
+// #          COPYRIGHT: CloudCompare project                               #
+// #                                                                        #
+// ##########################################################################
+
+// Local
+#include <qCC_vsgWindow.h>
+
+// VSG
+#include <vsg/core/Inherit.h>
+#include <vsg/core/Visitor.h>
+#include <vsg/ui/PointerEvent.h>
+#include <vsg/ui/ScrollWheelEvent.h>
+
+// CCCoreLib
+#include <CCGeom.h>
+
+class ccVSGWindowInterface;
+
+//! Camera manipulator reproducing the CloudCompare mouse semantics
+/** CloudCompare does not use the vsg::Trackball model: it rotates a "virtual
+    trackball" built by projecting the mouse position on a unit sphere, pans by
+    moving the camera center along the screen axes and zooms by changing the
+    focal distance. All of these only modify ccViewportParameters - the single
+    source of truth - never the vsg::Camera directly.
+
+    Mouse mapping (CloudCompare):
+      - left button   : rotate
+      - right button  : pan
+      - middle button : zoom
+      - wheel         : zoom
+**/
+class CCVSGWINDOW_LIB_API ccVSGCameraManipulator : public vsg::Inherit<vsg::Visitor, ccVSGCameraManipulator>
+{
+  public:
+	explicit ccVSGCameraManipulator(ccVSGWindowInterface* view);
+
+	void apply(vsg::ButtonPressEvent& event) override;
+	void apply(vsg::ButtonReleaseEvent& event) override;
+	void apply(vsg::MoveEvent& event) override;
+	void apply(vsg::ScrollWheelEvent& event) override;
+
+	//! Button mapping (VSG: BUTTON_MASK_1 = left, _2 = middle, _3 = right)
+	vsg::ButtonMask rotateButtonMask = vsg::BUTTON_MASK_1;
+	vsg::ButtonMask panButtonMask    = vsg::BUTTON_MASK_3;
+	vsg::ButtonMask zoomButtonMask   = vsg::BUTTON_MASK_2;
+
+	//! Relative zoom step used by the wheel and the middle button drag
+	double zoomStep = 0.1;
+
+  protected:
+	enum class Mode
+	{
+		None,
+		Rotate,
+		Pan,
+		Zoom
+	};
+
+	Mode modeForMask(vsg::ButtonMask mask) const;
+
+	//! Replicates ccGLWindowInterface::convertMousePositionToOrientation()
+	CCVector3d convertMousePositionToOrientation(int32_t x, int32_t y);
+
+	void doPan(int32_t dx, int32_t dy);
+	void doZoom(double factor);
+
+	ccVSGWindowInterface* m_view = nullptr;
+
+	Mode    m_mode      = Mode::None;
+	int32_t m_lastX     = 0;
+	int32_t m_lastY     = 0;
+	bool    m_mouseMoved = false;
+
+	CCVector3d m_lastOrientation;
+};

@@ -18,6 +18,8 @@
 
 // Local
 #include "qCC_vsgWindow.h"
+#include "vsg/ccVSGCameraAdapter.h"
+#include "vsg/ccVSGCameraManipulator.h"
 
 // qCC_renderCore
 #include <ccViewInterface.h>
@@ -27,9 +29,8 @@
 
 // VSG
 #include <vsg/app/Camera.h>
-#include <vsg/app/ProjectionMatrix.h>
-#include <vsg/app/ViewMatrix.h>
 #include <vsg/core/ref_ptr.h>
+#include <vsg/maths/mat4.h>
 #include <vsg/nodes/Group.h>
 
 // vsgQt
@@ -169,21 +170,56 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 		return m_sceneRoot;
 	}
 
-  protected:
-	//! Updates the VSG camera from the (backend agnostic) viewport parameters
-	/** TODO(M2): full ccViewportParameters -> vsg::Camera mapping
-	    (pivot point, object/viewer centered view, focal distance, near/far).
-	 **/
-	void updateCamera();
+  // ----------------------------------------------------------------------
+  // Camera API (mirrors ccGLWindowInterface)
+  // ----------------------------------------------------------------------
 
-	// VSG objects
-	vsg::ref_ptr<vsgQt::Viewer>    m_viewer;
-	vsgQt::Window*                 m_window = nullptr; // owned by Qt (QWindow)
-	vsg::ref_ptr<vsg::Camera>      m_camera;
-	vsg::ref_ptr<vsg::LookAt>      m_lookAt;
-	vsg::ref_ptr<vsg::Perspective> m_perspective;
-	vsg::ref_ptr<vsg::Group>       m_sceneRoot;
-	bool                           m_initialized = false;
+  //! Returns the viewport parameters (modifiable)
+  ccViewportParameters& viewportParameters()
+  {
+  	return m_viewportParams;
+  }
+
+  //! Returns the current view matrix (world -> camera)
+  vsg::dmat4 viewMatrix() const;
+
+  //! Returns the current projection matrix
+  /** \warning this is a **Vulkan reverse depth** matrix: the near plane maps
+      to NDC z = 1 and the far plane to NDC z = 0 (OpenGL uses -1 / +1).
+   **/
+  vsg::dmat4 projectionMatrix() const;
+
+  //! Rotates the base view matrix (as ccGLWindowInterface::rotateBaseViewMat)
+  void rotateBaseViewMat(const ccGLMatrixd& rotMat);
+
+  //! Displaces the camera (as ccGLWindowInterface::moveCamera)
+  void moveCamera(const CCVector3d& v);
+
+  //! Sets the focal distance (as ccGLWindowInterface::setFocalDistance)
+  void setFocalDistance(double focalDistance);
+
+  //! Sets the camera center
+  void setCameraPos(const CCVector3d& P);
+
+  protected:
+  //! Updates the VSG camera from the (backend agnostic) viewport parameters
+  /** Computes:
+      - the view matrix from ccViewportParameters::computeViewMatrix()
+      - the projection matrix with the CloudCompare near/far heuristics, built
+        with the vsg:: perspective()/orthographic() helpers so that the result
+        is a Vulkan (reverse depth, Y flipped) matrix.
+   **/
+  void updateCamera();
+
+  // VSG objects
+  vsg::ref_ptr<vsgQt::Viewer>          m_viewer;
+  vsgQt::Window*                       m_window = nullptr; // owned by Qt (QWindow)
+  vsg::ref_ptr<vsg::Camera>            m_camera;
+  vsg::ref_ptr<ccVSGViewMatrix>        m_viewMatrix;
+  vsg::ref_ptr<ccVSGProjectionMatrix>  m_projectionMatrix;
+  vsg::ref_ptr<ccVSGCameraManipulator> m_manipulator;
+  vsg::ref_ptr<vsg::Group>             m_sceneRoot;
+  bool                                 m_initialized = false;
 
 	// scene
 	ccHObject* m_globalDBRoot = nullptr;

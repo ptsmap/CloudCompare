@@ -581,7 +581,10 @@ ccVSGWindow::updateCamera()
 vsg::LookAt / 自定义 ViewMatrix  +  vsg::Perspective
 ```
 - 优先**派生 `vsg::Trackball`** 并覆写 `rotate/zoom/pan` 与事件 `apply`，复用其 `supportsThrow`（惯性）、`addWindow`、窗口过滤逻辑（参考本仓 `viewer3D/src/FreeCADStyleManipulator.h`）。
-- **Vulkan 深度范围差异**：GL 的 NDC z ∈ [-1,1]，Vulkan ∈ [0,1]。VSG 的 `perspective()` / `orthographic()` 已按 Vulkan 处理；但 CC 里"从深度反投影得到世界坐标"（双击设 pivot、深度点选）的代码必须按 **[0,1]** 重算，否则结果错误。
+- **Vulkan 深度范围差异（实测修正）**：VSG 用的不是普通 Vulkan [0,1] 深度，而是 **reverse depth**——近平面映射到 NDC z = **1**，远平面映射到 **0**（OpenGL 是 -1 / +1），且 **Y 轴翻转**。
+  - 依据：`include/vsg/maths/transform.h:140` 的 `perspective()` 与 `:167` 的 `orthographic()` 注释明确写 "Reverse depth convention: 1 to 0 depth range"，矩阵元素 `m[2][2]=zNear/(zFar-zNear)`、`m[2][3]=-1` 也印证；`perspective()` 的 `m[1][1] = -f` 说明 Y 被翻转（Vulkan 裁剪空间 Y 向下）。
+  - 因此 CC 里"从深度反投影得到世界坐标"（双击设 pivot、深度点选）的代码必须按 **z ∈ [1..0]** 重算，且深度比较方向相反（`VK_COMPARE_OP_GREATER`）——按 [0,1] 或 [-1,1] 计算都会得到错误结果。
+  - 投影矩阵本身交给 `vsg::perspective()` / `vsg::orthographic()` 构造即可，不要自己按 GL 公式写。
 
 ### 5.7 拾取设计
 
@@ -851,7 +854,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | **R1** | ~~**PointSize**：Metal/MoltenVK 不支持 `gl_PointSize > 1`~~ —— **M0 实测：结论相反，设备支持** | ~~高~~ → **已解除** | ~~高~~ | **M0 实测（Apple M2 / MoltenVK 1.2.9 / Vulkan 1.2.283）：`pointSizeRange = [1 .. 511]`，granularity=1。可直接用 `POINT_LIST` + `gl_PointSize`。** 仍需保留 billboard quad 回退分支（其它 GPU/驱动可能不同），并在 M3 用截图对比做最终确认 |
 | **R2** | **线宽**：`wideLines` 特性多数设备不支持，折线粗度丢失 | 中 | **已确认发生** | **M0 实测：`wideLines = NOT supported`，`lineWidthRange = [1 .. 1]`。** 必须实现 quad 扩展（CPU 生成三角带/triangle strip）来画粗线；这是 M4 的既定工作量，不再是"可能" |
 | **R3** | **SDF 字体**：`vsg::Text` 需要 SDF 图集；生成依赖 vsgXchange/freetype；中文字形量大 | 中（标签/消息全靠它） | 中 | **M0 实测：freetype 2.14.3 可用，系统自带中日韩字体且覆盖完整（Hiragino Sans GB 29352 字形，中/文/点/云 全部命中，可正常栅格化）。** 但**已安装的 vsgXchange 1.1.6 与 vsg 1.1.14 ABI 不兼容，无法用于生成 `vsg::Font`**（见 R15）。方案：① 重建 vsgXchange；② 自写 freetype → `vsg::Font` 构建器（约 200 行，无新增依赖）；③ 屏幕 2D 文字退化为 Qt overlay |
-| **R4** | **深度精度与 NDC 差异**（GL [-1,1] vs Vulkan [0,1]）导致反投影、深度点选、near/far 裁剪结果错误 | 高 | 中 | 统一在适配层转换；M0.5 专项验证；用 D32_SFLOAT + 动态 near/far（已有逻辑复用） |
+| **R4** | **深度精度与 NDC 差异**：VSG 用 **reverse depth**（near→NDC z=1，far→0，且 Y 翻转），与 GL 的 [-1,1] 完全不同。反投影、深度点选、near/far 裁剪、深度回读都会算错 | 高 | 中 | 投影矩阵统一由 `vsg::perspective()`/`orthographic()` 构造；深度相关代码一律按 z∈[1..0] 处理并在适配层封装换算函数；用 D32_SFLOAT + 动态 near/far（已有逻辑复用）；M6 专项验证 |
 | **R5** | **Shader 变体爆炸**：CC 的 GLSL 按 attribute 位组合动态生成，Vulkan 下无法运行时随意拼 | 中 | 中 | 收敛到有限变体集（点/线/面 × 颜色模式 × 法线 × 纹理），构建期用 `vsgshaderset` 预生成并内嵌；或依赖 glslang 运行时编译并缓存 `ShaderSet::variants` |
 | **R6** | **插件 GL 直调**导致 VSG-only 构建下大量插件失效 | 中 | 高（确定会发生） | 插件 metadata 声明后端能力；VSG-only 构建自动跳过；提供 `ccRenderCommandSink` 迁移路径；一期默认 `Both` 构建规避 |
 | **R7** | **性能不达预期**：场景同步开销、同步阻塞、资源编译卡顿 | 中 | 中 | 增量同步 + `SharedObjects` + 分帧编译；设置 `ResourceHints`；大数据用 `PagedLOD`；建立 §9 基准持续追踪 |
@@ -1253,6 +1256,30 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
 - `/usr/local` 的 vsg **头文件为 1.1.14**，但 `libvsg.a` 运行时自报 **1.1.11** —— 版本不一致。
 - 静态库符号佐证：`/usr/local/lib/libvsg.a` 定义的是无参版 `vsg::Data::computeValueCountIncludingMipmaps() const`；而工作区自编译的 `VulkanSceneGraph/lib/libvsg.a` 定义的是 4 参旧版 `...(ulong,ulong,ulong,uint)`。vsgXchange 1.1.6 引用的是 4 参版 → 与 /usr/local 的库不匹配。
 - 建议：统一从同一源码树重建并安装 vsg + vsgXchange，消除头文件/库版本错位。
+
+### D.7 M2 相机适配实现说明
+
+新增文件（`libs/qCC_vsgWindow/`）：
+
+| 文件 | 作用 |
+|---|---|
+| `include/vsg/ccVSGCameraAdapter.h` / `src/vsg/ccVSGCameraAdapter.cpp` | `ccVSGViewMatrix` / `ccVSGProjectionMatrix`：直接把 CC 算好的矩阵喂给 `vsg::Camera`；`toVSGMatrix()` 负责 OpenGL 列主序 → VSG 行主序转换 |
+| `include/vsg/ccVSGCameraManipulator.h` / `src/vsg/ccVSGCameraManipulator.cpp` | CC 语义的相机操控器（**不继承 `vsg::Trackball`**，而是直接继承 `vsg::Visitor`） |
+
+关键设计：
+
+- **单向数据流**：操控器只修改 `ccViewportParameters`（唯一真源），从不直接改 `vsg::Camera`；`updateCamera()` 再从参数推导两个矩阵。这样两个后端行为天然一致。
+- **为什么不用 `vsg::Trackball`**：CC 的旋转是"把鼠标位置投影到单位球 + `ccGLMatrixd::FromToRotation`"的虚拟轨迹球，且旋转中心是 pivot point（object-centered）而非屏幕中心；`vsg::Trackball` 的 rotate/zoom/pan 模型与之不同，套用会丢失 pivot 与 object-centered 语义。
+- **复刻自 OpenGL 后端的算法**：
+  - 旋转：`convertMousePositionToOrientation()`（对应 `ccGLWindowInterface.cpp:1953`）+ `FromToRotation` + `viewMat = rotMat * viewMat`（对应 `:3369`）
+  - 平移：`u = (dx*pixSize, -dy*pixSize, 0)`，object-centered 时取反，再 `moveCamera()`（对应 `:6541-6570`）
+  - 投影：near/far 由可见包围盒 8 角点在相机空间的 -z 范围推出（对应 `:1550-1702`），再用 `vsg::perspective()/orthographic()` 构造 **reverse depth** 矩阵
+- **按键映射**：`BUTTON_MASK_1`(左)=旋转、`BUTTON_MASK_3`(右)=平移、`BUTTON_MASK_2`(中)=缩放（VSG 的 mask 值为 256/512/1024）
+
+已知待办：
+- 缩放系数、滚轮 Alt/Ctrl/Shift 修饰键（点大小 / near-far / FOV）需在与 OpenGL 后端对比时调优
+- 双击设 pivot（依赖深度反投影）属 M6
+- 场景包围盒目前用 `getBB_recursive()`，M3 引入 `ccVSGSceneBuilder` 后可改用 VSG 场景图的包围体
 
 **未做的验证（延后）**
 
