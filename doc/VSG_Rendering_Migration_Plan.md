@@ -2,8 +2,9 @@
 
 | 项目 | 内容 |
 |---|---|
-| 文档版本 | v1.0（初版方案） |
+| 文档版本 | v1.1（含 2026-09-27 进度快照与 Metal 实测修正） |
 | 编写日期 | 2026-09-26 |
+| 最近更新 | 2026-09-27（M0–M3 完成、M4/M6/M8 部分完成；**R1 PointSize 结论已推翻并修正**） |
 | 目标仓库 | `CloudCompareVSG/CloudCompare` |
 | 渲染引擎 | `CloudCompareVSG/VulkanSceneGraph` (VSG **1.1.14**, SOVERSION 16, C++17) |
 | 目标 | 以 VSG(Vulkan) 渲染后端替换/并存于现有 OpenGL 渲染子系统 |
@@ -830,20 +831,21 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 
 ### 里程碑总览与工作量
 
-| 里程碑 | 内容 | 工作量(PW) | 累计 |
-|---|---|---:|---:|
-| M0 | 技术验证 Spike | 2~3 | 3 |
-| M1 | 骨架与构建 | 3~4 | 7 |
-| M2 | 相机与交互 | 2~3 | 10 |
-| M3 | 点云渲染 | 3~4 | 14 |
-| M4 | 网格/折线/传感器 | 3~4 | 18 |
-| M5 | 2D 覆盖层 | 3 | 21 |
-| M6 | 拾取与离屏 | 3 | 24 |
-| M7 | 后处理与 LOD | 4 | 28 |
-| M8 | 插件与收尾 | 3~4 | 32 |
-| **合计** | | **26~32 PW** | ≈ **6~8 人月** |
+| 里程碑 | 内容 | 状态（截至 2026-09-27） | 工作量(PW) | 累计 |
+|---|---|---|---:|---:|
+| M0 | 技术验证 Spike | ✅ 已完成（含运行时能力查询；**PointSize 结论见 R1 修正**） | 2~3 | 3 |
+| M1 | 骨架与构建 | ✅ 已完成（`build-hbqt` 双后端可编译运行，调试入口可用） | 3~4 | 7 |
+| M2 | 相机与交互 | ✅ 已完成（CC 语义操控器 + reverse-depth NDC 适配） | 2~3 | 10 |
+| M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10） | 3~4 | 14 |
+| M4 | 网格/折线/传感器 | 🟡 部分：网格/折线已实现（commit `0ec5e855`）；传感器、粗线 quad 扩展、网格线框、LOD、半透明未做 | 3~4 | 18 |
+| M5 | 2D 覆盖层 | ⬜ 未开始（标签/比例尺/方向轴/色标/文字全缺） | 3 | 21 |
+| M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
+| M7 | 后处理与 LOD | ⬜ 未开始 | 4 | 28 |
+| M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
+| **合计** | | | **26~32 PW** | ≈ **6~8 人月** |
 
 > 若不含后处理（M7.1/M7.2）与分页（M7.4），核心功能对齐约 **20~22 PW（5 人月）**。
+> 图例：✅ 完成 / 🟡 部分完成 / ⬜ 未开始。详细子项见 §7 各里程碑与附录 D.10。
 
 ---
 
@@ -851,7 +853,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 
 | ID | 风险 | 影响 | 概率 | 缓解措施 |
 |---|---|---|---|---|
-| **R1** | ~~**PointSize**：Metal/MoltenVK 不支持 `gl_PointSize > 1`~~ —— **M0 实测：结论相反，设备支持** | ~~高~~ → **已解除** | ~~高~~ | **M0 实测（Apple M2 / MoltenVK 1.2.9 / Vulkan 1.2.283）：`pointSizeRange = [1 .. 511]`，granularity=1。可直接用 `POINT_LIST` + `gl_PointSize`。** 仍需保留 billboard quad 回退分支（其它 GPU/驱动可能不同），并在 M3 用截图对比做最终确认 |
+| **R1** | **PointSize（2026-09-27 实测修正，原"已解除"结论推翻）**：M0 仅查了 `VkPhysicalDeviceLimits::pointSizeRange=[1..511]`，**但 MoltenVK/Metal 实际忽略 `gl_PointSize`（`POINT_LIST` 永远是 1px）**，且把点大小放进**顶点阶段 UBO** 会让 MoltenVK 在 `MTLVertexDescriptor` 写入 orphaned buffer layout（stride 4/12 @ slot 29/30）触发 **Metal 验证 abort** | 中（M3 验收受此影响：当前点均为 1px，仅冒烟可见，**点大小交互尚未对齐**） | 已发生，已缓解 | 结论：**Metal 上点大小必须走 billboard quad（instanced 扩展 quad），不能依赖 `gl_PointSize` 或顶点阶段 UBO**。当前 `ccVSGShaders` 已将 `gl_PointSize` 硬编码 `1.0`、删除 pointSize UBO（仅 1px 点，冒烟测试可用）；真正的点大小是后续里程碑，与 M4 的 quad 粗线扩展一并实现。`ccRenderCapabilities::pointSizeSupported` 仍由运行时 `pointSizeRange` 决定，但 VSG/Metal 路径下对 `POINT_LIST` 实际不可用（见 D.10） |
 | **R2** | **线宽**：`wideLines` 特性多数设备不支持，折线粗度丢失 | 中 | **已确认发生** | **M0 实测：`wideLines = NOT supported`，`lineWidthRange = [1 .. 1]`。** 必须实现 quad 扩展（CPU 生成三角带/triangle strip）来画粗线；这是 M4 的既定工作量，不再是"可能" |
 | **R3** | **SDF 字体**：`vsg::Text` 需要 SDF 图集；生成依赖 vsgXchange/freetype；中文字形量大 | 中（标签/消息全靠它） | 中 | **M0 实测：freetype 2.14.3 可用，系统自带中日韩字体且覆盖完整（Hiragino Sans GB 29352 字形，中/文/点/云 全部命中，可正常栅格化）。** 但**已安装的 vsgXchange 1.1.6 与 vsg 1.1.14 ABI 不兼容，无法用于生成 `vsg::Font`**（见 R15）。方案：① 重建 vsgXchange；② 自写 freetype → `vsg::Font` 构建器（约 200 行，无新增依赖）；③ 屏幕 2D 文字退化为 Qt overlay |
 | **R4** | **深度精度与 NDC 差异**：VSG 用 **reverse depth**（near→NDC z=1，far→0，且 Y 翻转），与 GL 的 [-1,1] 完全不同。反投影、深度点选、near/far 裁剪、深度回读都会算错 | 高 | 中 | 投影矩阵统一由 `vsg::perspective()`/`orthographic()` 构造；深度相关代码一律按 z∈[1..0] 处理并在适配层封装换算函数；用 D32_SFLOAT + 动态 near/far（已有逻辑复用）；M6 专项验证 |
@@ -866,7 +868,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | **R13** | **macOS 工具链**：Qt 6.8.2 在 macOS 26 上链接 `-framework AGL`（Apple 已移除该框架二进制），导致**所有**库链接失败；homebrew `ccache` 与 `fmt` 版本不匹配导致崩溃 | 高（完全阻塞构建） | 已发生，已解决 | 见附录 D：改用 homebrew Qt6 + 本地 AGL stub 框架 + `brew reinstall ccache`。**这是环境问题，非本次改造引入** |
 | **R14** | **子模块漂移**：`CCCoreLib` 子模块停留在 2025-02-24 的 Qt5 版本，而 master 期望 2026-09-23 的 Qt6 版本；`MeshIO`/`quazip`/`hidapi`/`cc3DFin`/`qG3Point` 未初始化 | 高（阻塞配置） | 已发生，已解决 | `git submodule update --init <paths>`；CI 中显式初始化子模块 |
 | **R15** | **vsg / vsgXchange 版本不一致**：`/usr/local` 头文件为 vsg **1.1.14** 而静态库 `libvsg.a` 运行时自报 **1.1.11**；vsgXchange 1.1.6 引用的 `vsg::Data::computeValueCountIncludingMipmaps(ulong,ulong,ulong,uint)` 在当前 libvsg 中已变成无参成员函数，导致**链接失败** | 中（阻塞字体方案，且头文件/库版本不一致有隐患） | 已发生 | 统一重建并安装 vsg 1.1.14 + vsgXchange（同一源码树、同一编译器）；或改用自写 freetype 构建器绕开 vsgXchange |
-| **R16** | **PointSize 实测结论仅来自单台机器**（Apple M2 / MoltenVK 1.2.9）。其它 GPU、驱动、Windows/Linux 上可能不同 | 中 | 中 | `ccRenderCapabilities::pointSizeSupported` 必须在**运行时**由 `VkPhysicalDeviceLimits::pointSizeRange` 决定，不能写死；M3 验收时做点云截图对比 |
+| **R16** | **PointSize 实测结论仅来自单台机器**（Apple M2 / MoltenVK 1.2.9）。其它 GPU、驱动、Windows/Linux 上可能不同 | 中 | 中 | `ccRenderCapabilities::pointSizeSupported` 必须在**运行时**由 `VkPhysicalDeviceLimits::pointSizeRange` 决定，不能写死；但即便 range 支持，MoltenVK/Metal 仍会忽略 `gl_PointSize`（见 R1 修正），因此 VSG/Metal 路径下点大小**无论如何都走 billboard quad**，不能依赖 `gl_PointSize`。M3 验收时做点云截图对比 |
 
 ---
 
@@ -1247,7 +1249,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
 
 | Spike | 判定 | 实测数据 | 对方案的影响 |
 |---|---|---|---|
-| **1. PointSize** | ✅ **支持**（推翻原假设 R1） | `pointSizeRange = [1.000 .. 511.000]`，`pointSizeGranularity = 1.000` | 点云可直接用 `POINT_LIST` + `gl_PointSize`，**不需要** billboard quad 主路径。但仍保留回退分支，且**必须运行时**由 `pointSizeRange` 决定（见 R16） |
+| **1. PointSize** | ⚠️ **部分支持（2026-09-27 修正，原"✅ 支持"推翻）** | `pointSizeRange = [1.000 .. 511.000]`（设备能力查询），但 **MoltenVK/Metal 实际忽略 `gl_PointSize`**（`POINT_LIST` 永远 1px）；顶点阶段 UBO 版点大小会触发 Metal abort | 设备能力查询 ≠ 实际可用。**点大小必须走 billboard quad（instanced 扩展 quad），不能依赖 `gl_PointSize`**（见 R1 修正与 D.10）。原 Spike 的"不需要 billboard quad"结论**已推翻** |
 | **2. wideLines** | ❌ **不支持**（R2 确认发生） | `wideLines` feature = NOT supported；`lineWidthRange = [1.000 .. 1.000]`，granularity 0 | 粗线**必须**用 quad 扩展（CPU 生成三角带）。这是 M4（`ccPolyline`、网格线框）的既定工作量 |
 | **3. 字体 / CJK** | ⚠️ **freetype 与字体都可用，但 vsgXchange 不可用** | freetype **2.14.3**；Hiragino Sans GB（29352 字形）与 STHeiti Light（52268 字形）对 `中/文/点/云` 全部命中且可正常栅格化（32px 下 26x31 / 24x29）；Arial Bold 对 CJK 全部返回 0（符合预期） | 中文显示**可行**。但已装 vsgXchange 1.1.6 与 vsg 1.1.14 ABI 不兼容（见 R15），需重建 vsgXchange 或自写 freetype → `vsg::Font` 构建器 |
 
@@ -1287,7 +1289,7 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
 
 | 文件 | 作用 |
 |---|---|
-| `include/vsg/ccVSGShaders.h` / `src/vsg/ccVSGShaders.cpp` | `createPointCloudShaderSet()`：POINT_LIST 着色器，支持动态 `gl_PointSize` |
+| `include/vsg/ccVSGShaders.h` / `src/vsg/ccVSGShaders.cpp` | `createPointCloudShaderSet()`：POINT_LIST 着色器；`gl_PointSize` 硬编码 `1.0`（Metal 忽略 `gl_PointSize`，点大小需 billboard quad，见 R1 / D.10） |
 | `include/vsg/ccVSGPointCloudBuilder.h` / `.cpp` | `ccPointCloud` → VSG 节点，按 65536 点分块，每块带包围球供视锥裁剪；管线/描述符经 `vsg::SharedObjects` 复用 |
 | `include/vsg/ccVSGSceneBuilder.h` / `.cpp` | `ccHObject` 树 → VSG 场景图；根节点保持稳定（只替换内容），使 CommandGraph 引用不失效 |
 
@@ -1297,17 +1299,17 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j8
 ```
 push constant : mat4 projection; mat4 modelView;   (128 字节，由 VSG 自动推送)
 attributes    : vsg_Vertex(location 0), vsg_Color(location 6)
-material      : descriptor set 1 (MATERIAL_DESCRIPTOR_SET) binding 0 = point size
+material      : （无 —— 顶点阶段 pointSize UBO 已移除；Metal 下它会触发 abort，见 D.10）
 ```
 
 已确认的前置条件：
 - `VSG_SUPPORTS_ShaderCompiler = 1`（`/usr/local/include/vsg/core/Version.h:40`），运行时 GLSL → SPIR-V 可用
 - `ShaderSet::createPipelineLayout()` 对 `range.first` 之前的集合会补空 `DescriptorSetLayout`，因此仅声明 set 1 的写法与 VSG 自带 ShaderSet 模式一致
 
-**尚未验证（重要）**：以上都是编译期验证，**运行时渲染结果未验证**（当前环境无法启动 GUI 程序）。首次运行需重点确认：
-1. 着色器能否成功编译（失败会在 `viewer->compile()` 处报错）
-2. set 0（view descriptor）与本管线布局是否兼容
-3. 点大小 > 1 是否真的生效（M0 只查了设备能力 `pointSizeRange=[1..511]`）
+**运行时验证（2026-09-27，commit `4533a5af`）**：已通过无头冒烟测试确认可渲染 —— `/tmp/vsg_baseline.png` 成功生成且含彩色点云像素。当初三项疑问现已解答：
+1. ✅ 着色器可成功编译（VSG 自定义 `ShaderSet` + `VSG_SUPPORTS_ShaderCompiler` 运行时 GLSL→SPIR-V）；
+2. ✅ set 0（view descriptor）与本管线布局兼容；
+3. ⚠️ **点大小 > 1 不生效**：Metal 忽略 `gl_PointSize`，且顶点阶段 pointSize UBO 会触发 Metal 验证 abort（详见 D.10）。当前点均为 1px，仅满足"冒烟可见"；真正的点大小交互需 billboard quad（后续里程碑，与 M4 粗线 quad 扩展一并做）。
 
 **坐标系约定（已核实，重要）**
 
@@ -1358,3 +1360,50 @@ material      : descriptor set 1 (MATERIAL_DESCRIPTOR_SET) binding 0 = point siz
 **未做的验证（延后）**
 
 - PointSize 的**端到端渲染**验证（画一个 `gl_PointSize=32` 的点并回读像素确认）本次只做了设备能力查询。设备能力是 Vulkan 规范中的权威指标，最终确认放在 **M3 验收**（点云截图与 OpenGL 后端对比）。
+
+---
+
+## 附录 D.10 — 进度快照与 2026-09-27 出图突破（commit `4533a5af`）
+
+> 本段为 `vsg` 分支截至 2026-09-27 的权威进度。所有已验证结论均以无头冒烟测试 `scripts/vsg_smoke_test.sh`（`CC_VSG_VIEW=1 CC_VSG_SCREENSHOT=/tmp/vsg_baseline.png`）为准。
+
+### D.10.1 关键突破：点云在 Metal 下真正出图
+
+在 `4533a5af` 之前，VSG 后端加载点云后截图空白、甚至崩溃于 `MVKRenderPipelineCompiler::newMTLRenderPipelineState`。该提交后，无头冒烟测试产出非空截图（945×454，含 1763 个非背景彩色像素 / 15 个颜色桶），**证明点云已成功渲染到 Metal 后端**。
+
+**崩溃根因（两层）**
+
+1. **场景图从未挂载子节点**：`ccVSGSceneBuilder::syncChildren()` 构建了 `entry.node` 却漏调 `parentGroup->addChild(entry.node)`，导致场景根永远 0 子节点（空屏）。
+   - 修复：`syncChildren` 里补上 `parentGroup->addChild(entry.node)`；`update()`/`setSceneDB()` 后回写 `m_sceneRoot`，保证 CommandGraph 引用的是带内容的稳定根。
+2. **真正的 Metal abort 源 —— 顶点阶段 pointSize UBO**：最开始点大小用「顶点阶段 UBO」（`descriptor set 1, binding 0, UNIFORM_BUFFER, VK_SHADER_STAGE_VERTEX_BIT`）实现。MoltenVK 把该 UBO 塞进 `MTLVertexDescriptor.bufferLayouts`（slot 29/30，stride 4/12），但无 vertex attribute 引用它 → Metal 验证报错：
+   ```
+   None of the attributes set bufferIndex to 29, but MTLVertexDescriptor set buffer layout[29].stride(4).
+   None of the attributes set bufferIndex to 30, but MTLVertexDescriptor set buffer layout[30].stride(12).
+   ```
+   - 修复（见 R1/D.8）：`ccVSGShaders` 删除 pointSize UBO，`gl_PointSize` 硬编码 `1.0`；`ccVSGPointCloudBuilder` 改用标准 VSG 顶点数组注册（`enableArray` 声明布局 → 按相同顺序 `arrays.push_back(verts/cols)` → `draw->assignArrays(arrays)`），**不再同时调用 `enableArray` 与 `assignArray`（会重复追加 `VertexInputState` 的 attribute/binding）**。
+
+> **教训（写入长期记忆）**：VSG 的 `enableArray` 与 `assignArray(arrays,...)` 二选一；**Metal 上点大小不能靠顶点阶段 UBO，必须走 billboard quad**。
+
+### D.10.2 已完成 / 未完成总表
+
+| 里程碑 | 子项 | 状态 |
+|---|---|---|
+| **M0** 技术验证 | PointSize / wideLines / 字体 CJK / 深度回读能力查询 | ✅ 已完成（结论见 R1/R2/R3/R16 修正） |
+| **M1** 骨架与构建 | CMake 开关、双后端构建、视图抽象基类、VSG 窗口重写、调试入口 | ✅ 已完成（`build-hbqt` 可编译运行） |
+| **M2** 相机与交互 | `ccViewportParameters`⇄`vsg::Camera` 同步、CC 语义操控器、reverse-depth NDC 适配 | ✅ 已完成 |
+| **M3** 点云渲染 | PointCloud ShaderSet、分块构建、`ccVSGSceneBuilder` 增量同步、RGB/SF/单色着色 | ✅ 已完成（Metal 出图已验证）；⚠️ **点大小仅 1px**（见 R1） |
+| **M4** 网格/折线 | 网格（顶点/面法线、顶点色/SF、双面 Lambert）、折线（LINE_STRIP） | 🟡 已实现；❌ 传感器（GBL/Camera）、粗线 quad 扩展、网格线框、每层 LOD、半透明未做 |
+| **M6** 拾取与离屏 | `ccPickingHub` 后端无关化、`ccViewInterface`/`getActiveViewWindow`、VSG 侧 CPU 拾取、`zoomGlobal()` | ✅ 抽象层与相机 fit 已完成；❌ 实体/框选的**渲染期**拾取（R32_UINT + `CopyImageToBuffer`）、深度反投影、通用 `renderToImage()` 未做（仅冒烟截图钩子 `CC_VSG_SCREENSHOT` 可用） |
+| **M8** 插件收尾 | 视图抽象、枚举统一 | ✅ 部分；❌ 插件 `requiresBackends` metadata、GL-only 插件跳过、自定义 GL drawable→`ccRenderCommandSink`、`CCPluginAPI` 解耦、立体降级未做 |
+| **M5** 2D 覆盖层 | overlay RenderGraph、`vsg::Text`、标签/比例尺/方向轴/色标/图片 | ⬜ 未开始 |
+| **M7** 后处理/LOD | 后处理框架、SSAO、LOD→`vsg::LOD`、PagedLOD 分页、性能调优 | ⬜ 未开始 |
+
+### D.10.3 下一步优先级建议
+
+1. **点大小（R1，高优）**：实现 billboard quad（instanced 扩展 quad）替代 `gl_PointSize`；同时覆盖 M4 的粗线 quad 扩展（R2 已确认 `wideLines` 不可用）。
+2. **M6 拾取闭环**：R32_UINT 离屏拾取 + `CopyImageToBuffer` 回读；深度反投影（依赖 D.10.1 的 reverse-depth）；通用 `renderToImage()`。
+3. **M4 收尾**：`ccGBLSensor`/`ccCameraSensor` 视锥与坐标轴；网格线框；半透明 `DepthSorted`+`Bin`。
+4. **M5 2D 覆盖层**：标签/比例尺/方向轴/色标 + `vsg::Text`（中文字体走 freetype→`vsg::Font`，见 R3/R15）。
+5. **M7/M8**：后处理、LOD/分页、插件解耦。
+
+> 注：`libs/qCC_db/extern/CCCoreLib` 子模块当前有本地修改（未提交到子模块），与 VSG 改造无关，单独处理。
