@@ -154,6 +154,9 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 	//! Warns the display that the entity is about to be removed
 	void aboutToBeRemoved(ccDrawableObject* obj) override;
 
+	//! Applies a 1:1 global zoom (mirrors ccGLWindowInterface::zoomGlobal)
+	void zoomGlobal() override;
+
 	// ----------------------------------------------------------------------
 	// VSG specifics
 	// ----------------------------------------------------------------------

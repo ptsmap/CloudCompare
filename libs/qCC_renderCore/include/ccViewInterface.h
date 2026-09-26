@@ -205,6 +205,12 @@ class CC_RENDER_CORE_LIB_API ccViewInterface
 	//! Warns the display that the entity is about to be removed
 	virtual void aboutToBeRemoved(ccDrawableObject* obj) = 0;
 
+	//! Applies a 1:1 global zoom
+	/** Moves the camera (and the pivot point) so that the whole scene is
+	    visible. Called in particular when a new entity is added to the DB.
+	 **/
+	virtual void zoomGlobal() = 0;
+
 	// ----------------------------------------------------------------------
 	// Qt integration
 	// ----------------------------------------------------------------------

@@ -10811,15 +10811,8 @@ void MainWindow::addToDB(ccHObject* obj,
 	assert(obj->getDisplay());
 	if (updateZoom)
 	{
-		if (ccGLWindowInterface* glWin = dynamic_cast<ccGLWindowInterface*>(obj->getDisplay()))
-		{
-			glWin->zoomGlobal(); // automatically calls ccGLWindowInterface::redraw
-		}
-		else
-		{
-			// TODO(M6): implement the equivalent for the VSG backend
-			obj->redrawDisplay();
-		}
+		// backend agnostic: zoomGlobal() is part of ccViewInterface
+		obj->getDisplay()->zoomGlobal(); // automatically redraws the view
 	}
 	else if (autoRedraw)
 	{

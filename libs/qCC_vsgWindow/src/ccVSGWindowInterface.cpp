@@ -325,9 +325,12 @@ void ccVSGWindowInterface::setSceneDB(ccHObject* root)
 		m_viewer->compile();
 	}
 
-	// the visible bounding box changed: near/far must be recomputed
-	updateCamera();
+	// mirrors ccGLWindowInterface::setSceneDB(): adapt the zoom (and hence the
+	// near/far planes) to the new scene contents
+	zoomGlobal();
 
+	// in case the zoom could not be applied (empty DB)
+	updateCamera();
 	redraw();
 }
 
@@ -361,6 +364,52 @@ void ccVSGWindowInterface::aboutToBeRemoved(ccDrawableObject* obj)
 {
 	Q_UNUSED(obj);
 	// TODO(M3): drop the corresponding VSG nodes when an entity is removed
+}
+
+void ccVSGWindowInterface::zoomGlobal()
+{
+	// mirrors ccGLWindowInterface::updateConstellationCenterAndZoom()
+
+	// bounding box of the visible objects
+	ccBBox zoomedBox;
+	if (m_globalDBRoot)
+	{
+		zoomedBox = m_globalDBRoot->getBB_recursive(false, true);
+	}
+	if (m_winDBRoot)
+	{
+		zoomedBox += m_winDBRoot->getBB_recursive(false, true);
+	}
+	if (!zoomedBox.isValid())
+	{
+		return;
+	}
+
+	double bbDiag = zoomedBox.getDiagNorm();
+	if (CCCoreLib::LessThanEpsilon(bbDiag))
+	{
+		ccLog::Warning("[ccVSGWindow] Entity/DB has a null bounding-box!");
+		bbDiag = 1.0;
+	}
+
+	// the pivot point is set on the box center
+	const CCVector3d P = zoomedBox.getCenter();
+	m_viewportParams.setPivotPoint(P, false);
+
+	// distance required for the camera to see the whole bounding box
+	const QSize screenSize = getScreenSize();
+	const int   width      = std::max(screenSize.width(), 1);
+	const int   height     = std::max(screenSize.height(), 1);
+	const double focalDistance = bbDiag / m_viewportParams.computeDistanceToWidthRatio(width, height);
+
+	setCameraPos(P);
+
+	CCVector3d v(0, 0, focalDistance);
+	moveCamera(v);
+
+	// just in case
+	updateCamera();
+	redraw();
 }
 
 void ccVSGWindowInterface::getGLCameraParameters(ccGLCameraParameters& params) const
