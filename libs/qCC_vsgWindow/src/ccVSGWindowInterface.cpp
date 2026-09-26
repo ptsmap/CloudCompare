@@ -40,6 +40,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -109,10 +110,18 @@ bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, 
 	}
 
 	// Root of the VSG scene graph. It is kept in sync with the ccHObject tree
-	// by ccVSGSceneBuilder (see M3).
+	// by ccVSGSceneBuilder (see M3). The builder owns a *persistent* group that
+	// is recreated lazily on the first update(), so we must trigger update()
+	// here (even with an empty DB) to make sure the group exists before we
+	// build the command graph - otherwise m_sceneRoot would stay null and
+	// render nothing. Only its children are rebuilt on setSceneDB(), the group
+	// object itself is reused, so the command graph stays valid afterwards.
+	m_sceneBuilder.update();
 	m_sceneRoot = m_sceneBuilder.sceneRoot();
+	assert(m_sceneRoot);
 
 	vsg::ref_ptr<vsg::CommandGraph> commandGraph = vsg::createCommandGraphForView(window, m_camera, m_sceneRoot);
+	m_commandGraph                               = commandGraph;
 	m_viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
 
 	// CloudCompare camera semantics (virtual trackball, pivot point, ...)
@@ -325,6 +334,9 @@ void ccVSGWindowInterface::setSceneDB(ccHObject* root)
 		m_viewer->compile();
 	}
 
+	// keep the member in sync with the (persistent) builder root group
+	m_sceneRoot = m_sceneBuilder.sceneRoot();
+
 	// mirrors ccGLWindowInterface::setSceneDB(): adapt the zoom (and hence the
 	// near/far planes) to the new scene contents
 	zoomGlobal();
@@ -437,6 +449,171 @@ void ccVSGWindowInterface::getGLCameraParameters(ccGLCameraParameters& params) c
 	params.fov_deg           = m_viewportParams.fov_deg;
 	params.nearClippingDepth = m_viewportParams.nearClippingDepth;
 	params.farClippingDepth  = m_viewportParams.farClippingDepth;
+}
+
+QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
+                                          bool  /*dontScaleFeatures*/ /*=false*/,
+                                          bool  /*renderOverlayItems*/ /*=false*/,
+                                          bool  /*silent*/ /*=false*/)
+{
+	if (!m_viewer || !m_window || !m_window->windowAdapter || !m_camera || !m_sceneRoot)
+	{
+		ccLog::Warning("[VSG] renderToImage: the viewer is not initialized");
+		return QImage();
+	}
+
+	vsg::ref_ptr<vsg::Window> window = m_window->windowAdapter;
+	vsg::ref_ptr<vsg::Device> device = window->getOrCreateDevice();
+	if (!device)
+	{
+		ccLog::Warning("[VSG] renderToImage: no Vulkan device");
+		return QImage();
+	}
+
+	const QSize screenSize = getScreenSize();
+	const uint32_t width   = static_cast<uint32_t>(std::max(1, static_cast<int>(std::lround(screenSize.width() * zoomFactor))));
+	const uint32_t height  = static_cast<uint32_t>(std::max(1, static_cast<int>(std::lround(screenSize.height() * zoomFactor))));
+
+	constexpr VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+	const VkFormat     depthFormat = window->depthFormat();
+
+	// ----------------------------------------------------------------------
+	// offscreen attachments
+	// ----------------------------------------------------------------------
+	auto makeAttachment = [&device, width, height](VkFormat format, VkImageUsageFlags usage) -> vsg::ref_ptr<vsg::Image>
+	{
+		vsg::ref_ptr<vsg::Image> image = vsg::Image::create();
+		image->imageType     = VK_IMAGE_TYPE_2D;
+		image->format        = format;
+		image->extent        = VkExtent3D{width, height, 1};
+		image->mipLevels     = 1;
+		image->arrayLayers   = 1;
+		image->samples       = VK_SAMPLE_COUNT_1_BIT;
+		image->tiling        = VK_IMAGE_TILING_OPTIMAL;
+		image->usage         = usage;
+		image->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+		if (image->compile(device) != VK_SUCCESS)
+		{
+			return {};
+		}
+
+		return image;
+	};
+
+	vsg::ref_ptr<vsg::Image> colorImage = makeAttachment(colorFormat,
+	                                                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+	vsg::ref_ptr<vsg::Image> depthImage = makeAttachment(depthFormat,
+	                                                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+
+	if (!colorImage || !depthImage)
+	{
+		ccLog::Warning("[VSG] renderToImage: failed to allocate the offscreen attachments");
+		return QImage();
+	}
+
+	vsg::ref_ptr<vsg::ImageView> colorImageView = vsg::createImageView(device, colorImage, VK_IMAGE_ASPECT_COLOR_BIT);
+	vsg::ref_ptr<vsg::ImageView> depthImageView = vsg::createImageView(device, depthImage, vsg::computeAspectFlagsForFormat(depthFormat));
+
+	// ----------------------------------------------------------------------
+	// render pass / framebuffer / render graph
+	// ----------------------------------------------------------------------
+	vsg::ref_ptr<vsg::RenderPass>  renderPass  = vsg::createRenderPass(device, colorFormat, depthFormat);
+	vsg::ref_ptr<vsg::Framebuffer> framebuffer = vsg::Framebuffer::create(renderPass,
+	                                                                     vsg::ImageViews{colorImageView, depthImageView},
+	                                                                     width,
+	                                                                     height,
+	                                                                     1);
+
+	// the very same camera, but with the offscreen viewport
+	vsg::ref_ptr<vsg::ViewportState> viewportState = vsg::ViewportState::create(0, 0, width, height);
+	vsg::ref_ptr<vsg::Camera>        camera        = vsg::Camera::create(m_projectionMatrix, m_viewMatrix, viewportState);
+	vsg::ref_ptr<vsg::View>          view          = vsg::View::create(camera, m_sceneRoot);
+
+	vsg::ref_ptr<vsg::RenderGraph> renderGraph = vsg::RenderGraph::create();
+	renderGraph->framebuffer = framebuffer;
+	renderGraph->renderArea  = VkRect2D{{0, 0}, {width, height}};
+	// TODO(M6): use the CloudCompare background color (ccGui::Parameters)
+	renderGraph->setClearValues(VkClearColorValue{{0.15f, 0.15f, 0.20f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
+	renderGraph->addChild(view);
+
+	// ----------------------------------------------------------------------
+	// copy the result back to a CPU visible buffer
+	// ----------------------------------------------------------------------
+	const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(width) * height * 4;
+
+	vsg::ref_ptr<vsg::Buffer> buffer = vsg::createBufferAndMemory(device,
+	                                                              bufferSize,
+	                                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	                                                              VK_SHARING_MODE_EXCLUSIVE,
+	                                                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	vsg::ref_ptr<vsg::CopyImageToBuffer> copyImage = vsg::CopyImageToBuffer::create();
+	copyImage->srcImage       = colorImage;
+	copyImage->srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	copyImage->dstBuffer      = buffer;
+
+	VkBufferImageCopy region{};
+	region.bufferOffset                     = 0;
+	region.bufferRowLength                  = width;
+	region.bufferImageHeight                = height;
+	region.imageSubresource.aspectMask      = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel        = 0;
+	region.imageSubresource.baseArrayLayer  = 0;
+	region.imageSubresource.layerCount      = 1;
+	region.imageOffset                      = VkOffset3D{0, 0, 0};
+	region.imageExtent                      = VkExtent3D{width, height, 1};
+	copyImage->regions                      = {region};
+
+	// ----------------------------------------------------------------------
+	// render (temporarily replacing the on screen command graph)
+	// ----------------------------------------------------------------------
+	vsg::ref_ptr<vsg::CommandGraph> offscreenGraph = vsg::CommandGraph::create(window);
+	offscreenGraph->addChild(renderGraph);
+	offscreenGraph->addChild(copyImage);
+
+	QImage result;
+
+	m_viewer->assignRecordAndSubmitTaskAndPresentation({offscreenGraph});
+	m_viewer->compile();
+
+	// same order as vsgQt::Viewer::render() - advanceToNextFrame() is required,
+	// otherwise the frame fences are not ready and RecordAndSubmitTask crashes
+	m_viewer->advanceToNextFrame();
+	m_viewer->update();
+	m_viewer->recordAndSubmit();
+	m_viewer->deviceWaitIdle();
+
+	// read the pixels back
+	if (vsg::DeviceMemory* memory = buffer->getDeviceMemory(0))
+	{
+		void* data = nullptr;
+		if (memory->map(buffer->getMemoryOffset(0), bufferSize, 0, &data) == VK_SUCCESS && data)
+		{
+			const auto* src = static_cast<const uint8_t*>(data);
+
+			result = QImage(static_cast<int>(width), static_cast<int>(height), QImage::Format_RGBA8888);
+			for (uint32_t y = 0; y < height; ++y)
+			{
+				std::memcpy(result.scanLine(static_cast<int>(y)), src + static_cast<size_t>(y) * width * 4, static_cast<size_t>(width) * 4);
+			}
+
+			memory->unmap();
+		}
+		else
+		{
+			ccLog::Warning("[VSG] renderToImage: failed to map the output buffer");
+		}
+	}
+
+	// restore the on screen rendering
+	if (m_commandGraph)
+	{
+		m_viewer->assignRecordAndSubmitTaskAndPresentation({m_commandGraph});
+		m_viewer->compile();
+	}
+
+	return result;
 }
 
 void ccVSGWindowInterface::doPicking(int x, int y)

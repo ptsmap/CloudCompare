@@ -6429,9 +6429,8 @@ ccGLWindowInterface* MainWindow::getGLWindow(int index) const
 	QList<QMdiSubWindow*> subWindowList = m_mdiArea->subWindowList();
 	if (index >= 0 && index < subWindowList.size())
 	{
-		ccGLWindowInterface* win = ccGLWindowInterface::FromWidget(subWindowList[index]->widget());
-		assert(win);
-		return win;
+		// the view behind this sub-window may not be an OpenGL one
+		return dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(subWindowList[index]->widget()));
 	}
 	else
 	{
@@ -10882,12 +10881,22 @@ void MainWindow::addToDB(const QStringList&   filenames,
 
 	FileIOFilter::LoadParameters parameters;
 	{
-		parameters.alwaysDisplayLoadDialog  = true;
+		// CC_NO_LOAD_DIALOG=1 is used by the automated (headless) smoke tests:
+		// a modal load dialog would block the event loop and no screenshot
+		// could ever be taken. See doc/VSG_Rendering_Migration_Plan.md
+		const bool noLoadDialog = qEnvironmentVariableIsSet("CC_NO_LOAD_DIALOG");
+
+		parameters.alwaysDisplayLoadDialog  = !noLoadDialog;
+		// keep the standard shift handling: the Global Shift dialog is avoided
+		// by the very large thresholds set in the CC_VSG_VIEW branch (see above),
+		// so DIALOG_IF_NECESSARY will not block the event loop for typical clouds.
+		// Using NO_DIALOG instead would skip the post-load "select / show" step
+		// and the entity would stay invisible.
 		parameters.shiftHandlingMode        = ccGlobalShiftManager::DIALOG_IF_NECESSARY;
 		parameters._coordinatesShift        = &loadCoordinatesShift;
 		parameters._coordinatesShiftEnabled = &loadCoordinatesTransEnabled;
 		parameters._coordinatesShiftForced  = &loadCoordinatesTransForced;
-		parameters.parentWidget             = this;
+		parameters.parentWidget             = noLoadDialog ? nullptr : this;
 	}
 
 	bool normalsDisplayedByDefault = ccOptions::Instance().normalsDisplayedByDefault;
@@ -10918,6 +10927,17 @@ void MainWindow::addToDB(const QStringList&   filenames,
 			{
 				newGroup->setDisplay_recursive(destWin);
 			}
+			// The command line / drag & drop loading path does not auto-select the
+			// newly loaded entity (interactive picking does). The OpenGL backend
+			// shows it anyway because a freshly loaded entity ends up selected, so
+			// we select it here as well. We use setSelected() (not
+			// ccDBRoot::selectEntity) because the latter re-enters the DB tree
+			// model while we are still inside the loading loop and crashes.
+			// Must be set *before* addToDB(): addToDB() triggers the scene sync
+			// (zoomGlobal -> redraw -> sceneBuilder.update), which mirrors the GL
+			// visibility test (visible || selected).
+			newGroup->setSelected(true);
+
 			addToDB(newGroup, true, true, false);
 
 			m_recentFiles->addFilePath(filename);
@@ -11462,7 +11482,9 @@ void MainWindow::doActionSaveProject()
 
 void MainWindow::on3DViewActivated(QMdiSubWindow* mdiWin)
 {
-	ccGLWindowInterface* win = mdiWin ? ccGLWindowInterface::FromWidget(mdiWin->widget()) : nullptr;
+	// backend agnostic lookup, then restrict to the OpenGL backend: the menu
+	// entries updated below are OpenGL specific for now (TODO: VSG backend)
+	ccGLWindowInterface* win = mdiWin ? dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(mdiWin->widget())) : nullptr;
 	if (win)
 	{
 		updateViewModePopUpMenu(win);
@@ -11651,13 +11673,24 @@ void MainWindow::update3DViewsMenu()
 
 		for (QMdiSubWindow* window : windows)
 		{
-			ccGLWindowInterface* child = ccGLWindowInterface::FromWidget(window->widget());
+			// backend agnostic: the MDI area may host VSG based views as well
+			ccViewInterface* child = ccViewInterface::FromWidget(window->widget());
+			if (!child)
+			{
+				continue;
+			}
 
-			QString  text   = QString("&%1 %2").arg(++i).arg(child->getWindowTitle());
+			QString title = window->windowTitle();
+			if (auto* glChild = dynamic_cast<ccGLWindowInterface*>(child))
+			{
+				title = glChild->getWindowTitle();
+			}
+
+			QString  text   = QString("&%1 %2").arg(++i).arg(title);
 			QAction* action = m_UI->menu3DViews->addAction(text);
 
 			action->setCheckable(true);
-			action->setChecked(child == getActiveGLWindow());
+			action->setChecked(child == getActiveViewWindow());
 
 			connect(action, &QAction::triggered, this, [=]()
 			        { setActiveSubWindow(window); });
@@ -11676,7 +11709,11 @@ void MainWindow::redrawAll(bool only2D /*=false*/)
 {
 	for (QMdiSubWindow* window : m_mdiArea->subWindowList())
 	{
-		ccGLWindowInterface::FromWidget(window->widget())->redraw(only2D);
+		// backend agnostic: redraw() is part of ccViewInterface
+		if (ccViewInterface* view = ccViewInterface::FromWidget(window->widget()))
+		{
+			view->redraw(only2D);
+		}
 	}
 }
 
@@ -11684,7 +11721,11 @@ void MainWindow::refreshAll(bool only2D /*=false*/)
 {
 	for (QMdiSubWindow* window : m_mdiArea->subWindowList())
 	{
-		ccGLWindowInterface::FromWidget(window->widget())->refresh(only2D);
+		// backend agnostic: refresh() is part of ccViewInterface
+		if (ccViewInterface* view = ccViewInterface::FromWidget(window->widget()))
+		{
+			view->refresh(only2D);
+		}
 	}
 }
 
@@ -11738,7 +11779,7 @@ void MainWindow::disableAllBut(ccGLWindowInterface* win)
 	// we disable all other windows
 	for (QMdiSubWindow* window : m_mdiArea->subWindowList())
 	{
-		if (ccGLWindowInterface::FromWidget(window->widget()) != win)
+		if (ccViewInterface::FromWidget(window->widget()) != win)
 		{
 			window->setEnabled(false);
 		}
@@ -11961,8 +12002,9 @@ void MainWindow::echoMouseWheelRotate(float wheelDelta_deg)
 
 	for (QMdiSubWindow* window : m_mdiArea->subWindowList())
 	{
-		ccGLWindowInterface* child = ccGLWindowInterface::FromWidget(window->widget());
-		if (child != sendingWindow)
+		// OpenGL specific: skip the views of the other backends
+		ccGLWindowInterface* child = dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(window->widget()));
+		if (child && child != sendingWindow)
 		{
 			child->signalEmitter()->blockSignals(true);
 			child->onWheelEvent(wheelDelta_deg);
@@ -11983,8 +12025,9 @@ void MainWindow::echoBaseViewMatRotation(const ccGLMatrixd& rotMat)
 
 	for (QMdiSubWindow* window : m_mdiArea->subWindowList())
 	{
-		ccGLWindowInterface* child = ccGLWindowInterface::FromWidget(window->widget());
-		if (child != sendingWindow)
+		// OpenGL specific: skip the views of the other backends
+		ccGLWindowInterface* child = dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(window->widget()));
+		if (child && child != sendingWindow)
 		{
 			child->signalEmitter()->blockSignals(true);
 			child->rotateBaseViewMat(rotMat);
@@ -12005,8 +12048,9 @@ void MainWindow::echoCameraPosChanged(const CCVector3d& P)
 
 	for (QMdiSubWindow* window : m_mdiArea->subWindowList())
 	{
-		ccGLWindowInterface* child = ccGLWindowInterface::FromWidget(window->widget());
-		if (child != sendingWindow)
+		// OpenGL specific: skip the views of the other backends
+		ccGLWindowInterface* child = dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(window->widget()));
+		if (child && child != sendingWindow)
 		{
 			child->signalEmitter()->blockSignals(true);
 			child->setCameraPos(P);
@@ -12027,8 +12071,9 @@ void MainWindow::echoPivotPointChanged(const CCVector3d& P)
 
 	for (QMdiSubWindow* window : m_mdiArea->subWindowList())
 	{
-		ccGLWindowInterface* child = ccGLWindowInterface::FromWidget(window->widget());
-		if (child != sendingWindow)
+		// OpenGL specific: skip the views of the other backends
+		ccGLWindowInterface* child = dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(window->widget()));
+		if (child && child != sendingWindow)
 		{
 			child->signalEmitter()->blockSignals(true);
 			child->setPivotPoint(P);
@@ -12096,7 +12141,11 @@ void MainWindow::GetGLWindows(std::vector<ccGLWindowInterface*>& glWindows)
 
 	for (QMdiSubWindow* window : windows)
 	{
-		glWindows.push_back(ccGLWindowInterface::FromWidget(window->widget()));
+		// only the OpenGL based views are collected here
+		if (auto* glWin = dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(window->widget())))
+		{
+			glWindows.push_back(glWin);
+		}
 	}
 }
 
@@ -12114,8 +12163,8 @@ ccGLWindowInterface* MainWindow::GetGLWindow(const QString& title)
 
 	for (QMdiSubWindow* window : windows)
 	{
-		ccGLWindowInterface* win = ccGLWindowInterface::FromWidget(window->widget());
-		if (win->getWindowTitle() == title)
+		ccGLWindowInterface* win = dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(window->widget()));
+		if (win && win->getWindowTitle() == title)
 			return win;
 	}
 

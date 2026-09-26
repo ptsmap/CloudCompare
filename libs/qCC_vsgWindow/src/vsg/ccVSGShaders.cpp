@@ -36,10 +36,6 @@ layout(push_constant) uniform PushConstants {
     mat4 modelView;
 } pc;
 
-layout(set = MATERIAL_DESCRIPTOR_SET, binding = 0) uniform PointSizeData {
-    float value;
-} pointSize;
-
 layout(location = 6) in vec4 vsg_Color;
 
 layout(location = 0) in vec3 vsg_Vertex;
@@ -54,7 +50,11 @@ out gl_PerVertex {
 void main()
 {
     gl_Position = (pc.projection * pc.modelView) * vec4(vsg_Vertex, 1.0);
-    gl_PointSize = pointSize.value;
+    // NOTE: Metal (MoltenVK) ignores gl_PointSize for POINT_LIST (points are
+    // always 1px), and a vertex-stage UBO for point size makes MoltenVK emit an
+    // MTLVertexDescriptor with orphaned buffer layouts that Metal rejects.
+    // Real point sizing must be done with billboard sprites (later milestone).
+    gl_PointSize = 1.0;
     vertexColor  = vsg_Color;
 }
 )";
@@ -146,9 +146,6 @@ vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createPointCloudShaderSet()
 	// attributes: same locations as the standard VSG shader sets
 	shaderSet->addAttributeBinding("vsg_Vertex", "", 0, VK_FORMAT_R32G32B32_SFLOAT, {});
 	shaderSet->addAttributeBinding("vsg_Color", "", 6, VK_FORMAT_R8G8B8A8_UNORM, {});
-
-	// the point size lives in the material descriptor set
-	shaderSet->addDescriptorBinding("pointSize", "", 1, 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, {});
 
 	// VSG pushes 'projection' and 'modelView' itself
 	shaderSet->addPushConstantRange("pc", "", VK_SHADER_STAGE_VERTEX_BIT, 0, 128);

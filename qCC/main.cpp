@@ -48,6 +48,11 @@
 #include "ccPluginInterface.h"
 #include "ccPluginManager.h"
 
+#ifdef CC_RENDER_VSG_ENABLED
+// VSG render backend (see doc/VSG_Rendering_Migration_Plan.md)
+#include <ccVSGWindowInterface.h>
+#endif
+
 #ifdef USE_VLD
 #include <vld.h>
 #endif
@@ -251,6 +256,38 @@ int main(int argc, char** argv)
 			splash->close();
 		}
 
+#ifdef CC_RENDER_VSG_ENABLED
+		// Debug / automated testing: create a VSG based 3D view right away.
+		// See doc/VSG_Rendering_Migration_Plan.md
+		if (qEnvironmentVariableIsSet("CC_VSG_VIEW"))
+		{
+			// Automated testing: never let a modal dialog block the event loop
+			// (otherwise the screenshot step would never run). Setting very
+			// large thresholds prevents the "Global Shift" dialog from showing up.
+			ccGlobalShiftManager::SetMaxCoordinateAbsValue(1.0e12);
+			ccGlobalShiftManager::SetMaxBoundgBoxDiagonal(1.0e12);
+
+			// note: fprintf (and not qWarning / ccLog) so that the output really
+			// ends up on stderr - CloudCompare redirects the Qt messages to its
+			// own console widget
+			fprintf(stderr, "[VSG] CC_VSG_VIEW is set: creating a VSG 3D view\n");
+			fflush(stderr);
+
+			mainWindow->createVSGViewDebug();
+			QCoreApplication::processEvents();
+
+			if (ccViewInterface* view = mainWindow->getActiveViewWindow())
+			{
+				fprintf(stderr, "[VSG] active view backend: %s\n", qPrintable(view->backendName()));
+			}
+			else
+			{
+				fprintf(stderr, "[VSG] no active view!\n");
+			}
+			fflush(stderr);
+		}
+#endif
+
 		if (argc > lastArgumentIndex)
 		{
 			// any additional argument is assumed to be a filename --> we try to load it/them
@@ -293,6 +330,75 @@ int main(int argc, char** argv)
 
 			mainWindow->addToDB(filenames);
 		}
+
+#ifdef CC_RENDER_VSG_ENABLED
+		// Automated testing: render the active view, save the image and quit.
+		// Used by the VSG migration smoke tests (see doc/VSG_Rendering_Migration_Plan.md)
+		{
+			const QString screenshotPath = qEnvironmentVariable("CC_VSG_SCREENSHOT");
+			if (!screenshotPath.isEmpty())
+			{
+				QTimer::singleShot(5000, [mainWindow, screenshotPath]()
+				                   {
+					                   fprintf(stderr, "[VSG] screenshot requested: %s\n", qPrintable(screenshotPath));
+
+					                   ccViewInterface* view = mainWindow->getActiveViewWindow();
+					                   fprintf(stderr, "[VSG] active view backend: %s\n",
+					                           view ? qPrintable(view->backendName()) : "none");
+
+					                   // diagnostics: is there anything in the DB / in the VSG scene graph?
+					                   if (ccHObject* dbRoot = mainWindow->dbRootObject())
+					                   {
+						                   fprintf(stderr, "[VSG] DB root children: %u\n", dbRoot->getChildrenNumber());
+						                   for (unsigned i = 0; i < dbRoot->getChildrenNumber(); ++i)
+						                   {
+							                   ccHObject* c = dbRoot->getChild(i);
+							                   fprintf(stderr, "[VSG]   child[%u] '%s' visible=%d selected=%d enabled=%d kind=%d\n",
+							                           i,
+							                           qPrintable(c->getName()),
+							                           c->isVisible(),
+							                           c->isSelected(),
+							                           c->isEnabled(),
+							                           static_cast<int>(c->getClassID()));
+						                   }
+					                   }
+					                   if (auto* vsgView = dynamic_cast<ccVSGWindowInterface*>(view))
+					                   {
+						                   // force a scene sync (in case the incremental update
+						                   // had not run yet) and re-check
+						                   vsgView->redraw();
+						                   fprintf(stderr, "[VSG] VSG scene root children: %zu\n",
+						                           vsgView->sceneRoot()->children.size());
+					                   }
+
+					                   QImage image;
+					                   if (auto* vsgView = dynamic_cast<ccVSGWindowInterface*>(view))
+					                   {
+						                   image = vsgView->renderToImage();
+						                   fprintf(stderr, "[VSG] renderToImage: %dx%d (null=%d)\n",
+						                           image.width(), image.height(), image.isNull());
+					                   }
+					                   else
+					                   {
+						                   fprintf(stderr, "[VSG] the active view is not a VSG one\n");
+					                   }
+
+					                   if (!image.isNull() && image.save(screenshotPath))
+					                   {
+						                   fprintf(stderr, "[VSG] screenshot saved: %s (%dx%d)\n",
+						                           qPrintable(screenshotPath), image.width(), image.height());
+					                   }
+					                   else
+					                   {
+						                   fprintf(stderr, "[VSG] FAILED to save the screenshot: %s\n", qPrintable(screenshotPath));
+					                   }
+					                   fflush(stderr);
+
+					                   QCoreApplication::quit();
+				                   });
+			}
+		}
+#endif
 
 		// open the files the system asked to open during startup
 		// (a FileOpen event, e.g. double-clicked in the macOS Finder)

@@ -129,12 +129,19 @@ vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const
 		auto config = vsg::GraphicsPipelineConfigurator::create(m_shaderSet);
 		vsg::DataList arrays;
 
+		// canonical VSG pattern (see vsg::Builder): enableArray declares the
+		// vertex-input layout of the pipeline, then the arrays are filled in
+		// the SAME order and handed to the draw. Do NOT also call
+		// assignArray(arrays, ...) here - that would double-register the
+		// attributes and create inconsistent vertex bindings.
 		config->enableArray("vsg_Vertex", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(vsg::vec3), VK_FORMAT_R32G32B32_SFLOAT);
 		config->enableArray("vsg_Color", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(vsg::ubvec4), VK_FORMAT_R8G8B8A8_UNORM);
-		config->assignArray(arrays, "vsg_Vertex", VK_VERTEX_INPUT_RATE_VERTEX, vertices);
-		config->assignArray(arrays, "vsg_Color", VK_VERTEX_INPUT_RATE_VERTEX, colors);
-		config->assignDescriptor("pointSize", m_pointSizeData);
 		config->init();
+
+		// arrays must match the enableArray order (vsg_Vertex at binding 0,
+		// vsg_Color at binding 1) so the draw binds them to the right slots.
+		arrays.push_back(vertices);
+		arrays.push_back(colors);
 
 		auto stateGroup = vsg::StateGroup::create();
 		config->copyTo(stateGroup, m_sharedObjects);

@@ -464,8 +464,9 @@ bool ccCameraParamEditDlg::start()
 
 void ccCameraParamEditDlg::linkWith(QMdiSubWindow* qWin)
 {
-	// corresponding ccGLWindow
-	ccGLWindowInterface* associatedWin = (qWin ? ccGLWindowInterface::FromWidget(qWin->widget()) : nullptr);
+	// corresponding 3D view (this dialog needs OpenGL specific features, so
+	// the views of the other backends are simply ignored)
+	ccGLWindowInterface* associatedWin = (qWin ? dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(qWin->widget())) : nullptr);
 
 	linkWith(associatedWin);
 }

@@ -32,6 +32,7 @@
 
 // VSG
 #include <vsg/app/Camera.h>
+#include <vsg/app/CommandGraph.h>
 #include <vsg/core/ref_ptr.h>
 #include <vsg/maths/mat4.h>
 #include <vsg/nodes/Group.h>
@@ -40,6 +41,7 @@
 #include <vsgQt/Viewer.h>
 
 // Qt
+#include <QImage>
 #include <QSize>
 #include <QString>
 
@@ -218,6 +220,19 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
    **/
   void getGLCameraParameters(ccGLCameraParameters& params) const;
 
+  //! Renders the view to an image (offscreen)
+  /** The scene is rendered a second time into an offscreen framebuffer, which
+      is then copied back to CPU memory. The on screen rendering is restored
+      afterwards.
+
+      \param zoomFactor resolution multiplier (2.0 = twice the screen size)
+      \return the rendered image, or a null image on failure
+   **/
+  QImage renderToImage(float zoomFactor         = 1.0f,
+                       bool  dontScaleFeatures  = false,
+                       bool  renderOverlayItems = false,
+                       bool  silent             = false);
+
   //! Performs a CPU based picking at the given (window) position
   /** Reuses the historical CloudCompare routines
       (ccGenericPointCloud::pointPicking / ccGenericMesh::trianglePicking),
@@ -251,6 +266,10 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   // VSG objects
   vsg::ref_ptr<vsgQt::Viewer>          m_viewer;
   vsgQt::Window*                       m_window = nullptr; // owned by Qt (QWindow)
+  //! Command graph used for the on screen rendering
+  /** Kept so that renderToImage() can temporarily replace it (and restore it).
+   **/
+  vsg::ref_ptr<vsg::CommandGraph>      m_commandGraph;
   vsg::ref_ptr<vsg::Camera>            m_camera;
   vsg::ref_ptr<ccVSGViewMatrix>        m_viewMatrix;
   vsg::ref_ptr<ccVSGProjectionMatrix>  m_projectionMatrix;

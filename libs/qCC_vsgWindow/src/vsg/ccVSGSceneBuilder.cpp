@@ -142,7 +142,11 @@ bool ccVSGSceneBuilder::syncChildren(ccHObject* parent,
 	{
 		ccHObject* child = parent->getChild(i);
 
-		if (!child || !child->isEnabled() || !child->isVisible())
+		// must mirror the OpenGL backend's draw visibility test
+		// (see ccHObject::draw: drawInThisContext = (m_visible || m_selected) && ...)
+		// - a freshly loaded entity is selected (but not yet visible), so it
+		//   would otherwise never appear in the VSG view
+		if (!child || !child->isEnabled() || (!child->isVisible() && !child->isSelected()))
 		{
 			continue;
 		}
@@ -159,6 +163,9 @@ bool ccVSGSceneBuilder::syncChildren(ccHObject* parent,
 			entry.node = child->isGLTransEnabled() ? vsg::ref_ptr<vsg::Node>(vsg::MatrixTransform::create())
 			                                        : vsg::ref_ptr<vsg::Node>(vsg::Group::create());
 			it         = m_entries.emplace(child, entry).first;
+			// mount the sub tree root onto the parent group - this is what
+			// actually inserts the entity into the VSG scene graph
+			parentGroup->addChild(entry.node);
 			changed    = true;
 		}
 

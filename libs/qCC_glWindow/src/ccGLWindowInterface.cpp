@@ -7292,7 +7292,10 @@ ccGLWindowInterface* ccGLWindowInterface::FromWidget(QWidget* widget)
 		return stereoWidget->associatedWindow();
 	}
 
-	assert(false);
+	// Not an OpenGL based view (the MDI area may now host views rendered by
+	// another backend, e.g. VSG). Return nullptr instead of asserting: callers
+	// that need OpenGL specific features must use
+	// dynamic_cast<ccGLWindowInterface*>(ccViewInterface::FromWidget(widget)).
 	return nullptr;
 }
 
