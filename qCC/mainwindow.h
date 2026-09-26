@@ -103,6 +103,9 @@ class MainWindow : public QMainWindow
 	//! Deletes current main window instance
 	static void DestroyInstance();
 
+	//! Returns active 3D view (if any), whatever its render backend
+	ccViewInterface* getActiveViewWindow() override;
+
 	//! Returns active GL sub-window (if any)
 	ccGLWindowInterface* getActiveGLWindow() override;
 

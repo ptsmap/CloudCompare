@@ -24,6 +24,9 @@
 // qCC_glWindow
 #include <ccGLUtils.h>
 
+// qCC_renderCore
+#include <ccViewInterface.h>
+
 // Qt
 #include <QString>
 
@@ -43,7 +46,17 @@ class ccMainAppInterface
 	//! Returns main window
 	virtual QMainWindow* getMainWindow() = 0;
 
+	//! Returns active 3D view (if any), whatever its render backend
+	/** This is the backend agnostic counterpart of getActiveGLWindow(): it also
+	    returns the views rendered with the VulkanSceneGraph backend.
+	 **/
+	virtual ccViewInterface* getActiveViewWindow() = 0;
+
 	//! Returns active GL sub-window (if any)
+	/** \warning Only returns the OpenGL based views. New code should use
+	    getActiveViewWindow() instead, unless OpenGL specific features are
+	    actually required.
+	 **/
 	virtual ccGLWindowInterface* getActiveGLWindow() = 0;
 
 	//! Creates a new instance of GL window (with its encapsulating widget)

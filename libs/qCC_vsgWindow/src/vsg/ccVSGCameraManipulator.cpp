@@ -179,8 +179,18 @@ void ccVSGCameraManipulator::apply(vsg::ButtonPressEvent& event)
 	}
 }
 
-void ccVSGCameraManipulator::apply(vsg::ButtonReleaseEvent& /*event*/)
+void ccVSGCameraManipulator::apply(vsg::ButtonReleaseEvent& event)
 {
+	// a 'click' (i.e. a press/release pair without any drag) must trigger the
+	// picking process - dragging still controls the camera, as in the OpenGL
+	// backend
+	if (m_view
+	    && !m_mouseMoved
+	    && m_view->getPickingMode() != ccViewInterface::NO_PICKING)
+	{
+		m_view->doPicking(event.x, event.y);
+	}
+
 	m_mode = Mode::None;
 }
 

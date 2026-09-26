@@ -1617,7 +1617,7 @@ void ccClippingBoxTool::extractSlicesAndContours(bool singleSliceMode)
 	};
 
 	// get the default output display
-	ccGenericGLDisplay* defaultDisplay = nullptr;
+	ccViewInterface* defaultDisplay = nullptr;
 	if (m_clipBox->getContainer().getFirstChild())
 	{
 		defaultDisplay = m_clipBox->getContainer().getFirstChild()->getDisplay();

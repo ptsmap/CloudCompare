@@ -461,11 +461,11 @@ ccHObject* ccHObject::find(unsigned uniqueID) const
 	return nullptr;
 }
 
-unsigned ccHObject::filterChildren(Container&          filteredChildren,
-                                   bool                recursive /*=false*/,
-                                   CC_CLASS_ENUM       filter /*=CC_TYPES::OBJECT*/,
-                                   bool                strict /*=false*/,
-                                   ccGenericGLDisplay* inDisplay /*=nullptr*/) const
+unsigned ccHObject::filterChildren(Container&       filteredChildren,
+                                   bool             recursive /*=false*/,
+                                   CC_CLASS_ENUM    filter /*=CC_TYPES::OBJECT*/,
+                                   bool             strict /*=false*/,
+                                   ccViewInterface* inDisplay /*=nullptr*/) const
 {
 	for (auto child : m_children)
 	{
@@ -635,7 +635,7 @@ ccHObject::GlobalBoundingBox ccHObject::getGlobalBB_recursive(bool withGLFeature
 	return box;
 }
 
-ccBBox ccHObject::getDisplayBB_recursive(bool relative, const ccGenericGLDisplay* display /*=nullptr*/)
+ccBBox ccHObject::getDisplayBB_recursive(bool relative, const ccViewInterface* display /*=nullptr*/)
 {
 	ccBBox box;
 
@@ -671,7 +671,7 @@ bool ccHObject::isDisplayed() const
 	return (getDisplay() != nullptr) && isVisible() && isBranchEnabled();
 }
 
-bool ccHObject::isDisplayedIn(const ccGenericGLDisplay* display) const
+bool ccHObject::isDisplayedIn(const ccViewInterface* display) const
 {
 	return (getDisplay() == display) && isVisible() && isBranchEnabled();
 }

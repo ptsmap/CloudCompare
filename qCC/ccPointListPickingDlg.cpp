@@ -595,7 +595,8 @@ void ccPointListPickingDlg::processPickedPoint(const PickedItem& picked)
 	newLabel->setDisplayedIn2D(false);
 	newLabel->displayPointLegend(true);
 	newLabel->setCollapsed(true);
-	ccGenericGLDisplay* display = m_associatedEntity->getDisplay();
+	// only backend agnostic features are used (setDisplay / getScreenSize)
+	ccViewInterface* display = m_associatedEntity->getDisplay();
 	if (display)
 	{
 		newLabel->setDisplay(display);

@@ -1021,7 +1021,9 @@ bool ccGBLSensor::applyViewport(ccGenericGLDisplay* win /*=nullptr*/) const
 {
 	if (!win)
 	{
-		win = getDisplay();
+		// the associated view may use any render backend, but this method
+		// requires OpenGL specific features
+		win = dynamic_cast<ccGenericGLDisplay*>(getDisplay());
 		if (!win)
 		{
 			ccLog::Warning("[ccGBLSensor::applyViewport] No associated display!");

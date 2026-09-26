@@ -2098,13 +2098,14 @@ void MainWindow::doActionSetViewFromSensor()
 	assert(sensor);
 
 	// try to find the associated window
-	ccGenericGLDisplay* win = sensor->getDisplay();
+	// (applyViewport() needs OpenGL specific features)
+	ccGenericGLDisplay* win = dynamic_cast<ccGenericGLDisplay*>(sensor->getDisplay());
 	if (!win)
 	{
 		// get associated cloud
 		ccPointCloud* cloud = ccHObjectCaster::ToPointCloud(sensor->getParent());
 		if (cloud)
-			win = cloud->getDisplay();
+			win = dynamic_cast<ccGenericGLDisplay*>(cloud->getDisplay());
 	}
 
 	if (sensor->applyViewport(win))
@@ -6378,28 +6379,36 @@ void MainWindow::doActionUnroll()
 	updateUI();
 }
 
-ccGLWindowInterface* MainWindow::getActiveGLWindow()
+ccViewInterface* MainWindow::getActiveViewWindow()
 {
 	if (!m_mdiArea)
 	{
 		return nullptr;
 	}
 
+	// ccViewInterface::FromWidget() handles both backends (it relies on a
+	// dynamic_cast), so a VSG based view is returned as well.
 	QMdiSubWindow* activeSubWindow = m_mdiArea->activeSubWindow();
 	if (activeSubWindow)
 	{
-		return ccGLWindowInterface::FromWidget(activeSubWindow->widget());
+		return ccViewInterface::FromWidget(activeSubWindow->widget());
 	}
 	else
 	{
 		QList<QMdiSubWindow*> subWindowList = m_mdiArea->subWindowList();
 		if (!subWindowList.isEmpty())
 		{
-			return ccGLWindowInterface::FromWidget(subWindowList[0]->widget());
+			return ccViewInterface::FromWidget(subWindowList[0]->widget());
 		}
 	}
 
 	return nullptr;
+}
+
+ccGLWindowInterface* MainWindow::getActiveGLWindow()
+{
+	// only the OpenGL backend is accepted here
+	return dynamic_cast<ccGLWindowInterface*>(getActiveViewWindow());
 }
 
 QMdiSubWindow* MainWindow::getMDISubWindow(ccGLWindowInterface* win)
@@ -10788,10 +10797,11 @@ void MainWindow::addToDB(ccHObject* obj,
 	// we can now set destination display (if none already)
 	if (!obj->getDisplay())
 	{
-		ccGLWindowInterface* activeWin = getActiveGLWindow();
+		// backend agnostic: the active view may be an OpenGL or a VSG one
+		ccViewInterface* activeWin = getActiveViewWindow();
 		if (!activeWin)
 		{
-			// no active GL window?!
+			// no active window?!
 			return;
 		}
 		obj->setDisplay_recursive(activeWin);
@@ -10801,7 +10811,15 @@ void MainWindow::addToDB(ccHObject* obj,
 	assert(obj->getDisplay());
 	if (updateZoom)
 	{
-		static_cast<ccGLWindowInterface*>(obj->getDisplay())->zoomGlobal(); // automatically calls ccGLWindowInterface::redraw
+		if (ccGLWindowInterface* glWin = dynamic_cast<ccGLWindowInterface*>(obj->getDisplay()))
+		{
+			glWin->zoomGlobal(); // automatically calls ccGLWindowInterface::redraw
+		}
+		else
+		{
+			// TODO(M6): implement the equivalent for the VSG backend
+			obj->redrawDisplay();
+		}
 	}
 	else if (autoRedraw)
 	{

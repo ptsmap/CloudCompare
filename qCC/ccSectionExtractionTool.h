@@ -162,9 +162,9 @@ class ccSectionExtractionTool : public ccOverlayDialog
 			return entity == ie.entity;
 		}
 
-		EntityType*         entity;
-		ccGenericGLDisplay* originalDisplay;
-		bool                isInDB;
+		EntityType*      entity;
+		ccViewInterface* originalDisplay;
+		bool             isInDB;
 
 		// backup info (for polylines only)
 		ccColor::Rgb        backupColor;

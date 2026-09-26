@@ -523,8 +523,8 @@ class QCC_DB_LIB_API ccPointCloud : public CCCoreLib::PointCloudTpl<ccGenericPoi
 	bool hasNormals() const override;
 	bool hasScalarFields() const override;
 	bool hasDisplayedScalarField() const override;
-	void removeFromDisplay(const ccGenericGLDisplay* win) override; // for proper VBO release
-	void setDisplay(ccGenericGLDisplay* win) override;
+	void removeFromDisplay(const ccViewInterface* win) override; // for proper VBO release
+	void setDisplay(ccViewInterface* win) override;
 
 	// inherited from CCCoreLib::GenericCloud
 	unsigned char testVisibility(const CCVector3& P) const override;

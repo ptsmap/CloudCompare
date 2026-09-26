@@ -25,6 +25,7 @@
 #include <CCGeom.h>
 
 class ccGenericGLDisplay;
+class ccViewInterface;
 
 //! Simple (clipping) plane equation
 struct ccClipPlane
@@ -233,14 +234,19 @@ class QCC_DB_LIB_API ccDrawableObject
 	}
 
   public: // associated display management
-	//! Unlinks entity from a GL display (only if it belongs to it of course)
-	virtual void removeFromDisplay(const ccGenericGLDisplay* win);
+	//! Unlinks entity from a display (only if it belongs to it of course)
+	virtual void removeFromDisplay(const ccViewInterface* win);
 
-	//! Sets associated GL display
-	virtual void setDisplay(ccGenericGLDisplay* win);
+	//! Sets associated display
+	/** \param win any 3D view (OpenGL or VSG backend)
+	 **/
+	virtual void setDisplay(ccViewInterface* win);
 
-	//! Returns associated GL display
-	inline virtual ccGenericGLDisplay* getDisplay() const
+	//! Returns associated display
+	/** \warning the returned view may use any render backend: use
+	    dynamic_cast<ccGenericGLDisplay*> if you need OpenGL specific features.
+	 **/
+	inline virtual ccViewInterface* getDisplay() const
 	{
 		return m_currentDisplay;
 	}
@@ -346,7 +352,7 @@ class QCC_DB_LIB_API ccDrawableObject
 		bool                sfDisplayed       = false;
 		bool                colorIsOverridden = false;
 		bool                showNameIn3D      = false;
-		ccGenericGLDisplay* display           = nullptr;
+		ccViewInterface* display              = nullptr;
 	};
 
 	//! Pushes the current display state
@@ -398,8 +404,8 @@ class QCC_DB_LIB_API ccDrawableObject
 	//! Whether the last 2D position of the '3D' name is valid or not
 	bool m_nameIn3DPosIsValid;
 
-	//! Currently associated GL display
-	ccGenericGLDisplay* m_currentDisplay;
+	//! Currently associated display (OpenGL or VSG backend)
+	ccViewInterface* m_currentDisplay;
 
 	//! Active clipping planes (used for display only)
 	ccClipPlaneSet m_clipPlanes;

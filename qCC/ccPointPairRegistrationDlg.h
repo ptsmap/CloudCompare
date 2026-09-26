@@ -144,8 +144,8 @@ class ccPointPairRegistrationDlg : public ccOverlayDialog
 		//! Restores cloud original state
 		void restore();
 
-		ccHObject*          entity;
-		ccGenericGLDisplay* originalDisplay;
+		ccHObject*       entity;
+		ccViewInterface* originalDisplay;
 		bool                wasVisible;
 		bool                wasEnabled;
 		bool                wasSelected;

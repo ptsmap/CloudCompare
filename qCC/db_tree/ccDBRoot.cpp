@@ -1602,14 +1602,13 @@ void ccDBRoot::alignCameraWithEntity(bool reverse)
 	ccHObject* obj = static_cast<ccHObject*>(selectedIndexes[0].internalPointer());
 	if (!obj)
 		return;
-	ccGenericGLDisplay* display = obj->getDisplay();
-	if (!display)
+	// aligning the camera currently requires an OpenGL view
+	ccGLWindowInterface* win = dynamic_cast<ccGLWindowInterface*>(obj->getDisplay());
+	if (!win)
 	{
 		ccLog::Warning("[alignCameraWithEntity] Selected entity has no associated display");
 		return;
 	}
-	ccGLWindowInterface* win = static_cast<ccGLWindowInterface*>(display);
-	assert(win);
 
 	// plane normal
 	CCVector3d planeNormal;

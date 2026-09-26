@@ -26,10 +26,13 @@
 // CCPluginAPI
 #include <ccMainAppInterface.h>
 
+// qCC_glWindow
+// (needed for the ccGLWindowInterface -> ccViewInterface conversion)
+#include <ccGLWindowInterface.h>
+
 // GUIs
 #include <ui_ccviewer.h>
 
-class ccGLWindowInterface;
 class ccHObject;
 class Mouse3DInput;
 
@@ -73,6 +76,10 @@ class ccViewer : public QMainWindow
 	QMainWindow* getMainWindow() override
 	{
 		return this;
+	}
+	ccViewInterface* getActiveViewWindow() override
+	{
+		return m_glWindow;
 	}
 	ccGLWindowInterface* getActiveGLWindow() override
 	{

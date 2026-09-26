@@ -64,4 +64,22 @@ class CCVSGWINDOW_LIB_API ccVSGProjectionMatrix : public vsg::Inherit<vsg::Proje
 };
 
 //! Converts a CloudCompare (OpenGL, column major) matrix to a VSG one
+/** Both are column major: the values are copied as is (no transposition).
+ **/
 vsg::dmat4 toVSGMatrix(const ccGLMatrixd& mat);
+
+//! Converts a VSG (column major) matrix to a CloudCompare one
+/** Reverse of toVSGMatrix().
+ **/
+ccGLMatrixd fromVSGMatrix(const vsg::dmat4& mat);
+
+//! Converts a Vulkan projection matrix to an equivalent OpenGL one
+/** VSG uses reverse depth (near -> NDC z = 1, far -> 0) and an inverted Y
+    axis, whereas the CloudCompare helpers (ccGLCameraParameters, and hence
+    the point/triangle picking routines) expect a standard OpenGL matrix
+    (near -> -1, far -> +1, Y up).
+
+    This is what makes it possible to reuse the historical - CPU based -
+    CloudCompare picking code with the VSG backend.
+ **/
+vsg::dmat4 vulkanToGLProjection(const vsg::dmat4& vulkanProj);

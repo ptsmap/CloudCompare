@@ -126,33 +126,9 @@ class ccGenericGLDisplay : public ccViewInterface
   public:
 	~ccGenericGLDisplay() override = default;
 
-	//! Returns the screen size
-	virtual QSize getScreenSize() const = 0;
-
-	//! Redraws display immediately
-	virtual void redraw(bool only2D = false, bool resetLOD = true) = 0;
-
-	//! Flags display as 'to be refreshed'
-	/** See ccGenericGLDisplay::refresh.
-	 **/
-	virtual void toBeRefreshed() = 0;
-
-	//! Redraws display only if flagged as 'to be refreshed'
-	/** See ccGenericGLDisplay::toBeRefreshed. Flag is turned
-	    to false after a call to this method.
-	    \param only2D whether to redraw everything (false) or only the 2D layer (true)
-	**/
-	virtual void refresh(bool only2D = false) = 0;
-
-	//! Invalidates current viewport setup
-	/** On next redraw, viewport information will be recomputed.
-	 **/
-	virtual void invalidateViewport() = 0;
-
-	//! Invalidates the 3D layer (FBO)
-	/** On next redraw, the 3D layer will be updated
-	 **/
-	virtual void deprecate3DLayer() = 0;
+	// Note: getScreenSize() / redraw() / toBeRefreshed() / refresh() /
+	// invalidateViewport() / deprecate3DLayer() and aboutToBeRemoved() are
+	// declared (once) in the backend agnostic ccViewInterface.
 
 	//! Returns default text display font
 	/** Warning: already takes rendering zoom into account!
@@ -230,9 +206,6 @@ class ccGenericGLDisplay : public ccViewInterface
 	                                     bool               viewerBasedPerspective = true,
 	                                     bool               bubbleViewMode         = false,
 	                                     const QPointF&     projectionCenterOffset = QPointF()) = 0;
-
-	//! Warns the display that the enity is about to be removed
-	virtual void aboutToBeRemoved(ccDrawableObject* entity) = 0;
 
 	//! Returns this window as a proper Qt widget
 	virtual QWidget* asWidget()

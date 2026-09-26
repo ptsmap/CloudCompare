@@ -296,11 +296,13 @@ bool ccPointPairRegistrationDlg::init(ccGLWindowInterface*        win,
 	{
 		// import GL filter so as to get the same rendering aspect!
 		{
-			// find an orgin display (we'll take the first valid one)
-			ccGenericGLDisplay* sourceDisplay = nullptr;
+			// find an origin display (we'll take the first valid one)
+			// note: the GL filter is OpenGL specific, so we only look for an
+			// OpenGL based view here
+			ccGLWindowInterface* sourceDisplay = nullptr;
 			for (auto it = m_alignedEntities.begin(); it != m_alignedEntities.end(); ++it)
 			{
-				sourceDisplay = it.key()->getDisplay();
+				sourceDisplay = dynamic_cast<ccGLWindowInterface*>(it.key()->getDisplay());
 				if (sourceDisplay)
 					// we found a display
 					break;
@@ -309,7 +311,7 @@ bool ccPointPairRegistrationDlg::init(ccGLWindowInterface*        win,
 			{
 				for (auto it = m_referenceEntities.begin(); it != m_referenceEntities.end(); ++it)
 				{
-					sourceDisplay = it.key()->getDisplay();
+					sourceDisplay = dynamic_cast<ccGLWindowInterface*>(it.key()->getDisplay());
 					if (sourceDisplay)
 						// we found a display
 						break;
@@ -317,7 +319,7 @@ bool ccPointPairRegistrationDlg::init(ccGLWindowInterface*        win,
 			}
 			if (sourceDisplay)
 			{
-				ccGlFilter* filter = static_cast<ccGLWindowInterface*>(sourceDisplay)->getGlFilter();
+				ccGlFilter* filter = sourceDisplay->getGlFilter();
 				if (filter)
 					// transfer the GL filter to the dedicated tool window
 					win->setGlFilter(filter->clone());

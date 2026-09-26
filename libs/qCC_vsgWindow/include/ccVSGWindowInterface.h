@@ -27,6 +27,7 @@
 #include <ccViewInterface.h>
 
 // qCC_db
+#include <ccGenericGLDisplay.h>
 #include <ccViewportParameters.h>
 
 // VSG
@@ -133,25 +134,25 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 	// ----------------------------------------------------------------------
 
 	//! Returns the screen size
-	virtual QSize getScreenSize() const = 0;
+	QSize getScreenSize() const override = 0;
 
 	//! Redraws display immediately
-	virtual void redraw(bool only2D = false, bool resetLOD = true) = 0;
+	void redraw(bool only2D = false, bool resetLOD = true) override = 0;
 
 	//! Flags display as 'to be refreshed'
-	virtual void toBeRefreshed() = 0;
+	void toBeRefreshed() override = 0;
 
 	//! Redraws display only if flagged as 'to be refreshed'
-	virtual void refresh(bool only2D = false) = 0;
+	void refresh(bool only2D = false) override = 0;
 
 	//! Invalidates current viewport setup
-	virtual void invalidateViewport() = 0;
+	void invalidateViewport() override = 0;
 
 	//! Invalidates the 3D layer
-	virtual void deprecate3DLayer() = 0;
+	void deprecate3DLayer() override = 0;
 
 	//! Warns the display that the entity is about to be removed
-	virtual void aboutToBeRemoved(ccDrawableObject* obj);
+	void aboutToBeRemoved(ccDrawableObject* obj) override;
 
 	// ----------------------------------------------------------------------
 	// VSG specifics
@@ -202,6 +203,28 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 
   //! Sets the camera center
   void setCameraPos(const CCVector3d& P);
+
+  // ----------------------------------------------------------------------
+  // Picking
+  // ----------------------------------------------------------------------
+
+  //! Returns the camera parameters in the form expected by the CloudCompare
+  //! (= OpenGL) picking helpers
+  /** The projection matrix is converted back from the Vulkan reverse depth
+      convention (see vulkanToGLProjection()).
+   **/
+  void getGLCameraParameters(ccGLCameraParameters& params) const;
+
+  //! Performs a CPU based picking at the given (window) position
+  /** Reuses the historical CloudCompare routines
+      (ccGenericPointCloud::pointPicking / ccGenericMesh::trianglePicking),
+      which guarantees the exact same results as the OpenGL backend. The VSG
+      scene graph is not involved at all: it is only used for rendering.
+
+      \param x horizontal position (window coordinates, origin = top left)
+      \param y vertical position (window coordinates, origin = top left)
+   **/
+  void doPicking(int x, int y);
 
   // ----------------------------------------------------------------------
   // Signals

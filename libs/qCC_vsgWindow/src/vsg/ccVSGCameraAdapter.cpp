@@ -40,10 +40,58 @@ vsg::dmat4 toVSGMatrix(const ccGLMatrixd& mat)
 {
 	const double* m = mat.data();
 
-	// ccGLMatrixd is stored like OpenGL: column major, i.e. m[col * 4 + row].
-	// VSG matrices are constructed row by row.
-	return vsg::dmat4(m[0], m[4], m[8], m[12],
-	                  m[1], m[5], m[9], m[13],
-	                  m[2], m[6], m[10], m[14],
-	                  m[3], m[7], m[11], m[15]);
+	// Both are column major, so the values are simply copied as is:
+	//   - ccGLMatrixd : data[col * 4 + row], like OpenGL
+	//   - vsg::t_mat4 : operator()(c, r) -> value[c][r], and its 16 scalar
+	//                   constructor fills column 0, then column 1, ...
+	//
+	// /!\ Do NOT transpose here: transposing silently breaks the camera (the
+	// translation of the view matrix ends up in the wrong column, so any
+	// pivot point / camera center is ignored, and the rotations are reversed).
+	return vsg::dmat4(m[0], m[1], m[2], m[3],
+	                  m[4], m[5], m[6], m[7],
+	                  m[8], m[9], m[10], m[11],
+	                  m[12], m[13], m[14], m[15]);
+}
+
+ccGLMatrixd fromVSGMatrix(const vsg::dmat4& mat)
+{
+	ccGLMatrixd result;
+
+	// same remark as above: both are column major, no transposition
+	double* m = result.data();
+	for (int col = 0; col < 4; ++col)
+	{
+		for (int row = 0; row < 4; ++row)
+		{
+			m[col * 4 + row] = mat[col][row];
+		}
+	}
+
+	return result;
+}
+
+vsg::dmat4 vulkanToGLProjection(const vsg::dmat4& vulkanProj)
+{
+	// VSG renders with a **reverse depth** projection (the near plane maps to
+	// NDC z = 1 and the far plane to 0, while OpenGL uses -1 and +1) and with
+	// an inverted Y axis (the Vulkan clip space Y points down).
+	//
+	// Converting the clip coordinates is enough to get back an OpenGL matrix:
+	//   y_gl = -y_vk
+	//   z_gl = 1 - 2 * z_vk   (i.e. z_clip_gl = -2 * z_clip_vk + w)
+	//
+	// which, for a row based description of the matrices, gives:
+	//   row0_gl =  row0_vk
+	//   row1_gl = -row1_vk
+	//   row2_gl = -2 * row2_vk + row3_vk
+	//   row3_gl =  row3_vk
+	//
+	// This holds both for perspective and orthographic matrices.
+	const vsg::dmat4 m(1.0, 0.0, 0.0, 0.0,
+	                   0.0, -1.0, 0.0, 0.0,
+	                   0.0, 0.0, -2.0, 0.0,
+	                   0.0, 0.0, 1.0, 1.0);
+
+	return m * vulkanProj;
 }

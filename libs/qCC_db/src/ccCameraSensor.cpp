@@ -357,7 +357,9 @@ bool ccCameraSensor::applyViewport(ccGenericGLDisplay* win /*=nullptr*/) const
 
 	if (!win)
 	{
-		win = getDisplay();
+		// the associated view may use any render backend, but this method
+		// requires OpenGL specific features
+		win = dynamic_cast<ccGenericGLDisplay*>(getDisplay());
 		if (!win)
 		{
 			ccLog::Warning("[ccCameraSensor::applyViewport] No associated display");
@@ -403,7 +405,9 @@ bool ccCameraSensor::applyImageViewport(ccImage* image, ccGenericGLDisplay* win 
 
 	if (!win)
 	{
-		win = getDisplay();
+		// the associated view may use any render backend, but this method
+		// requires OpenGL specific features
+		win = dynamic_cast<ccGenericGLDisplay*>(getDisplay());
 		if (!win)
 		{
 			ccLog::Warning("[ccCameraSensor::applyImageViewport] No associated display");

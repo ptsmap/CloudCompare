@@ -365,7 +365,9 @@ ccWaveDialog::ccWaveDialog(ccPointCloud* cloud,
     , m_gui(new Ui_WaveDialog)
     , m_waveMax(0)
     , m_label(std::shared_ptr<cc2DLabel>(new cc2DLabel()))
-    , m_display(cloud ? cloud->getDisplay() : nullptr)
+    // this tool needs the OpenGL camera parameters, so the associated view
+    // must be an OpenGL one
+    , m_display(cloud ? dynamic_cast<ccGenericGLDisplay*>(cloud->getDisplay()) : nullptr)
 {
 	m_gui->setupUi(this);
 

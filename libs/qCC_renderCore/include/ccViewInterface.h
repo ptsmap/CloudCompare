@@ -24,8 +24,10 @@
 // Qt
 #include <QCursor>
 #include <QObject>
+#include <QSize>
 #include <QString>
 
+class ccDrawableObject;
 class ccHObject;
 class ccViewportParameters;
 class QObject;
@@ -177,6 +179,31 @@ class CC_RENDER_CORE_LIB_API ccViewInterface
 
 	//! Sets viewport parameters
 	virtual void setViewportParameters(const ccViewportParameters& params) = 0;
+
+	// ----------------------------------------------------------------------
+	// View control (same vocabulary for all backends)
+	// ----------------------------------------------------------------------
+
+	//! Returns the screen size
+	virtual QSize getScreenSize() const = 0;
+
+	//! Redraws display immediately
+	virtual void redraw(bool only2D = false, bool resetLOD = true) = 0;
+
+	//! Flags display as 'to be refreshed'
+	virtual void toBeRefreshed() = 0;
+
+	//! Redraws display only if flagged as 'to be refreshed'
+	virtual void refresh(bool only2D = false) = 0;
+
+	//! Invalidates current viewport setup
+	virtual void invalidateViewport() = 0;
+
+	//! Invalidates the 3D layer
+	virtual void deprecate3DLayer() = 0;
+
+	//! Warns the display that the entity is about to be removed
+	virtual void aboutToBeRemoved(ccDrawableObject* obj) = 0;
 
 	// ----------------------------------------------------------------------
 	// Qt integration

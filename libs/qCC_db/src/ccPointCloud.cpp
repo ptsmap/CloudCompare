@@ -669,7 +669,7 @@ void ccPointCloud::notifyGeometryUpdate()
 	clearLOD();
 }
 
-void ccPointCloud::setDisplay(ccGenericGLDisplay* win)
+void ccPointCloud::setDisplay(ccViewInterface* win)
 {
 	if (m_currentDisplay && win != m_currentDisplay)
 	{
@@ -6243,7 +6243,7 @@ void ccPointCloud::releaseVBOs()
 	m_vboManager.state             = vboSet::NEW;
 }
 
-void ccPointCloud::removeFromDisplay(const ccGenericGLDisplay* win)
+void ccPointCloud::removeFromDisplay(const ccViewInterface* win)
 {
 	if (win == m_currentDisplay)
 	{

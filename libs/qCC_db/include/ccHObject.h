@@ -183,11 +183,11 @@ class QCC_DB_LIB_API ccHObject : public ccObject
 	    \param inDisplay [optional] display in which the children are displayed
 	    \return number of collected children
 	**/
-	unsigned filterChildren(Container&          filteredChildren,
-	                        bool                recursive = false,
-	                        CC_CLASS_ENUM       filter    = CC_TYPES::OBJECT,
-	                        bool                strict    = false,
-	                        ccGenericGLDisplay* inDisplay = nullptr) const;
+	unsigned filterChildren(Container&       filteredChildren,
+	                        bool             recursive = false,
+	                        CC_CLASS_ENUM    filter    = CC_TYPES::OBJECT,
+	                        bool             strict    = false,
+	                        ccViewInterface* inDisplay = nullptr) const;
 
 	//! Detaches a specific child
 	/** This method does not delete the child.
@@ -294,7 +294,7 @@ class QCC_DB_LIB_API ccHObject : public ccObject
 	    \param display if not null, this method will return the bounding-box of this entity (and its children) in the specified 3D view (i.e. potentially not visible)
 	    \return bounding-box
 	**/
-	virtual ccBBox getDisplayBB_recursive(bool relative, const ccGenericGLDisplay* display = nullptr);
+	virtual ccBBox getDisplayBB_recursive(bool relative, const ccViewInterface* display = nullptr);
 
 	//! Returns best-fit bounding-box (if available)
 	/** \warning Only suitable for leaf objects (i.e. without children)
@@ -327,7 +327,7 @@ class QCC_DB_LIB_API ccHObject : public ccObject
 	virtual bool isDisplayed() const;
 
 	//! Returns whether the object is actually displayed (visible) in a given display or not
-	virtual bool isDisplayedIn(const ccGenericGLDisplay* display) const;
+	virtual bool isDisplayedIn(const ccViewInterface* display) const;
 
 	//! Returns whether the object and all its ancestors are enabled
 	virtual bool isBranchEnabled() const;
@@ -354,8 +354,8 @@ class QCC_DB_LIB_API ccHObject : public ccObject
 
 	// recursive equivalents of some of ccDrawableObject methods
 	ccHObject_recursive_call1(setSelected, bool, setSelected_recursive)
-	    ccHObject_recursive_call1(setDisplay, ccGenericGLDisplay*, setDisplay_recursive)
-	        ccHObject_recursive_call1(removeFromDisplay, ccGenericGLDisplay*, removeFromDisplay_recursive)
+    ccHObject_recursive_call1(setDisplay, ccViewInterface*, setDisplay_recursive)
+        ccHObject_recursive_call1(removeFromDisplay, const ccViewInterface*, removeFromDisplay_recursive)
 	            ccHObject_recursive_call0(prepareDisplayForRefresh, prepareDisplayForRefresh_recursive)
 	                ccHObject_recursive_call1(refreshDisplay, bool, refreshDisplay_recursive)
 	                    ccHObject_recursive_call0(resetGLTransformationHistory, resetGLTransformationHistory_recursive)
@@ -368,8 +368,8 @@ class QCC_DB_LIB_API ccHObject : public ccObject
 	                                                ccHObject_recursive_call0(toggleMaterials, toggleMaterials_recursive)
 
 	    //! Transfers the entity from one display to the other
-	    inline virtual void transferDisplay(ccGenericGLDisplay* oldDisplay, ccGenericGLDisplay* newDisplay)
-	{
+	    inline virtual void transferDisplay(ccViewInterface* oldDisplay, ccViewInterface* newDisplay)
+	    {
 		if (getDisplay() == oldDisplay)
 		{
 			setDisplay(newDisplay);

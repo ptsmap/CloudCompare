@@ -70,7 +70,7 @@ void ccDrawableObject::prepareDisplayForRefresh()
 		m_currentDisplay->toBeRefreshed();
 }
 
-void ccDrawableObject::setDisplay(ccGenericGLDisplay* win)
+void ccDrawableObject::setDisplay(ccViewInterface* win)
 {
 	if (win && m_currentDisplay != win)
 	{
@@ -86,7 +86,7 @@ void ccDrawableObject::setDisplay(ccGenericGLDisplay* win)
 	}
 }
 
-void ccDrawableObject::removeFromDisplay(const ccGenericGLDisplay* win)
+void ccDrawableObject::removeFromDisplay(const ccViewInterface* win)
 {
 	if (m_currentDisplay == win)
 	{
