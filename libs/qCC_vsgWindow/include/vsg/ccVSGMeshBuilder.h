@@ -23,51 +23,41 @@
 #include <ccColorTypes.h>
 
 // VSG
-#include <vsg/core/Value.h>
 #include <vsg/core/ref_ptr.h>
 #include <vsg/nodes/Node.h>
 #include <vsg/utils/ShaderSet.h>
 
-#include <cstddef>
-
-class ccPointCloud;
+class ccGenericMesh;
+class ccPolyline;
 
 namespace vsg
 {
 	class SharedObjects;
 }
 
-//! Builds the VSG representation of a ccPointCloud
-/** The cloud is split into chunks (like the historical VBO based rendering) so
-    that a big cloud is made of several draw calls, each with its own bounding
-    sphere for frustum culling.
+//! Builds the VSG representation of the meshes and polylines
+/** Triangles are expanded into a non indexed vertex buffer (like the legacy
+    VBO based rendering did), which keeps the code simple and matches the
+    per-triangle normals of CloudCompare.
 
-    Pipelines, descriptor sets and shaders are shared between the chunks thanks
-    to vsg::SharedObjects.
+    \warning Line widths greater than 1 are NOT supported by the device
+    (see the M0 spike: `wideLines` unavailable). Polylines are therefore drawn
+    with 1 pixel lines for now - a quad based expansion is required to support
+    thicker lines (M4 follow-up).
 **/
-class ccVSGPointCloudBuilder
+class ccVSGMeshBuilder
 {
   public:
-	//! Number of points per chunk (draw call)
-	static constexpr std::size_t ChunkSize = 1 << 16;
+	ccVSGMeshBuilder();
 
-	ccVSGPointCloudBuilder();
+	//! Builds the VSG node of a mesh (TRIANGLE_LIST)
+	vsg::ref_ptr<vsg::Node> buildMesh(ccGenericMesh* mesh, const ccColor::Rgba& defaultColor);
 
-	//! Sets the point size (in pixels) used by every built node
-	void setPointSize(float size);
-
-	//! Returns the current point size
-	float pointSize() const;
-
-	//! Builds the VSG node for the given cloud
-	/** \param cloud        the cloud to convert
-	    \param defaultColor color used when the cloud has no per point color
-	    \return a vsg::Group (one child per chunk), or nullptr on failure
-	 **/
-	vsg::ref_ptr<vsg::Node> build(ccPointCloud* cloud, const ccColor::Rgba& defaultColor);
+	//! Builds the VSG node of a polyline (LINE_STRIP)
+	vsg::ref_ptr<vsg::Node> buildPolyline(ccPolyline* poly, const ccColor::Rgba& defaultColor);
 
   private:
-	vsg::ref_ptr<vsg::ShaderSet>     m_shaderSet;
+	vsg::ref_ptr<vsg::ShaderSet>     m_meshShaderSet;
+	vsg::ref_ptr<vsg::ShaderSet>     m_lineShaderSet;
 	vsg::ref_ptr<vsg::SharedObjects> m_sharedObjects;
-	vsg::ref_ptr<vsg::floatValue>    m_pointSizeData;
 };

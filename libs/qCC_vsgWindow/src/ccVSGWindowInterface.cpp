@@ -308,10 +308,9 @@ void ccVSGWindowInterface::setSceneDB(ccHObject* root)
 
 	// synchronize the ccHObject tree with the VSG scene graph
 	m_sceneBuilder.setRoot(root);
-	m_sceneBuilder.update();
 
 	// the new nodes have to be compiled before they can be rendered
-	if (m_viewer)
+	if (m_sceneBuilder.update() && m_viewer)
 	{
 		m_viewer->compile();
 	}

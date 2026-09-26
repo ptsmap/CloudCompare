@@ -35,11 +35,25 @@
       - attributes:     `vsg_Vertex` (location 0), `vsg_Color` (location 6)
       - material data:  descriptor set 1 (MATERIAL_DESCRIPTOR_SET)
 **/
+//! Define enabling the scalar field (color ramp) variant of a shader set
+#define CC_SCALAR_FIELD_DEFINE "CC_SCALAR_FIELD"
+
 class ccVSGShaders
 {
   public:
 	//! Returns the shader set used to render point clouds (POINT_LIST)
+	/** Supports two variants selected with the CC_SCALAR_FIELD define:
+	    - default:               per point RGBA color (`vsg_Color`)
+	    - CC_SCALAR_FIELD:       per point scalar coordinate (`vsg_Scalar`)
+	                             + a color ramp texture sampled by the shader
+	 **/
 	static vsg::ref_ptr<vsg::ShaderSet> createPointCloudShaderSet();
+
+	//! Returns the shader set used to render meshes
+	/** \param topology VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST (solid) or
+	                    VK_PRIMITIVE_TOPOLOGY_LINE_LIST (wireframe)
+	 **/
+	static vsg::ref_ptr<vsg::ShaderSet> createMeshShaderSet(VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 
 	//! GLSL sources (exposed for tests / offline compilation)
 	static const char* pointCloudVertexSource();

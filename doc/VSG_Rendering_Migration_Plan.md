@@ -1309,7 +1309,51 @@ material      : descriptor set 1 (MATERIAL_DESCRIPTOR_SET) binding 0 = point siz
 2. set 0（view descriptor）与本管线布局是否兼容
 3. 点大小 > 1 是否真的生效（M0 只查了设备能力 `pointSizeRange=[1..511]`）
 
-待办：标量场着色（color ramp 纹理）、全局 shift（`ccShiftedObject`）处理、网格/折线/传感器（M4）、增量更新（当前是全量重建）。
+**坐标系约定（已核实，重要）**
+
+渲染用的是 **局部坐标**（即 `ccPointCloud` 里存的、已经过 shift+scale 处理的值），**不应用** `ccShiftedObject::getGlobalShift()/getGlobalScale()`。依据：
+
+- `libs/qCC_glWindow` 全目录搜索 `GlobalShift` / `isShifted` 无任何命中；`ccHObject::draw()` 也没有 shift 相关处理
+- `cc2DLabel.cpp:645` 用 `shiftedObject.toGlobal3d(P)` 把坐标**转成全局用于显示** —— 说明存储/渲染的是局部值，全局值只在显示和导出时换算
+
+若误用 `toGlobal3d()`，点云会被搬到大坐标（float 精度问题）且与 OpenGL 视图不再对齐。**因此 M3 现有实现（直接取 `getPoint()`）是正确的。**
+
+后续真正需要 shift 的地方：
+- M5/M6：拾取、标签、坐标显示处要用 `toGlobal3d()` 报告原始坐标
+- 导出：不属渲染范畴
+
+### D.9 M3/M4 后续：标量场着色、网格/折线、增量同步
+
+**标量场着色（已实现，CPU 侧解析颜色）**
+
+原计划用 GPU color ramp 纹理，实现后改为 CPU 侧调用 `ccScalarField::getColor()` 逐点解析颜色，原因：
+- `ccScalarField::normalize()` 是 **protected**，外部拿不到归一化值来采样纹理
+- `getColor()` 是公开 API，且完整复刻了 CloudCompare 的配色逻辑（color scale、ramp steps、超出范围的灰色、NaN 处理）
+
+代价：改色带时需重建颜色（由增量同步自动触发）。数据量相同（都是 4 字节/点），GPU 纹理版的唯一优势是换色带时不用重传 —— 留作后续优化。
+
+**网格 / 折线（M4，已实现）**
+
+新增 `ccVSGMeshBuilder`：
+- 网格：三角形展开为非索引顶点缓冲（与 CC 的 VBO 做法一致），支持逐顶点法线 / 三角面法线 / 顶点色 / 标量场着色，带简单的双面 Lambert 光照
+- 折线：`LINE_STRIP`，闭合时补一个重复顶点
+
+**已知限制**：M0 实测 `wideLines` 不可用（`lineWidthRange=[1..1]`），所以折线目前只有 1 像素宽，未按 `ccPolyline::getWidth()` 加粗。要支持粗线必须做 quad 扩展（CPU 生成三角带），属 M4 后续工作。
+
+**传感器（ccGBLSensor / ccCameraSensor）未实现**，仍为 TODO。
+
+**增量同步（已实现，指纹启发式）**
+
+`ccVSGSceneBuilder` 改为：
+- 每个实体维护一个"子图根节点"（`vsg::Group` 或带 `m_glTrans` 的 `vsg::MatrixTransform`）
+- `computeSignature()` 生成指纹：enabled / visible / glTrans 矩阵 / 点数 / 是否有颜色与法线 / 当前 SF 指针与色带 / SF 显示范围 / 网格三角形数 / 折线闭合与顶点数
+- `update()` 遍历树，只重建指纹变化的实体；从树中消失的实体自动清理
+- 根节点保持稳定（只替换 children），CommandGraph 引用不失效
+- `redraw()` 里调用 `update()`，有变化才重新 `viewer->compile()`
+
+**已知限制**：指纹只覆盖结构，不覆盖具体数值。例如改了某个点的颜色值，指纹不变，不会重建 —— 这种情况需要显式调用 `invalidate()`。后续应引入真正的 per-entity revision 计数器替代。
+
+待办：传感器、粗线 quad 扩展、网格线框模式、每层 LOD、真正的 revision 机制。
 
 **未做的验证（延后）**
 

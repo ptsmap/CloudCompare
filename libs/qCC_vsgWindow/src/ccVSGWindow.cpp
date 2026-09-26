@@ -82,6 +82,14 @@ void ccVSGWindow::redraw(bool only2D /*=false*/, bool resetLOD /*=true*/)
 	Q_UNUSED(only2D);
 	Q_UNUSED(resetLOD);
 
+	// incremental synchronization: only the entities whose fingerprint changed
+	// are rebuilt (see ccVSGSceneBuilder::computeSignature())
+	if (m_sceneBuilder.update() && m_viewer)
+	{
+		// new nodes must be compiled before they can be rendered
+		m_viewer->compile();
+	}
+
 	if (m_viewer)
 	{
 		m_viewer->request();

@@ -21,6 +21,7 @@
 
 // qCC_db
 #include <ccPointCloud.h>
+#include <ccScalarField.h>
 
 // VSG
 #include <vsg/all.h>
@@ -58,8 +59,17 @@ vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const
 		return {};
 	}
 
-	const unsigned count = cloud->size();
-	const bool     useColors = cloud->hasColors();
+	// scalar field rendering?
+	// NOTE: the colors are resolved on the CPU with ccScalarField::getColor()
+	// so that we follow exactly the CloudCompare color logic (color scale,
+	// ramp steps, out of range color, ...). A GPU color ramp texture would
+	// avoid re-uploading the colors when only the color scale changes - it
+	// can be added later as an optimization.
+	ccScalarField* sf = cloud->getCurrentDisplayedScalarField();
+	const bool     useScalarField = (sf != nullptr) && sf->getColorScale();
+
+	const unsigned count     = cloud->size();
+	const bool     useColors = !useScalarField && cloud->hasColors();
 
 	auto root = vsg::Group::create();
 
@@ -81,10 +91,22 @@ vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const
 
 			(*vertices)[i] = vsg::vec3(static_cast<float>(P.x), static_cast<float>(P.y), static_cast<float>(P.z));
 
-			// TODO(M3): handle the global shift (ccShiftedObject) and the
-			// scalar field based coloring
-			const ccColor::Rgba& C = useColors ? cloud->getPointColor(index) : defaultColor;
-			(*colors)[i]           = vsg::ubvec4(C.r, C.g, C.b, C.a);
+			// NOTE: like the OpenGL backend, rendering uses the **local**
+			// (i.e. shifted) coordinates stored in the cloud - the global
+			// shift/scale of ccShiftedObject is NOT applied here (it is only
+			// used when displaying or exporting coordinates, see
+			// ccShiftedObject::toGlobal3d()).
+			if (useScalarField)
+			{
+				const ccColor::Rgb* col = sf->getColor(sf->getValue(index));
+				const ccColor::Rgb  rgb = col ? *col : ccColor::lightGreyRGB;
+				(*colors)[i]            = vsg::ubvec4(rgb.r, rgb.g, rgb.b, 255);
+			}
+			else
+			{
+				const ccColor::Rgba& C = useColors ? cloud->getPointColor(index) : defaultColor;
+				(*colors)[i]           = vsg::ubvec4(C.r, C.g, C.b, C.a);
+			}
 
 			if (i == 0)
 			{
@@ -119,7 +141,7 @@ vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const
 
 		auto draw = vsg::VertexDraw::create();
 		draw->assignArrays(arrays);
-		draw->vertexCount  = static_cast<uint32_t>(chunkCount);
+		draw->vertexCount   = static_cast<uint32_t>(chunkCount);
 		draw->instanceCount = 1;
 
 		stateGroup->addChild(draw);
