@@ -1,3 +1,5 @@
+#pragma once
+
 //##########################################################################
 //#                                                                        #
 //#                     CLOUDCOMPARE PLUGIN: qFacets                       #
@@ -14,9 +16,6 @@
 //#                      COPYRIGHT: Thomas Dewez, BRGM                     #
 //#                                                                        #
 //##########################################################################
-
-#ifndef QFACET_FAST_MARCHING_FOR_FACET_EXTRACTION_HEADER
-#define QFACET_FAST_MARCHING_FOR_FACET_EXTRACTION_HEADER
 
 //CCCoreLib
 #include <FastMarching.h>
@@ -40,7 +39,7 @@ public:
 	static int ExtractPlanarFacets(	ccPointCloud* theCloud,
 									unsigned char octreeLevel,
 									ScalarType maxError,
-									CCCoreLib::DistanceComputationTools::ERROR_MEASURES errorMeasure,
+									CCCoreLib::DistanceComputationTools::MEASURE_TYPE errorMeasure,
 									bool useRetroProjectionError = true,
 									CCCoreLib::GenericProgressCallback* progressCb = nullptr,
 									CCCoreLib::DgmOctree* _theOctree = nullptr);
@@ -49,7 +48,7 @@ public:
 	FastMarchingForFacetExtraction();
 
 	//! Destructor
-	virtual ~FastMarchingForFacetExtraction();
+	~FastMarchingForFacetExtraction() override;
 
 	//! Initializes the grid with a point cloud (and ist corresponding octree)
 	/** The points should be associated to an (active) scalar field.
@@ -66,7 +65,7 @@ public:
 	int init(	CCCoreLib::DgmOctree* theOctree,
 				unsigned char gridLevel,
 				ScalarType maxError,
-				CCCoreLib::DistanceComputationTools::ERROR_MEASURES errorMeasure,
+				CCCoreLib::DistanceComputationTools::MEASURE_TYPE errorMeasure,
 				bool useRetroProjectionError,
 				CCCoreLib::GenericProgressCallback* progressCb = nullptr);
 
@@ -100,7 +99,7 @@ protected:
 		{}
 
 		///! Destructor
-		virtual ~PlanarCell() {}
+		~PlanarCell() override {}
 
 		//! The local cell normal
 		CCVector3 N;
@@ -113,10 +112,10 @@ protected:
 	};
 
 	//inherited methods (see FastMarchingAlgorithm)
-	virtual float computeTCoefApprox(CCCoreLib::FastMarching::Cell* currentCell, CCCoreLib::FastMarching::Cell* neighbourCell) const override;
-	virtual int step() override;
-	virtual void initTrialCells() override;
-	virtual bool instantiateGrid(unsigned size) override { return instantiateGridTpl<PlanarCell*>(size); }
+	float computeTCoefApprox(CCCoreLib::FastMarching::Cell* currentCell, CCCoreLib::FastMarching::Cell* neighbourCell) const override;
+	int step() override;
+	void initTrialCells() override;
+	bool instantiateGrid(unsigned size) override { return instantiateGridTpl<PlanarCell*>(size); }
 
 	//! Adds a given cell's points to the current facet and returns the resulting RMS
 	ScalarType addCellToCurrentFacet(unsigned index);
@@ -131,7 +130,7 @@ protected:
 	ScalarType m_maxError;
 
 	//! Error measrue
-	CCCoreLib::DistanceComputationTools::ERROR_MEASURES m_errorMeasure;
+	CCCoreLib::DistanceComputationTools::MEASURE_TYPE m_errorMeasure;
 
 	//! Whether to use retro-projection error in propagation
 	bool m_useRetroProjectionError;
@@ -141,5 +140,3 @@ protected:
 	//! Propagation progress
 	unsigned m_propagateProgress;
 };
-
-#endif //QFACET_FAST_MARCHING_FOR_FACET_EXTRACTION_HEADER

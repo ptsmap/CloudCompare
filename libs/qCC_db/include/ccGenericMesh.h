@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -15,16 +17,13 @@
 // #                                                                        #
 // ##########################################################################
 
-#ifndef CC_GENERIC_MESH_HEADER
-#define CC_GENERIC_MESH_HEADER
-
-// CCCoreLib
-#include <GenericIndexedMesh.h>
-
 // Local
 #include "ccAdvancedTypes.h"
 #include "ccGenericGLDisplay.h"
 #include "ccShiftedObject.h"
+
+// CCCoreLib
+#include <GenericIndexedMesh.h>
 
 namespace CCCoreLib
 {
@@ -226,6 +225,14 @@ class QCC_DB_LIB_API ccGenericMesh : public CCCoreLib::GenericIndexedMesh
 		m_stippling = state;
 	}
 
+	//! Forces the (sun) light (GL_LIGHT0) to be always on
+	/** \warning Not saved to BIN files (for internal use only)
+	 **/
+	void forceSunLightOn(bool state)
+	{
+		m_forceSunLightOn = state;
+	}
+
 	//! Samples points on a mesh
 	ccPointCloud* samplePoints(bool                                densityBased,
 	                           double                              samplingParameter,
@@ -242,15 +249,17 @@ class QCC_DB_LIB_API ccGenericMesh : public CCCoreLib::GenericIndexedMesh
 	//! Brute force triangle picking
 	virtual bool trianglePicking(const CCVector2d&           clickPos,
 	                             const ccGLCameraParameters& camera,
+	                             bool                        edgeOnly,
 	                             int&                        nearestTriIndex,
 	                             double&                     nearestSquareDist,
 	                             CCVector3d&                 nearestPoint,
 	                             CCVector3d*                 barycentricCoords = nullptr) const;
 
-	//! Triangle picking (single triangle)
+	//! Triangle picking (specific triangle)
 	virtual bool trianglePicking(unsigned                    triIndex,
 	                             const CCVector2d&           clickPos,
 	                             const ccGLCameraParameters& camera,
+	                             bool                        edgeOnly,
 	                             CCVector3d&                 point,
 	                             CCVector3d*                 barycentricCoords = nullptr) const;
 
@@ -278,11 +287,6 @@ class QCC_DB_LIB_API ccGenericMesh : public CCCoreLib::GenericIndexedMesh
 	bool  fromFile_MeOnly(QFile& in, short dataVersion, int flags, LoadedIDMap& oldToNewIDMap) override;
 	short minimumFileVersion_MeOnly() const override;
 
-	// Static arrays for OpenGL drawing
-	static CCVector3*     GetVertexBuffer();
-	static CCVector3*     GetNormalsBuffer();
-	static ColorCompType* GetColorsBuffer();
-
 	//! Triangle picking (single triangle)
 	virtual bool trianglePicking(unsigned                    triIndex,
 	                             const CCVector2d&           clickPos,
@@ -290,20 +294,12 @@ class QCC_DB_LIB_API ccGenericMesh : public CCCoreLib::GenericIndexedMesh
 	                             bool                        noGLTrans,
 	                             const ccGenericPointCloud&  vertices,
 	                             const ccGLCameraParameters& camera,
+	                             bool                        edgeOnly,
 	                             CCVector3d&                 point,
-	                             CCVector3d*                 barycentricCoords = nullptr,
-	                             QPainter*                   painter           = nullptr) const;
-
-	//! Returns a pre-initialized array of vertex indexes for wired display
-	/** Array size is MAX_NUMBER_OF_ELEMENTS_PER_CHUNK*6 by default
-	 **/
-	static unsigned* GetWireVertexIndexes();
+	                             CCVector3d*                 barycentricCoords = nullptr) const;
 
 	//! Enables (OpenGL) stipple mask
-	static void EnableGLStippleMask(const QOpenGLContext* context, bool state);
-
-	// inherited from ccHObject
-	void drawMeOnly(CC_DRAW_CONTEXT& context) override;
+	static void EnableGLStippleMask(QOpenGLContext* context, bool state);
 
 	//! Handles the color ramp display
 	void handleColorRamp(CC_DRAW_CONTEXT& context);
@@ -319,6 +315,7 @@ class QCC_DB_LIB_API ccGenericMesh : public CCCoreLib::GenericIndexedMesh
 
 	//! Polygon stippling state
 	bool m_stippling;
-};
 
-#endif // CC_GENERIC_MESH_HEADER
+	//! Forces the GL_LIGHT0 on if true
+	bool m_forceSunLightOn;
+};

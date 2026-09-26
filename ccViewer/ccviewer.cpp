@@ -44,13 +44,8 @@
 #include "ccPluginManager.h"
 
 // 3D mouse handler
-#ifdef CC_3DXWARE_SUPPORT
+#ifdef CC_3DMOUSE_SUPPORT
 #include "Mouse3DInput.h"
-#endif
-
-// Gamepads
-#ifdef CC_GAMEPAD_SUPPORT
-#include "ccGamepadManager.h"
 #endif
 
 // Camera parameters dialog
@@ -61,7 +56,6 @@ ccViewer::ccViewer(QWidget* parent, Qt::WindowFlags flags)
     , m_glWindow(nullptr)
     , m_selectedObject(nullptr)
     , m_3dMouseInput(nullptr)
-    , m_gamepadManager(nullptr)
 {
 	ui.setupUi(this);
 
@@ -100,15 +94,10 @@ ccViewer::ccViewer(QWidget* parent, Qt::WindowFlags flags)
 	reflectPerspectiveState();
 	reflectPivotVisibilityState();
 
-#ifdef CC_3DXWARE_SUPPORT
+#ifdef CC_3DMOUSE_SUPPORT
 	enable3DMouse(true);
 #else
 	ui.actionEnable3DMouse->setEnabled(false);
-#endif
-
-#ifdef CC_GAMEPAD_SUPPORT
-	m_gamepadManager = new ccGamepadManager(this, this);
-	ui.menuOptions->insertMenu(ui.menu3DMouse->menuAction(), m_gamepadManager->menu());
 #endif
 
 	// Signals & slots connection
@@ -173,6 +162,14 @@ ccViewer::ccViewer(QWidget* parent, Qt::WindowFlags flags)
 		QShortcut* minusKey = new QShortcut(QKeySequence(tr("=", "Zoom out")), this);
 		connect(minusKey, &QShortcut::activated, [this]()
 		        { m_glWindow->onWheelEvent(-8.0); });
+
+		QShortcut* shiftUpKey = new QShortcut(QKeySequence(Qt::SHIFT | Qt::Key_Up), this);
+		connect(shiftUpKey, &QShortcut::activated, [this]()
+		        { selectNextSF(-1); });
+
+		QShortcut* shiftDownKey = new QShortcut(QKeySequence(Qt::SHIFT | Qt::Key_Down), this);
+		connect(shiftDownKey, &QShortcut::activated, [this]()
+		        { selectNextSF(1); });
 	}
 
 	loadPlugins();
@@ -181,11 +178,6 @@ ccViewer::ccViewer(QWidget* parent, Qt::WindowFlags flags)
 ccViewer::~ccViewer()
 {
 	release3DMouse();
-
-#ifdef CC_GAMEPAD_SUPPORT
-	delete m_gamepadManager;
-	m_gamepadManager = nullptr;
-#endif
 
 	if (s_cpeDlg)
 	{
@@ -788,7 +780,8 @@ void ccViewer::toggleStereoMode(bool state)
 	{
 		m_glWindow->disableStereoMode();
 		if (m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::NVIDIA_VISION
-		    || m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::GENERIC_STEREO_DISPLAY)
+		    || m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::GENERIC_STEREO_DISPLAY
+		    || m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::SIDE_BY_SIDE)
 		{
 			// disable full screen
 			ui.actionFullScreen->setChecked(false);
@@ -796,7 +789,7 @@ void ccViewer::toggleStereoMode(bool state)
 	}
 	else
 	{
-		// display a parameters dialog
+		// display the stereo parameters dialog
 		ccStereoModeDlg smDlg(this);
 		smDlg.setParameters(m_glWindow->getStereoParams());
 		if (!smDlg.exec())
@@ -809,7 +802,7 @@ void ccViewer::toggleStereoMode(bool state)
 		}
 
 		ccGLWindowInterface::StereoParams params = smDlg.getParameters();
-		if (!ccGLWindowInterface::StereoSupported() && !params.isAnaglyph())
+		if (params.quadBufferingRequired() && !ccGLWindowInterface::StereoSupported())
 		{
 			ccLog::Error(tr("It seems your graphic card doesn't support Quad Buffered Stereo rendering"));
 			// activation of the stereo mode failed: cancel selection
@@ -827,7 +820,8 @@ void ccViewer::toggleStereoMode(bool state)
 		}
 
 		if (params.glassType == ccGLWindowInterface::StereoParams::NVIDIA_VISION
-		    || params.glassType == ccGLWindowInterface::StereoParams::GENERIC_STEREO_DISPLAY)
+		    || params.glassType == ccGLWindowInterface::StereoParams::GENERIC_STEREO_DISPLAY
+		    || params.glassType == ccGLWindowInterface::StereoParams::SIDE_BY_SIDE)
 		{
 			// force full screen
 			ui.actionFullScreen->setChecked(true);
@@ -851,7 +845,8 @@ void ccViewer::toggleFullScreen(bool state)
 	{
 		if (m_glWindow->stereoModeIsEnabled()
 		    && (m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::NVIDIA_VISION
-		        || m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::GENERIC_STEREO_DISPLAY))
+		        || m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::GENERIC_STEREO_DISPLAY
+		        || m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::SIDE_BY_SIDE))
 		{
 			// auto disable stereo mode as NVidia Vision only works in full screen mode!
 			ui.actionEnableStereo->setChecked(false);
@@ -871,7 +866,8 @@ void ccViewer::onExclusiveFullScreenToggled(bool state)
 	    && m_glWindow
 	    && m_glWindow->stereoModeIsEnabled()
 	    && (m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::NVIDIA_VISION
-	        || m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::GENERIC_STEREO_DISPLAY))
+	        || m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::GENERIC_STEREO_DISPLAY
+	        || m_glWindow->getStereoParams().glassType == ccGLWindowInterface::StereoParams::SIDE_BY_SIDE))
 	{
 		// auto disable stereo mode as NVidia Vision only works in full screen mode!
 		ui.actionEnableStereo->setChecked(false);
@@ -927,6 +923,8 @@ void ccViewer::doActionDisplayShortcuts()
 		text += "\tS  : Toggle SF visibility\n";
 		text += "\tR  : Toggle color ramp visibility\n";
 		text += "\tZ  : Zoom on entity\n";
+		text += "\tSHIFT + up key: Activate previous scalar field\n";
+		text += "\tSHIFT + down key: Activate next scalar field\n";
 		text += "\tDEL: Delete entity\n";
 		text += "\n";
 		text += "ALT   + mouse wheel: change point size\n";
@@ -1100,7 +1098,7 @@ void ccViewer::doActionAbout()
 
 void ccViewer::release3DMouse()
 {
-#ifdef CC_3DXWARE_SUPPORT
+#ifdef CC_3DMOUSE_SUPPORT
 	if (m_3dMouseInput)
 	{
 		m_3dMouseInput->disconnect(); // disconnect from the driver
@@ -1114,7 +1112,7 @@ void ccViewer::release3DMouse()
 
 void ccViewer::enable3DMouse(bool state)
 {
-#ifdef CC_3DXWARE_SUPPORT
+#ifdef CC_3DMOUSE_SUPPORT
 	if (m_3dMouseInput)
 		release3DMouse();
 
@@ -1160,7 +1158,7 @@ void ccViewer::on3DMouseKeyUp(int)
 // ANY CHANGE/BUG FIX SHOULD BE REFLECTED TO THE EQUIVALENT METHODS IN QCC "MainWindow.cpp" FILE!
 void ccViewer::on3DMouseKeyDown(int key)
 {
-#ifdef CC_3DXWARE_SUPPORT
+#ifdef CC_3DMOUSE_SUPPORT
 
 	switch (key)
 	{
@@ -1250,7 +1248,7 @@ void ccViewer::on3DMouseCMDKeyUp(int cmd)
 
 void ccViewer::on3DMouseCMDKeyDown(int cmd)
 {
-#ifdef CC_3DXWARE_SUPPORT
+#ifdef CC_3DMOUSE_SUPPORT
 	switch (cmd)
 	{
 		// ccLog::Print(QString("on3DMouseCMDKeyDown Cmd = %1").arg(cmd));
@@ -1346,7 +1344,7 @@ void ccViewer::on3DMouseCMDKeyDown(int cmd)
 
 void ccViewer::on3DMouseMove(std::vector<float>& vec)
 {
-#ifdef CC_3DXWARE_SUPPORT
+#ifdef CC_3DMOUSE_SUPPORT
 	if (m_glWindow)
 		Mouse3DInput::Apply(vec, m_glWindow);
 #endif
@@ -1371,7 +1369,7 @@ const ccHObject::Container& ccViewer::getSelectedEntities() const
 
 void ccViewer::dispToConsole(QString message, ConsoleMessageLevel level)
 {
-	printf("%s\n", qPrintable(message));
+	printf("%s\n", qUtf8Printable(message));
 }
 
 ccHObject* ccViewer::dbRootObject()
@@ -1461,4 +1459,42 @@ void ccViewer::decreasePointSize()
 ccUniqueIDGenerator::Shared ccViewer::getUniqueIDGenerator()
 {
 	return ccObject::GetUniqueIDGenerator();
+}
+
+static QAction* FindAction(const QList<QAction*>& actions, const QString& name)
+{
+	for (QAction* action : actions)
+	{
+		if (action->text() == name)
+		{
+			return action;
+		}
+	}
+
+	return nullptr;
+}
+
+void ccViewer::selectNextSF(int deltaPos)
+{
+	if (!m_selectedObject)
+		return;
+
+	ccPointCloud* cloud = ccHObjectCaster::ToPointCloud(m_selectedObject);
+	if (!cloud || !cloud->hasScalarFields())
+		return;
+
+	int sfIdx = cloud->getCurrentDisplayedScalarFieldIndex();
+	{
+		int newSFIndex = sfIdx + deltaPos;
+		newSFIndex     = std::max(0, newSFIndex);
+		newSFIndex     = std::min(static_cast<int>(cloud->getNumberOfScalarFields()) - 1, newSFIndex);
+		if (newSFIndex != sfIdx)
+		{
+			QAction* newAction = FindAction(ui.menuSelectSF->actions(), QString::fromStdString(cloud->getScalarFieldName(newSFIndex)));
+			if (newAction)
+			{
+				newAction->setChecked(true);
+			}
+		}
+	}
 }

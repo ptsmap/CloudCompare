@@ -15,11 +15,14 @@
 // #                                                                        #
 // ##########################################################################
 
-#ifdef CC_CORE_LIB_USES_TBB
-#include <tbb/parallel_for.h>
-#endif
+#include "../include/ccGenericPointCloud.h"
 
-#include "ccGenericPointCloud.h"
+// Local
+#include "../include/ccGenericGLDisplay.h"
+#include "../include/ccOctreeProxy.h"
+#include "../include/ccPointCloud.h"
+#include "../include/ccProgressDialog.h"
+#include "../include/ccScalarField.h"
 
 // CCCoreLib
 #include <DistanceComputationTools.h>
@@ -27,13 +30,10 @@
 #include <Neighbourhood.h>
 #include <ReferenceCloud.h>
 
-// Local
-#include "ccGenericGLDisplay.h"
-#include "ccOctreeProxy.h"
-#include "ccPointCloud.h"
-#include "ccProgressDialog.h"
-#include "ccScalarField.h"
-#include "ccSensor.h"
+#ifdef CC_CORE_LIB_USES_TBB
+#include <oneapi/tbb/parallel_for.h>
+using namespace oneapi;
+#endif
 
 #if defined(_OPENMP)
 // OpenMP

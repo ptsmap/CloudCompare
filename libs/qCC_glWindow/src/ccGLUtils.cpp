@@ -18,17 +18,18 @@
 #include "ccGLUtils.h"
 
 #include <QOpenGLTexture>
+#include <QOpenGLVersionFunctionsFactory>
 
 //*********** OPENGL TEXTURES ***********//
 
-void ccGLUtils::DisplayTexture2DPosition(QImage image, int x, int y, int w, int h, unsigned char alpha /*=255*/)
+void ccGLUtils::DisplayTexture2DPosition(QImage image, int x, int y, int w, int h, unsigned char alpha /*=255*/, TextureArea area /*=Full*/)
 {
 	QOpenGLTexture texture(image);
 
-	DisplayTexture2DPosition(texture.textureId(), x, y, w, h, alpha);
+	DisplayTexture2DPosition(texture.textureId(), x, y, w, h, alpha, area);
 }
 
-void ccGLUtils::DisplayTexture2DPosition(GLuint texID, int x, int y, int w, int h, unsigned char alpha /*=255*/)
+void ccGLUtils::DisplayTexture2DPosition(GLuint texID, int x, int y, int w, int h, unsigned char alpha /*=255*/, TextureArea area /*=Full*/)
 {
 	QOpenGLContext* context = QOpenGLContext::currentContext();
 	if (!context)
@@ -36,7 +37,7 @@ void ccGLUtils::DisplayTexture2DPosition(GLuint texID, int x, int y, int w, int 
 		assert(false);
 		return;
 	}
-	QOpenGLFunctions_2_1* glFunc = context->versionFunctions<QOpenGLFunctions_2_1>();
+	auto* glFunc = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_2_1>(context);
 	if (glFunc)
 	{
 		glFunc->glBindTexture(GL_TEXTURE_2D, texID);
@@ -46,14 +47,42 @@ void ccGLUtils::DisplayTexture2DPosition(GLuint texID, int x, int y, int w, int 
 
 		glFunc->glColor4ub(255, 255, 255, alpha);
 		glFunc->glBegin(GL_QUADS);
-		glFunc->glTexCoord2f(0.0, 1.0);
-		glFunc->glVertex2i(x, y + h);
-		glFunc->glTexCoord2f(0.0, 0.0);
-		glFunc->glVertex2i(x, y);
-		glFunc->glTexCoord2f(1.0, 0.0);
-		glFunc->glVertex2i(x + w, y);
-		glFunc->glTexCoord2f(1.0, 1.0);
-		glFunc->glVertex2i(x + w, y + h);
+		switch (area)
+		{
+		case Full:
+		default:
+			glFunc->glTexCoord2f(0.0, 1.0);
+			glFunc->glVertex2i(x, y + h);
+			glFunc->glTexCoord2f(0.0, 0.0);
+			glFunc->glVertex2i(x, y);
+			glFunc->glTexCoord2f(1.0, 0.0);
+			glFunc->glVertex2i(x + w, y);
+			glFunc->glTexCoord2f(1.0, 1.0);
+			glFunc->glVertex2i(x + w, y + h);
+			break;
+
+		case HalfLeft:
+			glFunc->glTexCoord2f(0.0, 1.0);
+			glFunc->glVertex2i(x, y + h);
+			glFunc->glTexCoord2f(0.0, 0.0);
+			glFunc->glVertex2i(x, y);
+			glFunc->glTexCoord2f(0.5, 0.0);
+			glFunc->glVertex2i(x + w, y);
+			glFunc->glTexCoord2f(0.5, 1.0);
+			glFunc->glVertex2i(x + w, y + h);
+			break;
+
+		case HalfRight:
+			glFunc->glTexCoord2f(0.5, 1.0);
+			glFunc->glVertex2i(x, y + h);
+			glFunc->glTexCoord2f(0.5, 0.0);
+			glFunc->glVertex2i(x, y);
+			glFunc->glTexCoord2f(1.0, 0.0);
+			glFunc->glVertex2i(x + w, y);
+			glFunc->glTexCoord2f(1.0, 1.0);
+			glFunc->glVertex2i(x + w, y + h);
+			break;
+		}
 		glFunc->glEnd();
 
 		glFunc->glPopAttrib();

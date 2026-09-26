@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -15,9 +17,6 @@
 // #                                                                        #
 // ##########################################################################
 
-#ifndef CC_GRAPHICAL_SEGMENTATION_TOOLS_HEADER
-#define CC_GRAPHICAL_SEGMENTATION_TOOLS_HEADER
-
 // Local
 #include <ccOverlayDialog.h>
 
@@ -28,8 +27,10 @@
 #include <QSet>
 
 // GUI
-#include <set>
 #include <ui_graphicalSegmentationDlg.h>
+
+// System
+#include <set>
 
 class ccPolyline;
 class ccPointCloud;
@@ -95,6 +96,9 @@ class ccGraphicalSegmentationTool : public ccOverlayDialog
 	//! Apply segmentation and update the database (helper)
 	bool applySegmentation(ccMainAppInterface* app, ccHObject::Container& newEntities);
 
+  signals:
+	void currentScalarFieldUpdated();
+
   protected:
 	void        segmentIn();
 	void        segmentOut();
@@ -121,6 +125,7 @@ class ccGraphicalSegmentationTool : public ccOverlayDialog
 	void doSetRectangularSelection();
 	void doActionUseExistingPolyline();
 	void doExportSegmentationPolyline();
+	void onToggleRGBAndSFColors();
 
 	//! To capture overridden shortcuts (pause button, etc.)
 	void onShortcutTriggered(int);
@@ -171,5 +176,3 @@ class ccGraphicalSegmentationTool : public ccOverlayDialog
 	//! In export mode, entities in this set will be disabled/invisible
 	std::set<ccHObject*> m_disableOnClose;
 };
-
-#endif // CC_GRAPHICAL_SEGMENTATION_TOOLS_HEADER

@@ -15,18 +15,23 @@
 // #                                                                        #
 // ##########################################################################
 
-// Always first
-#include "ccIncludeGL.h"
+#include "../include/ccMaterial.h"
 
 // Local
-#include "ccMaterial.h"
-#include "ccMaterialDB.h"
+#include "../include/ccIncludeGL.h"
+#include "../include/ccMaterialDB.h"
 
 // Qt
+#include <QOpenGLVersionFunctionsFactory>
 #include <QUuid>
 
 // Textures DB
 static ccMaterialDB s_materialDB;
+
+ccMaterialDB* ccMaterial::GetTextureDB()
+{
+	return &s_materialDB;
+}
 
 ccMaterial::ccMaterial(const QString& name)
     : m_name(name)
@@ -84,14 +89,15 @@ void ccMaterial::setTransparency(float val)
 	m_emission.a     = val;
 }
 
-void ccMaterial::applyGL(const QOpenGLContext* context, bool lightEnabled, bool skipDiffuse) const
+void ccMaterial::applyGL(QOpenGLContext* context, bool lightEnabled, bool skipDiffuse) const
 {
 	// get the set of OpenGL functions (version 2.1)
-	QOpenGLFunctions_2_1* glFunc = context->versionFunctions<QOpenGLFunctions_2_1>();
-	assert(glFunc != nullptr);
-
+	auto* glFunc = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_2_1>(context);
 	if (glFunc == nullptr)
+	{
+		assert(false);
 		return;
+	}
 
 	if (lightEnabled)
 	{
@@ -106,7 +112,7 @@ void ccMaterial::applyGL(const QOpenGLContext* context, bool lightEnabled, bool 
 		glFunc->glMaterialf(GL_FRONT, GL_SHININESS, std::max(0.0f, std::min(m_shininessFront, 128.0f)));
 		glFunc->glMaterialf(GL_BACK, GL_SHININESS, std::max(0.0f, std::min(m_shininessBack, 128.0f)));
 	}
-	else
+	else if (!skipDiffuse)
 	{
 		ccGL::Color(glFunc, m_diffuseFront);
 	}
@@ -192,11 +198,7 @@ GLuint ccMaterial::getTextureID() const
 		{
 			return 0;
 		}
-		QSharedPointer<QOpenGLTexture> tex;
-		if (s_materialDB.openGLTextures.contains(m_textureFilename))
-		{
-			tex = s_materialDB.openGLTextures[m_textureFilename];
-		}
+		QSharedPointer<QOpenGLTexture> tex = s_materialDB.getOpenGLTexture(m_textureFilename);
 
 		if (!tex)
 		{
@@ -206,7 +208,7 @@ GLuint ccMaterial::getTextureID() const
 			tex->setFormat(QOpenGLTexture::RGB8_UNorm);
 			tex->setData(getTexture(), QOpenGLTexture::DontGenerateMipMaps);
 			tex->create();
-			s_materialDB.openGLTextures[m_textureFilename] = tex;
+			s_materialDB.addOpenGLTexture(m_textureFilename, tex);
 		}
 		return tex->textureId();
 	}
@@ -221,14 +223,15 @@ bool ccMaterial::hasTexture() const
 	return m_textureFilename.isEmpty() ? false : s_materialDB.hasTexture(m_textureFilename) && !s_materialDB.getTexture(m_textureFilename).isNull();
 }
 
-void ccMaterial::MakeLightsNeutral(const QOpenGLContext* context)
+void ccMaterial::MakeLightsNeutral(QOpenGLContext* context)
 {
 	// get the set of OpenGL functions (version 2.1)
-	QOpenGLFunctions_2_1* glFunc = context->versionFunctions<QOpenGLFunctions_2_1>();
-	assert(glFunc != nullptr);
-
+	auto* glFunc = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_2_1>(context);
 	if (glFunc == nullptr)
+	{
+		assert(false);
 		return;
+	}
 
 	GLint maxLightCount;
 	glFunc->glGetIntegerv(GL_MAX_LIGHTS, &maxLightCount);
@@ -274,7 +277,7 @@ void ccMaterial::ReleaseTextures()
 		return;
 	}
 
-	s_materialDB.openGLTextures.clear();
+	s_materialDB.releaseAllOpenGLTextures();
 }
 
 void ccMaterial::releaseTexture()
@@ -388,10 +391,10 @@ void ccMaterial::setTextureMinMagFilters(QOpenGLTexture::Filter minificationFilt
 		m_texMinificationFilter  = minificationFilter;
 		m_texMagnificationFilter = magnificationFilter;
 
-		if (!m_textureFilename.isEmpty() && s_materialDB.openGLTextures.contains(m_textureFilename))
+		if (!m_textureFilename.isEmpty())
 		{
 			// remove the existing texture (if any) so that it's initialized again next time
-			s_materialDB.openGLTextures.remove(m_textureFilename);
+			s_materialDB.removeOpenGLTexture(m_textureFilename);
 		}
 	}
 }

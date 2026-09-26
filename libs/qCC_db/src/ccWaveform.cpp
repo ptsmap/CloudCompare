@@ -1,4 +1,21 @@
-#include "ccWaveform.h"
+// ##########################################################################
+// #                                                                        #
+// #                              CLOUDCOMPARE                              #
+// #                                                                        #
+// #  This program is free software; you can redistribute it and/or modify  #
+// #  it under the terms of the GNU General Public License as published by  #
+// #  the Free Software Foundation; version 2 or later of the License.      #
+// #                                                                        #
+// #  This program is distributed in the hope that it will be useful,       #
+// #  but WITHOUT ANY WARRANTY; without even the implied warranty of        #
+// #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
+// #  GNU General Public License for more details.                          #
+// #                                                                        #
+// #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
+// #                                                                        #
+// ##########################################################################
+
+#include "../include/ccWaveform.h"
 
 // Qt
 #include <QDataStream>
@@ -218,11 +235,11 @@ bool ccWaveform::ToASCII(const QString& filename, std::vector<double>& values, u
 	QTextStream stream(&file);
 	stream.setRealNumberPrecision(6);
 	stream.setRealNumberNotation(QTextStream::FixedNotation);
-	stream << "//time(ps);intensity" << endl;
+	stream << "//time(ps);intensity" << Qt::endl;
 
 	for (uint32_t i = 0; i < values.size(); ++i)
 	{
-		stream << i * samplingRate_ps << ";" << values[i] << endl;
+		stream << i * samplingRate_ps << ";" << values[i] << Qt::endl;
 	}
 
 	file.close();

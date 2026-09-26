@@ -15,18 +15,15 @@
 // #                                                                        #
 // ##########################################################################
 
-// Always on top!
-#include "ccPlane.h"
+#include "../include/ccPlane.h"
 
-#include "ccIncludeGL.h"
+// Local
+#include "../include/ccMaterialSet.h"
+#include "../include/ccPointCloud.h"
 
-// qCC_db
-#include "ccMaterialSet.h"
-#include "ccPointCloud.h"
-
-// CCLIB
-#include "DistanceComputationTools.h"
-#include "Neighbourhood.h"
+// CCCoreLib
+#include <DistanceComputationTools.h>
+#include <Neighbourhood.h>
 
 ccPlane::ccPlane(PointCoordinateType xWidth, PointCoordinateType yWidth, const ccGLMatrix* transMat /*=nullptr*/, QString name /*=QString("Plane")*/)
     : ccGenericPrimitive(name, transMat)
@@ -179,6 +176,7 @@ ccPlane* ccPlane::Fit(CCCoreLib::GenericIndexedCloudPersist* cloud, double* rms 
 	if (rms)
 	{
 		*rms = CCCoreLib::DistanceComputationTools::computeCloud2PlaneDistanceRMS(cloud, theLSPlane);
+		assert(std::isfinite(*rms));
 		plane->setMetaData("RMS", *rms);
 	}
 

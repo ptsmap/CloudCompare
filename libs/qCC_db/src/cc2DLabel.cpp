@@ -15,16 +15,16 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "ccIncludeGL.h"
+#include "../include/cc2DLabel.h"
 
 // Local
-#include "cc2DLabel.h"
-#include "ccGenericGLDisplay.h"
-#include "ccGenericMesh.h"
-#include "ccGenericPointCloud.h"
-#include "ccPointCloud.h"
-#include "ccScalarField.h"
-#include "ccSphere.h"
+#include "../include/ccGenericGLDisplay.h"
+#include "../include/ccGenericMesh.h"
+#include "../include/ccGenericPointCloud.h"
+#include "../include/ccIncludeGL.h"
+#include "../include/ccPointCloud.h"
+#include "../include/ccScalarField.h"
+#include "../include/ccSphere.h"
 
 // Qt
 #include <QFontMetrics>
@@ -205,7 +205,9 @@ QString cc2DLabel::getTitle(int precision) const
 		title = m_name;
 		title.replace(POINT_INDEX_0, m_pickedPoints[0].itemTitle());
 
-		// if available, we display the point SF value
+		// If available, we display the point's currently selected SF value.
+		// A point cloud may have very many scalar fields (e.g. multi-spectral data),
+		// so we show ALL of them in the Label properties dialog only, not in this popup.
 		LabelInfo1 info;
 		getLabelInfo1(info);
 		if (info.hasSF)
@@ -261,16 +263,16 @@ QString cc2DLabel::getName() const
 
 void cc2DLabel::setPosition(float x, float y)
 {
-	m_screenPos[0] = x;
-	m_screenPos[1] = y;
+	m_screenPos[0] = std::clamp(x, -0.05f, 0.95f);
+	m_screenPos[1] = std::clamp(y, -0.05f, 0.95f);
 }
 
 bool cc2DLabel::move2D(int x, int y, int dx, int dy, int screenWidth, int screenHeight)
 {
 	assert(screenHeight > 0 && screenWidth > 0);
 
-	m_screenPos[0] += static_cast<float>(dx) / screenWidth;
-	m_screenPos[1] += static_cast<float>(dy) / screenHeight;
+	setPosition(m_screenPos[0] + static_cast<float>(dx) / screenWidth,
+	            m_screenPos[1] + static_cast<float>(dy) / screenHeight);
 
 	return true;
 }
@@ -548,7 +550,7 @@ bool cc2DLabel::fromFile_MeOnly(QFile& in, short dataVersion, int flags, LoadedI
 					//[DIRTY] WARNING: temporarily, we set the cloud unique ID in the 'PickedPoint::_cloud' pointer!!!
 					*(uint32_t*)(&m_pickedPoints.back()._cloud) = cloudID;
 				}
-				catch (const std::bad_alloc)
+				catch (const std::bad_alloc&)
 				{
 					return MemoryError();
 				}
@@ -577,7 +579,7 @@ bool cc2DLabel::fromFile_MeOnly(QFile& in, short dataVersion, int flags, LoadedI
 					//[DIRTY] WARNING: temporarily, we set the mesh unique ID in the 'PickedPoint::_mesh' pointer!!!
 					*(uint32_t*)(&m_pickedPoints.back()._mesh) = meshID;
 				}
-				catch (const std::bad_alloc)
+				catch (const std::bad_alloc&)
 				{
 					return MemoryError();
 				}
@@ -595,8 +597,11 @@ bool cc2DLabel::fromFile_MeOnly(QFile& in, short dataVersion, int flags, LoadedI
 	}
 
 	// Relative screen position (dataVersion >= 20)
-	if (in.read((char*)m_screenPos.data(), sizeof(float) * 2) < 0)
+	RelativePos screenPos;
+	if (in.read((char*)screenPos.data(), sizeof(float) * 2) < 0)
 		return ReadError();
+	// Make sure the old values are within an acceptable range
+	setPosition(screenPos[0], screenPos[1]);
 
 	// Collapsed state (dataVersion >= 20)
 	if (in.read((char*)&m_showFullBody, sizeof(bool)) < 0)
@@ -727,6 +732,23 @@ void cc2DLabel::getLabelInfo1(LabelInfo1& info) const
 					info.sfName  = "Scalar";
 				}
 			}
+
+			// all scalar fields (not just the displayed one)
+			if (pp._cloud->isA(CC_TYPES::POINT_CLOUD))
+			{
+				ccPointCloud* pc      = static_cast<ccPointCloud*>(pp._cloud);
+				unsigned      sfCount = pc->getNumberOfScalarFields();
+				for (unsigned i = 0; i < sfCount; ++i)
+				{
+					const CCCoreLib::ScalarField* sf = pc->getScalarField(static_cast<int>(i));
+					if (!sf)
+						continue;
+					SFValue sfVal;
+					sfVal.name  = QString::fromStdString(sf->getName());
+					sfVal.value = sf->getValue(pp.index);
+					info.sfValues.push_back(sfVal);
+				}
+			}
 		}
 		else if (pp._mesh)
 		{
@@ -792,6 +814,33 @@ void cc2DLabel::getLabelInfo1(LabelInfo1& info) const
 				else
 				{
 					info.sfName = "Scalar";
+				}
+
+				// all scalar fields (not just the displayed one), interpolated on the triangle
+				if (vertices->isA(CC_TYPES::POINT_CLOUD))
+				{
+					ccPointCloud* pc      = static_cast<ccPointCloud*>(vertices);
+					unsigned      sfCount = pc->getNumberOfScalarFields();
+					for (unsigned i = 0; i < sfCount; ++i)
+					{
+						const CCCoreLib::ScalarField* asf = pc->getScalarField(static_cast<int>(i));
+						if (!asf)
+							continue;
+						ScalarType v1 = asf->getValue(vi->i1);
+						ScalarType v2 = asf->getValue(vi->i2);
+						ScalarType v3 = asf->getValue(vi->i3);
+						SFValue    sfVal;
+						sfVal.name = QString::fromStdString(asf->getName());
+						if (ccScalarField::ValidValue(v1) && ccScalarField::ValidValue(v2) && ccScalarField::ValidValue(v3))
+						{
+							sfVal.value = static_cast<ScalarType>(v1 * w.u[0] + v2 * w.u[1] + v3 * w.u[2]);
+						}
+						else
+						{
+							sfVal.value = CCCoreLib::NAN_VALUE;
+						}
+						info.sfValues.push_back(sfVal);
+					}
 				}
 			}
 		}
@@ -880,8 +929,16 @@ QStringList cc2DLabel::getLabelContent(int precision) const
 			QString colorStr = QString("Color: (%1;%2;%3;%4)").arg(info.color.r).arg(info.color.g).arg(info.color.b).arg(info.color.a);
 			body << colorStr;
 		}
-		// scalar field
-		if (info.hasSF)
+		// scalar fields
+		if (!info.sfValues.empty())
+		{
+			for (const SFValue& sfVal : info.sfValues)
+			{
+				QString valStr = (ccScalarField::ValidValue(sfVal.value) ? QString::number(sfVal.value, 'f', precision) : QString("NaN"));
+				body << QString("%1 = %2").arg(sfVal.name, valStr);
+			}
+		}
+		else if (info.hasSF)
 		{
 			QString sfVal = GetSFValueAsString(info, precision);
 			QString sfStr = QString("%1 = %2").arg(info.sfName, sfVal);
@@ -1218,7 +1275,7 @@ struct Tab
 		{
 			int maxWidth = 0;
 			for (int j = 0; j < colContent[i].size(); ++j)
-				maxWidth = std::max(maxWidth, fm.width(colContent[i][j]));
+				maxWidth = std::max(maxWidth, fm.horizontalAdvance(colContent[i][j]));
 			colWidth[i] = maxWidth;
 			totalWidth += maxWidth;
 		}
@@ -1317,7 +1374,7 @@ void cc2DLabel::drawMeOnly2D(CC_DRAW_CONTEXT& context)
 				QFont font(context.display->getTextDisplayFont()); // takes rendering zoom into account!
 				// font.setPointSize(font.pointSize() + 2);
 				font.setBold(true);
-				static const QChar ABC[3] = {'A', 'B', 'C'};
+				static const QChar ABC[3]{'A', 'B', 'C'};
 
 				// draw the label 'legend(s)'
 				for (size_t j = 0; j < count; j++)
@@ -1395,7 +1452,7 @@ void cc2DLabel::drawMeOnly2D(CC_DRAW_CONTEXT& context)
 		// int buttonSize    = static_cast<int>(c_buttonSize * context.renderZoom);
 		{
 			// base box dimension
-			dx = std::max(dx, titleFontMetrics.width(title));
+			dx = std::max(dx, titleFontMetrics.horizontalAdvance(title));
 			dy += margin;      // top vertical margin
 			dy += titleHeight; // title
 
@@ -1762,11 +1819,10 @@ void cc2DLabel::drawMeOnly2D(CC_DRAW_CONTEXT& context)
 				int width  = tab.colWidth[c] + 2 * tabMarginX;
 				int height = rowHeight + 2 * tabMarginY;
 
-				int yRow           = yStartRel;
-				int actualRowCount = std::min(tab.rowCount, tab.colContent[c].size());
-
-				bool                 labelCol  = ((c & 1) == 0);
-				const ccColor::Rgba* textColor = labelCol ? &ccColor::white : &defaultTextColor;
+				int                  yRow           = yStartRel;
+				int                  actualRowCount = std::min(tab.rowCount, static_cast<int>(tab.colContent[c].size()));
+				bool                 labelCol       = ((c & 1) == 0);
+				const ccColor::Rgba* textColor      = labelCol ? &ccColor::white : &defaultTextColor;
 
 				for (int r = 0; r < actualRowCount; ++r)
 				{
@@ -1798,12 +1854,12 @@ void cc2DLabel::drawMeOnly2D(CC_DRAW_CONTEXT& context)
 					if (labelCol)
 					{
 						// align characters in the middle
-						xShift = (tab.colWidth[c] - QFontMetrics(bodyFont).width(str)) / 2;
+						xShift = (tab.colWidth[c] - QFontMetrics(bodyFont).horizontalAdvance(str)) / 2;
 					}
 					else
 					{
 						// align digits on the right
-						xShift = tab.colWidth[c] - QFontMetrics(bodyFont).width(str);
+						xShift = tab.colWidth[c] - QFontMetrics(bodyFont).horizontalAdvance(str);
 					}
 
 					context.display->displayText(str,

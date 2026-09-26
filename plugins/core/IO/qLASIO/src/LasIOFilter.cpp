@@ -114,7 +114,7 @@ CC_FILE_ERROR LasIOFilter::loadFile(const QString&  fileName,
 		return CC_FERR_THIRD_PARTY_LIB_FAILURE;
 	}
 
-	if (laszip_open_reader(laszipReader, qPrintable(fileName), &isCompressed))
+	if (laszip_open_reader(laszipReader, qUtf8Printable(fileName), &isCompressed))
 	{
 		laszip_get_error(laszipHeader, &errorMsg);
 		ccLog::Warning("[LAS] laszip error: '%s'", errorMsg);
@@ -309,7 +309,7 @@ CC_FILE_ERROR LasIOFilter::loadFile(const QString&  fileName,
 	ccProgressDialog progressDialog(true, parameters.parentWidget);
 	progressDialog.setMethodTitle("Loading LAS points");
 	progressDialog.setInfo("Loading points");
-	QScopedPointer<CCCoreLib::NormalizedProgress> normProgress;
+	std::unique_ptr<CCCoreLib::NormalizedProgress> normProgress;
 	if (parameters.parentWidget)
 	{
 		normProgress.reset(new CCCoreLib::NormalizedProgress(&progressDialog, pointCount));
@@ -514,6 +514,7 @@ CC_FILE_ERROR LasIOFilter::loadFile(const QString&  fileName,
 			field.sf->setColorScale(ccColorScalesManager::GetDefaultScale(ccColorScalesManager::GREY));
 			break;
 		case LasScalarField::Classification:
+		case LasScalarField::ExtendedClassification:
 			field.sf->setColorScale(ccColorScalesManager::GetDefaultScale(ccColorScalesManager::ASPRS_CLASSES));
 			break;
 		case LasScalarField::ReturnNumber:
@@ -528,7 +529,6 @@ CC_FILE_ERROR LasIOFilter::loadFile(const QString&  fileName,
 		case LasScalarField::PointSourceId:
 		case LasScalarField::ExtendedScannerChannel:
 		case LasScalarField::OverlapFlag:
-		case LasScalarField::ExtendedClassification:
 		case LasScalarField::ExtendedReturnNumber:
 		case LasScalarField::ExtendedNumberOfReturns:
 		case LasScalarField::NearInfrared:
@@ -661,6 +661,7 @@ CC_FILE_ERROR LasIOFilter::saveToFile(ccHObject* entity, const QString& filename
 
 	bool noShiftCanBeUsed     = !ccGlobalShiftManager::NeedShift(bbMax);
 	bool minBBCornerCanBeUsed = !ccGlobalShiftManager::NeedShift(bbMax - bbMin);
+	bool bbCenterCanBeUsed    = !ccGlobalShiftManager::NeedShift(0.5 * (bbMax - bbMin));
 
 	bool globalShiftAndLASOffsetXYAreDifferent = (hasLASOffset != hasGlobalShift
 	                                              || std::abs(originalLASOffset.x + globalShift.x) > 0.01 //'global shift' is the opposite of LAS offset ;)
@@ -677,9 +678,14 @@ CC_FILE_ERROR LasIOFilter::saveToFile(ccHObject* entity, const QString& filename
 		availableOffsets[LasSaveDialog::GLOBAL_SHIFT] = -globalShift; //'global shift' is the opposite of LAS offset ;)
 	}
 	CCVector3d minBBCornerOffset(bbMin.x, bbMin.y, 0.0);
+	CCVector3d bbCenterOffset((bbMin.x + bbMax.x) / 2, (bbMin.y + bbMax.y) / 2, 0.0);
 	// if (minBBCornerCanBeUsed) // we can still display it, even if it's not optimal
 	{
 		availableOffsets[LasSaveDialog::MIN_BB_CORNER] = minBBCornerOffset;
+	}
+	// if (bbCenterCanBeUsed) // we can still display it, even if it's not optimal
+	{
+		availableOffsets[LasSaveDialog::BB_CENTER] = bbCenterOffset;
 	}
 	static CCVector3d s_customLASOffset(0, 0, 0);
 	static bool       s_customLASOffsetWasUsedPreviously = false;
@@ -744,6 +750,11 @@ CC_FILE_ERROR LasIOFilter::saveToFile(ccHObject* entity, const QString& filename
 		{
 			ccLog::Warning("[LAS] The minimum bounding-box corner (X, Y) will be used as LAS offset by default");
 			defaultSelectedOffset = LasSaveDialog::MIN_BB_CORNER;
+		}
+		else if (bbCenterCanBeUsed)
+		{
+			ccLog::Warning("[LAS] The bounding-box center (X, Y) will be used as LAS offset by default");
+			defaultSelectedOffset = LasSaveDialog::BB_CENTER;
 		}
 		else
 		{
@@ -902,6 +913,26 @@ CC_FILE_ERROR LasIOFilter::saveToFile(ccHObject* entity, const QString& filename
 		}
 	}
 
+	// The "Extra Bytes" descriptor is written to a VLR, whose payload length is stored on
+	// 16 bits, so it cannot describe an unlimited number of fields. Writing it to an EVLR
+	// instead is not supported yet, so the surplus fields are dropped here. They have to be
+	// dropped before the saver computes the point record length, otherwise the points would
+	// carry extra bytes that the descriptor does not cover.
+	{
+		size_t budget = LasExtraScalarField::MAX_EXTRA_FIELDS_IN_VLR;
+		if (params.shouldSaveNormalsAsExtraScalarField && pointCloud->hasNormals())
+		{
+			// the saver adds one field per normal component on top of the ones selected here
+			budget -= 3;
+		}
+
+		if (params.extraFields.size() > budget)
+		{
+			ccLog::Warning(QString("[LAS] Only %1 extra scalar fields can be saved, the last %2 will be skipped").arg(budget).arg(params.extraFields.size() - budget));
+			params.extraFields.resize(budget);
+		}
+	}
+
 	LasSaver      saver(*pointCloud, params);
 	CC_FILE_ERROR error = saver.open(filename);
 	if (error != CC_FERR_NO_ERROR)
@@ -912,7 +943,7 @@ CC_FILE_ERROR LasIOFilter::saveToFile(ccHObject* entity, const QString& filename
 	ccProgressDialog progressDialog(true, parameters.parentWidget);
 	progressDialog.setMethodTitle("Saving LAS points");
 	progressDialog.setInfo("Saving points");
-	QScopedPointer<CCCoreLib::NormalizedProgress> normProgress;
+	std::unique_ptr<CCCoreLib::NormalizedProgress> normProgress;
 	if (parameters.parentWidget)
 	{
 		normProgress.reset(new CCCoreLib::NormalizedProgress(&progressDialog, pointCloud->size()));

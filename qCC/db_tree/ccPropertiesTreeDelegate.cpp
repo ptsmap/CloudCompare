@@ -38,6 +38,7 @@
 #include <ccColorScalesManager.h>
 #include <ccCone.h>
 #include <ccCoordinateSystem.h>
+#include <ccDisc.h>
 #include <ccFacet.h>
 #include <ccGBLSensor.h>
 #include <ccGenericPrimitive.h>
@@ -423,14 +424,19 @@ void ccPropertiesTreeDelegate::fillWithMetaData(const ccObject* _obj)
 		QVariant var = it.value();
 		QString  value;
 
-		if (var.canConvert(QVariant::String))
+		if (var.canConvert(QMetaType(QMetaType::QString)))
 		{
-			var.convert(QVariant::String);
+			var.convert(QMetaType(QMetaType::QString));
 			value = var.toString();
+			if (value.length() > 1024)
+			{
+				// prefer the name over a very long description!
+				value = QString(QMetaType(var.typeId()).name());
+			}
 		}
 		else
 		{
-			value = QString(QVariant::typeToName(var.type()));
+			value = QString(QMetaType(var.typeId()).name());
 		}
 
 		appendRow(ITEM(it.key()), ITEM(value));
@@ -526,10 +532,7 @@ void ccPropertiesTreeDelegate::fillWithHObject(ccHObject* _obj)
 	appendRow(ITEM(tr("Info")), ITEM(tr("Object ID: %1 - Children: %2").arg(_obj->getUniqueID()).arg(_obj->getChildrenNumber())));
 
 	// display window
-	if (!_obj->isLocked())
-	{
-		appendRow(ITEM(tr("Current Display")), PERSISTENT_EDITOR(OBJECT_CURRENT_DISPLAY), true);
-	}
+	appendRow(ITEM(tr("Current Display")), PERSISTENT_EDITOR(OBJECT_CURRENT_DISPLAY), true);
 }
 
 void ccPropertiesTreeDelegate::fillWithShifted(const ccShiftedObject* _obj)
@@ -786,6 +789,10 @@ void ccPropertiesTreeDelegate::fillWithPrimitive(const ccGenericPrimitive* _obj)
 	{
 		// planar entity commons
 		fillWithPlanarEntity(static_cast<const ccPlane*>(_obj));
+	}
+	else if (_obj->isKindOf(CC_TYPES::DISC))
+	{
+		appendRow(ITEM(tr("Radius")), PERSISTENT_EDITOR(OBJECT_DISC_RADIUS), true);
 	}
 }
 
@@ -1321,7 +1328,7 @@ QWidget* ccPropertiesTreeDelegate::createEditor(QWidget*                    pare
 			comboBox->addItem(glWindow->getWindowTitle());
 		}
 
-		connect(comboBox, qOverload<const QString&>(&QComboBox::currentIndexChanged), this, &ccPropertiesTreeDelegate::objectDisplayChanged);
+		connect(comboBox, qOverload<const QString&>(&QComboBox::currentTextChanged), this, &ccPropertiesTreeDelegate::objectDisplayChanged);
 
 		outputWidget = comboBox;
 	}
@@ -1468,6 +1475,18 @@ QWidget* ccPropertiesTreeDelegate::createEditor(QWidget*                    pare
 		spinBox->setSingleStep(1.0);
 
 		connect(spinBox, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &ccPropertiesTreeDelegate::circleRadiusChanged);
+
+		outputWidget = spinBox;
+	}
+	break;
+	case OBJECT_DISC_RADIUS:
+	{
+		QDoubleSpinBox* spinBox = new QDoubleSpinBox(parent);
+		spinBox->setDecimals(7);
+		spinBox->setRange(1.0e-6, 1.0e6);
+		spinBox->setSingleStep(1.0);
+
+		connect(spinBox, qOverload<double>(&QDoubleSpinBox::valueChanged), this, &ccPropertiesTreeDelegate::discRadiusChanged);
 
 		outputWidget = spinBox;
 	}
@@ -1662,7 +1681,7 @@ QWidget* ccPropertiesTreeDelegate::createEditor(QWidget*                    pare
 				comboBox->addItem(tr(s_sfColor));
 				comboBox->setItemIcon(comboBox->count() - 1, QIcon(QString::fromUtf8(":/CC/images/typeSF.png")));
 			}
-			connect(comboBox, qOverload<const QString&>(&QComboBox::currentIndexChanged), this, &ccPropertiesTreeDelegate::colorSourceChanged);
+			connect(comboBox, qOverload<const QString&>(&QComboBox::currentTextChanged), this, &ccPropertiesTreeDelegate::colorSourceChanged);
 		}
 
 		outputWidget = comboBox;
@@ -2009,6 +2028,13 @@ void ccPropertiesTreeDelegate::setEditorData(QWidget* editor, const QModelIndex&
 		ccCircle* circle = ccHObjectCaster::ToCircle(m_currentObject);
 		assert(circle);
 		SetDoubleSpinBoxValue(editor, circle ? circle->getRadius() : 0.0);
+		break;
+	}
+	case OBJECT_DISC_RADIUS:
+	{
+		ccDisc* disc = ccHObjectCaster::ToDisc(m_currentObject);
+		assert(disc);
+		SetDoubleSpinBoxValue(editor, disc ? disc->getRadius() : 0.0);
 		break;
 	}
 	case OBJECT_CONE_HEIGHT:
@@ -2647,6 +2673,30 @@ void ccPropertiesTreeDelegate::circleRadiusChanged(double val)
 		bool wasVisible = circle->isVisible();
 		circle->setRadius(val);
 		circle->setVisible(wasVisible);
+
+		updateDisplay();
+
+		// record item role to force the scroll focus (see 'createEditor').
+		m_lastFocusItemRole = OBJECT_CIRCLE_RADIUS;
+
+		// we must also reset the properties display!
+		updateModel();
+	}
+}
+
+void ccPropertiesTreeDelegate::discRadiusChanged(double val)
+{
+	if (!m_currentObject)
+		return;
+
+	ccDisc* disc = ccHObjectCaster::ToDisc(m_currentObject);
+	assert(disc);
+	if (!disc)
+		return;
+
+	if (disc->getRadius() != val)
+	{
+		disc->setRadius(val);
 
 		updateDisplay();
 

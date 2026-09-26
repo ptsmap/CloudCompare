@@ -114,20 +114,21 @@ file(REMOVE "${SOURCES_LIST_FILE}")
 
 append_sources_to_file(source_list qCC EXCLUDE_DIRS extern)
 append_sources_to_file(source_list ccViewer EXCLUDE_DIRS extern)
-append_sources_to_file(source_list libs EXCLUDE_DIRS CCAppCommon/QDarkStyleSheet qCC_db/extern qCC_io/extern)
+append_sources_to_file(source_list libs EXCLUDE_DIRS CCAppCommon/QDarkStyleSheet qCC_db/extern qCC_io/extern CCAppCommon/devices/3dConnexion/extern/hidapi)
 append_sources_to_file(source_list plugins/core/GL EXCLUDE_DIRS qSSAO/extern)
-append_sources_to_file(source_list plugins/core/IO EXCLUDE_DIRS qE57IO/extern qPhotoscanIO/extern)
+append_sources_to_file(source_list plugins/core/IO EXCLUDE_DIRS qE57IO/extern qPhotoscanIO/extern MeshIO/extern)
 
+find_program(CLANG_FORMAT NAMES clang-format)
 
 add_custom_target(
-	format COMMAND ${CMAKE_COMMAND} -E echo "Format with: $<IF:$<BOOL:$ENV{CMD}>,$ENV{CMD},clang-format>"
-	COMMAND $<IF:$<BOOL:$ENV{CMD}>,$ENV{CMD},clang-format> --version
-	COMMAND $<IF:$<BOOL:$ENV{CMD}>,$ENV{CMD},clang-format> -i "--files=${SOURCES_LIST_FILE}"
+	format COMMAND ${CMAKE_COMMAND} -E echo "Format with: $<IF:$<BOOL:${CLANG_FORMAT}>,${CLANG_FORMAT},clang-format>"
+	COMMAND $<IF:$<BOOL:${CLANG_FORMAT}>,${CLANG_FORMAT},clang-format> --version
+	COMMAND $<IF:$<BOOL:${CLANG_FORMAT}>,${CLANG_FORMAT},clang-format> -i "--files=${SOURCES_LIST_FILE}"
 )
 
 add_custom_target(
 	check-format
-	COMMAND ${CMAKE_COMMAND} -E echo "Checking format with: $<IF:$<BOOL:$ENV{CMD}>,$ENV{CMD},clang-format>"
-	COMMAND $<IF:$<BOOL:$ENV{CMD}>,$ENV{CMD},clang-format> --version
-	COMMAND $<IF:$<BOOL:$ENV{CMD}>,$ENV{CMD},clang-format> --Werror --dry-run "--files=${SOURCES_LIST_FILE}"
+	COMMAND ${CMAKE_COMMAND} -E echo "Checking format with: $<IF:$<BOOL:${CLANG_FORMAT}>,${CLANG_FORMAT},clang-format>"
+	COMMAND $<IF:$<BOOL:${CLANG_FORMAT}>,${CLANG_FORMAT},clang-format> --version
+	COMMAND $<IF:$<BOOL:${CLANG_FORMAT}>,${CLANG_FORMAT},clang-format> --Werror --dry-run "--files=${SOURCES_LIST_FILE}"
 )

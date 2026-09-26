@@ -134,6 +134,7 @@ qBroomDlg::qBroomDlg(ccMainAppInterface* app/*=nullptr*/)
 	{
 		m_broomBox->setEnabled(true);
 		m_broomBox->setDisplay(m_glWindow);
+		m_broomBox->forceSunLightOn(true);
 
 		m_selectionBox->setEnabled(true);
 		m_selectionBox->setDisplay(m_glWindow);
@@ -1316,9 +1317,10 @@ void qBroomDlg::onLeftButtonClicked(int x, int y)
 			QPointF pos2D = m_glWindow->toCornerGLCoordinates(x, y);
 			m_broomSelected = m_broomBox->trianglePicking(	CCVector2d(pos2D.x(), pos2D.y()),
 															camera,
+															false,
 															nearestTriIndex,
 															nearestSquareDist,
-															P);
+															P );
 		}
 
 		m_hasLastMousePos3D = false;

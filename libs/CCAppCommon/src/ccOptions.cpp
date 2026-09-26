@@ -45,9 +45,15 @@ void ccOptions::ReleaseInstance()
 	s_options.release();
 }
 
-void ccOptions::Set(const ccOptions& params)
+void ccOptions::Set(const ccOptions& params, bool saveToPersistentSettings /*=false*/)
 {
-	InstanceNonConst() = params;
+	ccOptions& options = InstanceNonConst();
+	options            = params;
+
+	if (saveToPersistentSettings)
+	{
+		options.toPersistentSettings();
+	}
 }
 
 ccOptions::ccOptions()
@@ -60,6 +66,7 @@ void ccOptions::reset()
 	normalsDisplayedByDefault = false;
 	useNativeDialogs          = true;
 	confirmQuit               = true;
+	confirmDelete             = true;
 }
 
 void ccOptions::fromPersistentSettings()
@@ -70,6 +77,7 @@ void ccOptions::fromPersistentSettings()
 		normalsDisplayedByDefault = settings.value("normalsDisplayedByDefault", false).toBool();
 		useNativeDialogs          = settings.value("useNativeDialogs", true).toBool();
 		confirmQuit               = settings.value("confirmQuit", true).toBool();
+		confirmDelete             = settings.value("confirmDelete", true).toBool();
 	}
 	settings.endGroup();
 }
@@ -82,6 +90,7 @@ void ccOptions::toPersistentSettings() const
 		settings.setValue("normalsDisplayedByDefault", normalsDisplayedByDefault);
 		settings.setValue("useNativeDialogs", useNativeDialogs);
 		settings.setValue("confirmQuit", confirmQuit);
+		settings.setValue("confirmDelete", confirmDelete);
 	}
 	settings.endGroup();
 }

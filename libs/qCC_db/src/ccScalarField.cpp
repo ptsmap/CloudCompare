@@ -15,15 +15,15 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "ccScalarField.h"
+#include "../include/ccScalarField.h"
 
 // Local
-#include "ccColorScalesManager.h"
+#include "../include/ccColorScalesManager.h"
 
 // CCCoreLib
 #include <CCConst.h>
 
-// system
+// System
 #include <algorithm>
 
 using namespace CCCoreLib;
@@ -62,6 +62,11 @@ ccScalarField::ccScalarField(const ccScalarField& sf)
     , m_modified(sf.m_modified)
 {
 	computeMinAndMax();
+
+	// restore the display ranges after 'computeMinAndMax' is called
+	m_displayRange       = sf.m_displayRange;
+	m_saturationRange    = sf.m_saturationRange;
+	m_logSaturationRange = sf.m_logSaturationRange;
 }
 
 ScalarType ccScalarField::normalize(ScalarType d) const

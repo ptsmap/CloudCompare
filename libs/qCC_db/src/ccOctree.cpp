@@ -15,30 +15,28 @@
 // #                                                                        #
 // ##########################################################################
 
-// Always first
-#include "ccOctree.h"
-
-#include "ccIncludeGL.h"
+#include "../include/ccOctree.h"
 
 // Local
-#include "ccBox.h"
-#include "ccCameraSensor.h"
-#include "ccNormalVectors.h"
-#include "ccPointCloud.h"
-#include "ccProgressDialog.h"
-#include "ccScalarField.h"
+#include "../include/ccBox.h"
+#include "../include/ccCameraSensor.h"
+#include "../include/ccIncludeGL.h"
+#include "../include/ccNormalVectors.h"
+#include "../include/ccPointCloud.h"
+#include "../include/ccProgressDialog.h"
+#include "../include/ccScalarField.h"
 
 // CCCoreLib
 #include <Neighbourhood.h>
 #include <RayAndBox.h>
 #include <ScalarFieldTools.h>
 
+// System
+#include <random>
+
 #ifdef QT_DEBUG
 // #define DEBUG_PICKING_MECHANISM
 #endif
-
-// System
-#include <random>
 
 ccOctree::ccOctree(ccGenericPointCloud* aCloud)
     : CCCoreLib::DgmOctree(aCloud)
@@ -87,7 +85,7 @@ void ccOctree::clear()
 	if (context)
 	{
 		// get the set of OpenGL functions (version 2.1)
-		QOpenGLFunctions_2_1* glFunc = context->versionFunctions<QOpenGLFunctions_2_1>();
+		auto* glFunc = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_2_1>(context);
 		assert(glFunc != nullptr);
 
 		if (glFunc && glFunc->glIsList(m_glListID))
@@ -112,7 +110,7 @@ ccBBox ccOctree::getPointsBB() const
 	return ccBBox(m_pointsMin, m_pointsMax, m_numberOfProjectedPoints != 0);
 }
 
-void ccOctree::multiplyBoundingBox(const PointCoordinateType multFactor)
+void ccOctree::multiplyBoundingBox(PointCoordinateType multFactor)
 {
 	m_dimMin *= multFactor;
 	m_dimMax *= multFactor;
@@ -209,9 +207,9 @@ void ccOctree::draw(CC_DRAW_CONTEXT& context, ccColor::Rgb* pickingColor /*=null
 
 			if (m_displayMode == MEAN_POINTS)
 			{
-				void* additionalParameters[] = {reinterpret_cast<void*>(&glParams),
-				                                reinterpret_cast<void*>(m_theAssociatedCloudAsGPC),
-				                                reinterpret_cast<void*>(glFunc)};
+				void* additionalParameters[]{reinterpret_cast<void*>(&glParams),
+				                             reinterpret_cast<void*>(m_theAssociatedCloudAsGPC),
+				                             reinterpret_cast<void*>(glFunc)};
 
 				if (glParams.showNorms)
 				{
@@ -254,13 +252,13 @@ void ccOctree::draw(CC_DRAW_CONTEXT& context, ccColor::Rgb* pickingColor /*=null
 
 				// fake context
 				CC_DRAW_CONTEXT fakeContext = context;
-				fakeContext.drawingFlags    = CC_DRAW_3D | CC_DRAW_FOREGROUND | CC_LIGHT_ENABLED;
+				fakeContext.drawingFlags    = CC_DRAW_3D | CC_DRAW_FOREGROUND | CC_LIGHT_ENABLED | CC_NO_SHADER;
 				fakeContext.display         = nullptr;
 
-				void* additionalParameters[] = {reinterpret_cast<void*>(&glParams),
-				                                reinterpret_cast<void*>(m_theAssociatedCloudAsGPC),
-				                                reinterpret_cast<void*>(&box),
-				                                reinterpret_cast<void*>(&fakeContext)};
+				void* additionalParameters[]{reinterpret_cast<void*>(&glParams),
+				                             reinterpret_cast<void*>(m_theAssociatedCloudAsGPC),
+				                             reinterpret_cast<void*>(&box),
+				                             reinterpret_cast<void*>(&fakeContext)};
 
 				executeFunctionForAllCellsAtLevel(m_displayedLevel,
 				                                  &DrawCellAsAPrimitive,

@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -14,9 +16,6 @@
 // #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
 // #                                                                        #
 // ##########################################################################
-
-#ifndef CC_MAIN_WINDOW_HEADER
-#define CC_MAIN_WINDOW_HEADER
 
 // Qt
 #include <QMainWindow>
@@ -41,7 +40,6 @@ class ccClippingBoxTool;
 class ccComparisonDlg;
 class ccDBRoot;
 class ccDrawableObject;
-class ccGamepadManager;
 class ccGLWindowInterface;
 class ccGraphicalSegmentationTool;
 class ccGraphicalTransformationTool;
@@ -185,7 +183,7 @@ class MainWindow : public QMainWindow
 	void initPlugins();
 
 	//! Updates the 'Properties' view
-	void updatePropertiesView();
+	void updatePropertiesView() override;
 
   private:
 	//! Creates a new 3D GL sub-window
@@ -245,6 +243,7 @@ class MainWindow : public QMainWindow
 	void increasePointSize() override;
 	void decreasePointSize() override;
 
+	void setCustomLightPosition();
 	void toggleLockRotationAxis();
 	void doActionEnableBubbleViewMode();
 	void setPivotAlwaysOn();
@@ -296,6 +295,7 @@ class MainWindow : public QMainWindow
 	void doActionSFConvertToRGB();
 	void doActionSFConvertToRandomRGB();
 	void doActionRenameSF();
+	void doActionOpenSelectedEntitiesSFManager();
 	void doActionOpenColorScalesManager();
 	void doActionAddIdField();
 	void doActionSplitCloudUsingSF();
@@ -328,6 +328,7 @@ class MainWindow : public QMainWindow
 	void doActionStatisticalTest();
 	void doActionSamplePointsOnMesh();
 	void doActionSamplePointsOnPolyline();
+	void doActionExtrudePolyline();
 	void doActionSmoohPolyline();
 	void doActionConvertTextureToColor();
 	void doActionLabelConnectedComponents();
@@ -461,6 +462,9 @@ class MainWindow : public QMainWindow
 	void doActionToggleActiveSFColorScale();
 	void doActionShowActiveSFPrevious();
 	void doActionShowActiveSFNext();
+
+	//! Toggles the clipping planes
+	void toggleClippingPlanes();
 
 	//! Removes all entities currently loaded in the DB tree
 	void closeAll();
@@ -610,9 +614,6 @@ class MainWindow : public QMainWindow
 	//! 3D mouse
 	cc3DMouseManager* m_3DMouseManager;
 
-	//! Gamepad handler
-	ccGamepadManager* m_gamepadManager;
-
 	//! View mode pop-up menu button
 	QToolButton* m_viewModePopupButton;
 
@@ -683,5 +684,3 @@ class MainWindow : public QMainWindow
 
 	QList<QAction*> m_actions;
 };
-
-#endif

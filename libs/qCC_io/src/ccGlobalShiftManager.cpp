@@ -264,7 +264,7 @@ bool ccGlobalShiftManager::Handle(const CCVector3d& P,
 	{
 		ccShiftAndScaleCloudDlg sasDlg(P, diagonal);
 		sasDlg.showApplyAllButton(_applyAll != nullptr);
-		sasDlg.showScaleItems(_coordinatesScale != nullptr);
+		sasDlg.showScaleItems(_coordinatesScale != nullptr, true);
 		sasDlg.showWarning(needShift || needRescale);
 		sasDlg.setPreserveShiftOnSave(preserveCoordinateShift);
 		sasDlg.showPreserveShiftOnSave(_preserveCoordinateShift != nullptr);
@@ -416,7 +416,7 @@ bool ccGlobalShiftManager::LoadInfoFromFile(QString filename, std::vector<ShiftI
 			continue;
 
 		// split line in 5 items
-		QStringList tokens = line.split(";", QString::SkipEmptyParts);
+		QStringList tokens = line.split(";", Qt::SkipEmptyParts);
 		if (tokens.size() != 5)
 		{
 			// invalid file

@@ -22,7 +22,7 @@
 #include <QListWidgetItem>
 
 // system
-#include <assert.h>
+#include <cassert>
 
 ccMatchScalesDlg::ccMatchScalesDlg(const ccHObject::Container& entities,
                                    int                         defaultSelectedIndex /*=0*/,
@@ -40,7 +40,7 @@ ccMatchScalesDlg::ccMatchScalesDlg(const ccHObject::Container& entities,
 
 	// default selection
 	if (defaultSelectedIndex >= 0 && static_cast<size_t>(defaultSelectedIndex) < entities.size())
-		listWidget->setItemSelected(listWidget->item(defaultSelectedIndex), true);
+		listWidget->item(defaultSelectedIndex)->setSelected(true);
 
 	rmsDifferenceLineEdit->setValidator(new QDoubleValidator(rmsDifferenceLineEdit));
 }

@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -15,9 +17,6 @@
 // #                                                                        #
 // ##########################################################################
 
-#ifndef CC_CYLINDER_PRIMITIVE_HEADER
-#define CC_CYLINDER_PRIMITIVE_HEADER
-
 // Local
 #include "ccCone.h"
 
@@ -30,7 +29,7 @@ class QCC_DB_LIB_API ccCylinder : public ccCone
 	//! Default drawing precision
 	/** \warning Never pass a 'constant initializer' by reference
 	 **/
-	static const unsigned DEFAULT_DRAWING_PRECISION = 24;
+	static const unsigned DEFAULT_DRAWING_PRECISION = 48;
 
 	//! Default constructor
 	/** Cylinder axis corresponds to the 'Z' dimension.
@@ -55,24 +54,22 @@ class QCC_DB_LIB_API ccCylinder : public ccCone
 	ccCylinder(QString name = QString("Cylinder"));
 
 	//! Returns class ID
-	virtual CC_CLASS_ENUM getClassID() const override
+	CC_CLASS_ENUM getClassID() const override
 	{
 		return CC_TYPES::CYLINDER;
 	}
 
 	// inherited from ccGenericPrimitive
-	virtual QString getTypeName() const override
+	QString getTypeName() const override
 	{
 		return "Cylinder";
 	}
-	virtual ccGenericPrimitive* clone() const override;
+	ccGenericPrimitive* clone() const override;
 
 	// inherited from ccCone
-	virtual void        setBottomRadius(PointCoordinateType radius) override;
-	inline virtual void setTopRadius(PointCoordinateType radius) override
+	void        setBottomRadius(PointCoordinateType radius) override;
+	inline void setTopRadius(PointCoordinateType radius) override
 	{
-		return setBottomRadius(radius);
+		setBottomRadius(radius);
 	}
 };
-
-#endif // CC_CYLINDER_PRIMITIVE_HEADER

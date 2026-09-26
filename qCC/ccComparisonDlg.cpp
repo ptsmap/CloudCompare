@@ -29,6 +29,7 @@
 #include <ScalarFieldTools.h>
 
 // qCC_db
+#include <ccBackgroundTask.h>
 #include <ccGBLSensor.h>
 #include <ccGenericMesh.h>
 #include <ccHObject.h>
@@ -50,7 +51,7 @@
 #include <QThreadPool>
 
 // System
-#include <assert.h>
+#include <cassert>
 
 const unsigned char DEFAULT_OCTREE_LEVEL = 7;
 
@@ -338,7 +339,7 @@ bool ccComparisonDlg::computeApproxDistances()
 	assert(sf);
 
 	// prepare the octree structures
-	QScopedPointer<ccProgressDialog> progressDlg;
+	std::unique_ptr<ccProgressDialog> progressDlg;
 	if (parentWidget())
 	{
 		progressDlg.reset(new ccProgressDialog(true, this));
@@ -356,7 +357,7 @@ bool ccComparisonDlg::computeApproxDistances()
 		                                                                                     m_refCloud,
 		                                                                                     DEFAULT_OCTREE_LEVEL,
 		                                                                                     0,
-		                                                                                     progressDlg.data(),
+		                                                                                     progressDlg.get(),
 		                                                                                     m_compOctree.data(),
 		                                                                                     m_refOctree.data());
 	}
@@ -376,7 +377,7 @@ bool ccComparisonDlg::computeApproxDistances()
 		approxResult = CCCoreLib::DistanceComputationTools::computeCloud2MeshDistances(m_compCloud,
 		                                                                               m_refMesh,
 		                                                                               c2mParams,
-		                                                                               progressDlg.data(),
+		                                                                               progressDlg.get(),
 		                                                                               m_compOctree.data());
 	}
 	break;
@@ -393,7 +394,7 @@ bool ccComparisonDlg::computeApproxDistances()
 	}
 
 	// if the approximate distances comptation failed...
-	if (approxResult < 0)
+	if (approxResult < CCCoreLib::DistanceComputationTools::DISTANCE_COMPUTATION_RESULTS::SUCCESS)
 	{
 		ccLog::Warning("[computeApproxDistances] Computation failed (error code %i)", approxResult);
 		m_compCloud->deleteScalarField(sfIdx);
@@ -536,7 +537,7 @@ int ccComparisonDlg::determineBestOctreeLevel(double maxSearchDist)
 	int              theBestOctreeLevel = s_minOctreeLevel;
 
 	// we don't test the very first and very last level
-	QScopedPointer<ccProgressDialog> progressDlg;
+	std::unique_ptr<ccProgressDialog> progressDlg;
 	if (parentWidget())
 	{
 		progressDlg.reset(new ccProgressDialog(false, this));
@@ -544,7 +545,7 @@ int ccComparisonDlg::determineBestOctreeLevel(double maxSearchDist)
 		progressDlg->setInfo(tr("Testing %1 levels...").arg(MAX_OCTREE_LEVEL)); // we lie here ;)
 		progressDlg->start();
 	}
-	CCCoreLib::NormalizedProgress nProgress(progressDlg.data(), MAX_OCTREE_LEVEL - 2);
+	CCCoreLib::NormalizedProgress nProgress(progressDlg.get(), MAX_OCTREE_LEVEL - 2);
 	QApplication::processEvents();
 
 	bool                maxDistanceDefined = maxDistCheckBox->isChecked();
@@ -731,8 +732,8 @@ bool ccComparisonDlg::computeDistances()
 	s_maxThreadCount = c2cParams.maxThreadCount = c2mParams.maxThreadCount = maxThreadCountSpinBox->value();
 	ccLog::Print(QString("[Distances] Will use %1 threads").arg(s_maxThreadCount));
 
-	int                              result = -1;
-	QScopedPointer<ccProgressDialog> progressDlg;
+	int                               result = -1;
+	std::unique_ptr<ccProgressDialog> progressDlg;
 	if (parentWidget())
 	{
 		progressDlg.reset(new ccProgressDialog(true, this));
@@ -852,12 +853,17 @@ bool ccComparisonDlg::computeDistances()
 			c2cParams.CPSet         = nullptr;
 		}
 
-		result = CCCoreLib::DistanceComputationTools::computeCloud2CloudDistances(m_compCloud,
-		                                                                          m_refCloud,
-		                                                                          c2cParams,
-		                                                                          progressDlg.data(),
-		                                                                          m_compOctree.data(),
-		                                                                          m_refOctree.data());
+		// in a worker thread, so that the progress dialog keeps refreshing
+		result = ccBackgroundTask::Run(
+		    [&]()
+		    {
+			    return CCCoreLib::DistanceComputationTools::computeCloud2CloudDistances(m_compCloud,
+			                                                                            m_refCloud,
+			                                                                            c2cParams,
+			                                                                            progressDlg.get(),
+			                                                                            m_compOctree.data(),
+			                                                                            m_refOctree.data());
+		    });
 		break;
 
 	case CLOUDMESH_DIST: // cloud-mesh
@@ -873,11 +879,16 @@ bool ccComparisonDlg::computeDistances()
 			c2mParams.robust          = robust;
 		}
 
-		result = CCCoreLib::DistanceComputationTools::computeCloud2MeshDistances(m_compCloud,
-		                                                                         m_refMesh,
-		                                                                         c2mParams,
-		                                                                         progressDlg.data(),
-		                                                                         m_compOctree.data());
+		// in a worker thread, so that the progress dialog keeps refreshing
+		result = ccBackgroundTask::Run(
+		    [&]()
+		    {
+			    return CCCoreLib::DistanceComputationTools::computeCloud2MeshDistances(m_compCloud,
+			                                                                           m_refMesh,
+			                                                                           c2mParams,
+			                                                                           progressDlg.get(),
+			                                                                           m_compOctree.data());
+		    });
 		break;
 	}
 	qint64 elapsedTime_ms = eTimer.elapsed();
@@ -887,7 +898,7 @@ bool ccComparisonDlg::computeDistances()
 		progressDlg->stop();
 	}
 
-	if (result >= 0)
+	if (result >= CCCoreLib::DistanceComputationTools::DISTANCE_COMPUTATION_RESULTS::SUCCESS)
 	{
 		ccLog::Print("[ComputeDistances] Time: %3.2f s.", elapsedTime_ms / 1.0e3);
 

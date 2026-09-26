@@ -15,35 +15,34 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "ccHObject.h"
+#include "../include/ccHObject.h"
 
 // Local
-#include "ccIncludeGL.h"
-
-// Objects handled by factory
-#include "cc2DLabel.h"
-#include "cc2DViewportLabel.h"
-#include "ccBox.h"
-#include "ccCameraSensor.h"
-#include "ccCircle.h"
-#include "ccCoordinateSystem.h"
-#include "ccCustomObject.h"
-#include "ccCylinder.h"
-#include "ccDish.h"
-#include "ccExternalFactory.h"
-#include "ccExtru.h"
-#include "ccFacet.h"
-#include "ccGBLSensor.h"
-#include "ccImage.h"
-#include "ccMaterialSet.h"
-#include "ccMeshGroup.h"
-#include "ccPlane.h"
-#include "ccPointCloud.h"
-#include "ccPolyline.h"
-#include "ccQuadric.h"
-#include "ccSphere.h"
-#include "ccSubMesh.h"
-#include "ccTorus.h"
+#include "../include/cc2DLabel.h"
+#include "../include/cc2DViewportLabel.h"
+#include "../include/ccBox.h"
+#include "../include/ccCameraSensor.h"
+#include "../include/ccCircle.h"
+#include "../include/ccCoordinateSystem.h"
+#include "../include/ccCustomObject.h"
+#include "../include/ccCylinder.h"
+#include "../include/ccDisc.h"
+#include "../include/ccDish.h"
+#include "../include/ccExternalFactory.h"
+#include "../include/ccExtru.h"
+#include "../include/ccFacet.h"
+#include "../include/ccGBLSensor.h"
+#include "../include/ccImage.h"
+#include "../include/ccIncludeGL.h"
+#include "../include/ccMaterialSet.h"
+#include "../include/ccMeshGroup.h"
+#include "../include/ccPlane.h"
+#include "../include/ccPointCloud.h"
+#include "../include/ccPolyline.h"
+#include "../include/ccQuadric.h"
+#include "../include/ccSphere.h"
+#include "../include/ccSubMesh.h"
+#include "../include/ccTorus.h"
 
 // Qt
 #include <QIcon>
@@ -76,7 +75,10 @@ ccHObject::~ccHObject()
 	m_isDeleting = true;
 
 	// process dependencies
-	for (std::map<ccHObject*, int>::const_iterator it = m_dependencies.begin(); it != m_dependencies.end(); ++it)
+	std::map<ccHObject*, int> dependencies;
+	m_dependencies.swap(dependencies); // the member might be modified during the following process!
+
+	for (std::map<ccHObject*, int>::const_iterator it = dependencies.begin(); it != dependencies.end(); ++it)
 	{
 		assert(it->first);
 		// notify deletion to other object?
@@ -108,7 +110,6 @@ ccHObject::~ccHObject()
 			}
 		}
 	}
-	m_dependencies.clear();
 
 	removeAllChildren();
 }
@@ -126,7 +127,7 @@ void ccHObject::notifyGeometryUpdate()
 	for (std::map<ccHObject*, int>::const_iterator it = m_dependencies.begin(); it != m_dependencies.end(); ++it)
 	{
 		assert(it->first);
-		// notify deletion to other object?
+		// notify update to other object?
 		if ((it->second & DP_NOTIFY_OTHER_ON_UPDATE) == DP_NOTIFY_OTHER_ON_UPDATE)
 		{
 			it->first->onUpdateOf(this);
@@ -200,6 +201,8 @@ ccHObject* ccHObject::New(CC_CLASS_ENUM objectType, const char* name /*=nullptr*
 		return new ccBox(name);
 	case CC_TYPES::CONE:
 		return new ccCone(name);
+	case CC_TYPES::DISC:
+		return new ccDisc(name);
 	case CC_TYPES::DISH:
 		return new ccDish(name);
 	case CC_TYPES::EXTRU:
@@ -220,8 +223,15 @@ ccHObject* ccHObject::New(CC_CLASS_ENUM objectType, const char* name /*=nullptr*
 		ccLog::ErrorDebug("[ccHObject::New] This object (type %i) can't be constructed this way (yet)!", objectType);
 		break;
 	default:
-		// unhandled ID
-		ccLog::ErrorDebug("[ccHObject::New] Invalid object type (%i)!", objectType);
+		if ((objectType & CC_TYPES::CUSTOM_H_OBJECT) == CC_TYPES::CUSTOM_H_OBJECT)
+		{
+			return new ccCustomHObject(name);
+		}
+		else
+		{
+			// unhandled ID
+			ccLog::ErrorDebug("[ccHObject::New] Invalid object type (%i)!", objectType);
+		}
 		break;
 	}
 
@@ -300,11 +310,26 @@ int ccHObject::getDependencyFlagsWith(const ccHObject* otherObject) const
 	return (it != m_dependencies.end() ? it->second : 0);
 }
 
+bool ccHObject::hasDependencyFlag(int dependencyFlag) const
+{
+	for (auto it : m_dependencies)
+	{
+		if (it.second == dependencyFlag)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void ccHObject::removeDependencyWith(ccHObject* otherObject)
 {
 	m_dependencies.erase(const_cast<ccHObject*>(otherObject)); // DGM: not sure why erase won't accept a const pointer?! We try to modify the map here, not the pointer object!
 	if (!otherObject->m_isDeleting)
+	{
 		otherObject->removeDependencyFlag(this, DP_NOTIFY_OTHER_ON_DELETE);
+	}
 }
 
 void ccHObject::removeDependencyFlag(ccHObject* otherObject, DEPENDENCY_FLAGS flag)
@@ -396,7 +421,7 @@ bool ccHObject::addChild(ccHObject* child, int dependencyFlags /*=DP_PARENT_OF_O
 		}
 		if (!child->getDisplay())
 		{
-			child->setDisplay(getDisplay());
+			child->setDisplay_recursive(getDisplay());
 		}
 	}
 
@@ -727,10 +752,11 @@ void ccHObject::draw(CC_DRAW_CONTEXT& context)
 
 	// get the set of OpenGL functions (version 2.1)
 	QOpenGLFunctions_2_1* glFunc = context.glFunctions<QOpenGLFunctions_2_1>();
-	assert(glFunc != nullptr);
-
 	if (glFunc == nullptr)
+	{
+		assert(false);
 		return;
+	}
 
 	// are we currently drawing objects in 2D or 3D?
 	bool draw3D = MACRO_Draw3D(context);
@@ -824,7 +850,9 @@ void ccHObject::draw(CC_DRAW_CONTEXT& context)
 	}
 
 	if (draw3D && m_glTransEnabled)
+	{
 		glFunc->glPopMatrix();
+	}
 }
 
 void ccHObject::applyGLTransformation(const ccGLMatrix& trans)

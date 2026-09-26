@@ -15,14 +15,12 @@
 // #                                                                        #
 // ##########################################################################
 
-// Always first
-#include "ccPolyline.h"
-
-#include "ccIncludeGL.h"
+#include "../include/ccPolyline.h"
 
 // Local
-#include "ccCone.h"
-#include "ccPointCloud.h"
+#include "../include/ccCone.h"
+#include "../include/ccIncludeGL.h"
+#include "../include/ccPointCloud.h"
 
 ccPolyline::ccPolyline(GenericIndexedCloudPersist* associatedCloud, unsigned uniqueID /*=ccUniqueIDGenerator::InvalidUniqueID*/)
     : Polyline(associatedCloud)
@@ -92,6 +90,7 @@ bool ccPolyline::initWith(ccPointCloud*& vertices, const ccPolyline& poly)
 		setAssociatedCloud(vertices);
 		addChild(vertices);
 		// vertices->setEnabled(false);
+
 		assert(m_theAssociatedCloud);
 		if (m_theAssociatedCloud)
 		{
@@ -162,8 +161,10 @@ void ccPolyline::applyGLTransformation(const ccGLMatrix& trans)
 	ccHObject::applyGLTransformation(trans);
 
 	// invalidate the bounding-box
-	//(and we hope the vertices will be updated as well!)
+	// (let's hope the vertices will be updated as well!)
 	invalidateBoundingBox();
+
+	notifyGeometryUpdate();
 }
 
 // unit arrow
@@ -391,19 +392,25 @@ bool ccPolyline::toFile_MeOnly(QFile& out, short dataVersion) const
 
 	uint32_t vertUniqueID = (vertices ? static_cast<uint32_t>(vertices->getUniqueID()) : 0);
 	if (out.write((const char*)&vertUniqueID, 4) < 0)
+	{
 		return WriteError();
+	}
 
 	// number of points (references to) (dataVersion>=28)
 	uint32_t pointCount = vertices ? size() : 0;
 	if (out.write((const char*)&pointCount, 4) < 0)
+	{
 		return WriteError();
+	}
 
 	// points (references to) (dataVersion>=28)
 	for (uint32_t i = 0; i < pointCount; ++i)
 	{
 		uint32_t pointIndex = getPointGlobalIndex(i);
 		if (out.write((const char*)&pointIndex, 4) < 0)
+		{
 			return WriteError();
+		}
 	}
 
 	if (dataVersion >= 39)
@@ -1078,16 +1085,52 @@ bool ccPolyline::createNewPolylinesFromSelection(std::vector<ccPolyline*>& outpu
 
 void ccPolyline::onDeletionOf(const ccHObject* obj)
 {
-	ccShiftedObject::onDeletionOf(obj); // remove dependencies, etc.
-
 	// can't cast to a point cloud or anything else than ccHObject, as this is called by the ccHObject destructor
 	const ccHObject* associatedObj = dynamic_cast<const ccHObject*>(getAssociatedCloud());
 
 	if (associatedObj == obj)
 	{
-		// we have to "detach" the cloud from the polyine... (ideally this object should be deleted)
+		// we have to "detach" the cloud from the polyline... (ideally this object should be deleted)
 		clear();
 		setAssociatedCloud(nullptr);
 		setName(getName() + " (emptied)");
 	}
+
+	ccShiftedObject::onDeletionOf(obj); // remove dependencies, etc.
+}
+
+void ccPolyline::onUpdateOf(ccHObject* obj)
+{
+	ccHObject* associatedObj = dynamic_cast<ccHObject*>(getAssociatedCloud());
+	if (obj == associatedObj)
+	{
+		invalidateBoundingBox();
+		notifyGeometryUpdate();
+	}
+
+	ccShiftedObject::onUpdateOf(obj);
+}
+
+void ccPolyline::setAssociatedCloud(GenericIndexedCloudPersist* cloud)
+{
+	if (nullptr != m_theAssociatedCloud && getAssociatedCloud() != cloud)
+	{
+		// remove dependencies to existing vertices
+		ccHObject* associatedObj = dynamic_cast<ccHObject*>(getAssociatedCloud());
+		if (associatedObj)
+		{
+			associatedObj->removeDependencyFlag(this, DP_NOTIFY_OTHER_ON_DELETE);
+		}
+	}
+
+	CCCoreLib::Polyline::setAssociatedCloud(cloud);
+
+	ccHObject* associatedObj = dynamic_cast<ccHObject*>(getAssociatedCloud());
+	if (associatedObj)
+	{
+		associatedObj->addDependency(this, DP_NOTIFY_OTHER_ON_DELETE | DP_NOTIFY_OTHER_ON_UPDATE);
+	}
+
+	// invalidate the bounding-box
+	invalidateBoundingBox();
 }

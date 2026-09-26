@@ -175,7 +175,7 @@ class CCGLWINDOW_LIB_API ccGLWindowStereo : public QWindow
 	// inherited from ccGLWindowInterface
 	inline ccQOpenGLFunctions* functions() const override
 	{
-		return context() ? context()->versionFunctions<ccQOpenGLFunctions>() : nullptr;
+		return context() ? QOpenGLVersionFunctionsFactory::get<ccQOpenGLFunctions>(context()) : nullptr;
 	}
 	inline QSurfaceFormat getSurfaceFormat() const override
 	{
@@ -190,9 +190,6 @@ class CCGLWINDOW_LIB_API ccGLWindowStereo : public QWindow
 	{
 		showNormal();
 	}
-	bool prepareOtherStereoGlassType(CC_DRAW_CONTEXT& context, RenderingParams& params, ccFrameBufferObject*& currentFBO) override;
-	void processOtherStereoGlassType(RenderingParams& renderingParams) override;
-	bool setCustomCameraProjection(RenderingParams& params, ccGLMatrixd& modelViewMat, ccGLMatrixd& projectionMat) override;
 	bool initPaintGL() override;
 	void swapGLBuffers() override;
 

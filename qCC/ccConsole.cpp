@@ -284,7 +284,7 @@ void ccConsole::refresh()
 				// destination: log file
 				if (m_logStream)
 				{
-					*m_logStream << messagePair.first << endl;
+					*m_logStream << messagePair.first << Qt::endl;
 				}
 
 				// destination: console widget
@@ -300,7 +300,7 @@ void ccConsole::refresh()
 					}
 					else if ((messagePair.second & LOG_WARNING) == LOG_WARNING) // Warning
 					{
-						item->setForeground(Qt::darkRed);
+						item->setForeground(Qt::magenta);
 						// we also force the console visibility if a warning message arrives!
 						if (m_parentWindow)
 						{
@@ -346,7 +346,7 @@ void ccConsole::logMessage(const QString& message, int level)
 	QString formatedMessage = QStringLiteral("[") + QTime::currentTime().toString() + QStringLiteral("] ") + message;
 	if (s_redirectToStdOut)
 	{
-		printf("%s\n", qPrintable(formatedMessage));
+		printf("%s\n", qUtf8Printable(formatedMessage));
 	}
 	if (m_textDisplay || m_logStream)
 	{
@@ -381,7 +381,7 @@ void ccConsole::logMessage(const QString& message, int level)
 			else
 				printf("MSG: ");
 		}
-		printf(" %s\n", qPrintable(formatedMessage));
+		printf(" %s\n", qUtf8Printable(formatedMessage));
 	}
 #endif
 

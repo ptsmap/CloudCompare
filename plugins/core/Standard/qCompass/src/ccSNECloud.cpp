@@ -17,7 +17,7 @@
 
 #include "ccSNECloud.h"
 #include <ccScalarField.h>
-#include <ccColorRampShader.h>
+
 //pass ctors straight to ccPointCloud
 ccSNECloud::ccSNECloud()
 	: ccPointCloud()
@@ -50,9 +50,7 @@ ccSNECloud::ccSNECloud(ccPointCloud* obj)
 void ccSNECloud::updateMetadata()
 {
 	//add metadata tag defining the ccCompass class type
-	QVariantMap map;
-	map.insert("ccCompassType", "SNECloud");
-	setMetaData(map, true);
+	setMetaData("ccCompassType", "SNECloud");
 }
 
 //returns true if object is a lineation

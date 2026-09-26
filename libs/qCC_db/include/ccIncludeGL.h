@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -15,20 +17,18 @@
 // #                                                                        #
 // ##########################################################################
 
-#ifndef CC_INCLUDE_GL_HEADER
-#define CC_INCLUDE_GL_HEADER
-
-#include <cmath>
-
-// CCCoreLib
-#include <CCMath.h>
-
 // Local
 #include "ccColorTypes.h"
 #include "ccGLMatrix.h"
 
+// CCCoreLib
+#include <CCMath.h>
+
 // Qt
 #include <QOpenGLFunctions_2_1>
+
+// System
+#include <cmath>
 
 //! Shortcuts to OpenGL commands independent on the input type
 class ccGL
@@ -299,12 +299,48 @@ class ccGL
 
 		// Window coordinates
 		// Map x, y to range 0-1
-		output2D.x = (1.0 + Pp.x) / 2 * viewport[2] + viewport[0];
-		output2D.y = (1.0 + Pp.y) / 2 * viewport[3] + viewport[1];
+		output2D.x = (1.0 + Pp.x) / 2 * viewport[2] /* + viewport[0]*/;
+		output2D.y = (1.0 + Pp.y) / 2 * viewport[3] /* + viewport[1]*/;
 		// This is only correct when glDepthRange(0.0, 1.0)
 		output2D.z = (1.0 + Pp.z) / 2; // Between 0 and 1
 
 		return true;
+	}
+
+	// Inspired by https://www.songho.ca/opengl/gl_lookattoaxes.html
+	static ccGLMatrixd LookAt(const CCVector3d& eye, const CCVector3d& center, const CCVector3d& up)
+	{
+		// compute left/up/forward axis vectors
+		CCVector3d forward = eye - center;
+		forward.normalize();
+
+		// left = up x forward
+		CCVector3d left = up.cross(forward);
+		left.normalize();
+
+		// Recompute up as: up = forward x left
+		CCVector3d upFixed = forward.cross(left);
+
+		// set inverse of rotation matrix: Mr
+		ccGLMatrixd mr;
+		mr.data()[0]  = left.x;
+		mr.data()[4]  = left.y;
+		mr.data()[8]  = left.z;
+		mr.data()[1]  = upFixed.x;
+		mr.data()[5]  = upFixed.y;
+		mr.data()[9]  = upFixed.z;
+		mr.data()[2]  = forward.x;
+		mr.data()[6]  = forward.y;
+		mr.data()[10] = forward.z;
+		mr.data()[15] = 1.0f;
+
+		// set inverse translation matrix: Mt
+		ccGLMatrixd mt;
+		mt.toIdentity();
+		mt.setTranslation(-center.toDouble());
+
+		// M = Mr * Mt
+		return mr * mt;
 	}
 
 	inline static double MAT(const double* m, int r, int c)
@@ -581,5 +617,3 @@ class ccGL
 		MAT(m, 3, 3) = 1.0;
 	}
 };
-
-#endif // CC_INCLUDE_GL_HEADER

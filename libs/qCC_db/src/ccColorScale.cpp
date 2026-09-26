@@ -15,18 +15,19 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "ccColorScale.h"
+#include "../include/ccColorScale.h"
 
-// Qt
-#include <QUuid>
-#include <QXmlStreamReader>
-#include <QXmlStreamWriter>
+// Local
+#include "../include/ccLog.h"
 
 // CCCoreLib
 #include <CCGeom.h>
 
-// Local
-#include "ccLog.h"
+// Qt
+#include <QOpenGLFunctions_2_1>
+#include <QUuid>
+#include <QXmlStreamReader>
+#include <QXmlStreamWriter>
 
 static const QString s_xmlCloudCompare("CloudCompare");
 static const QString s_xmlColorScaleTitle("ColorScale");
@@ -50,7 +51,7 @@ ccColorScale::ccColorScale(const QString& name, const QString& uuid /*=QString()
     , m_uuid(uuid)
     , m_updated(false)
     , m_relative(true)
-    , m_locked(false)
+    , m_readOnly(false)
     , m_absoluteMinValue(0.0)
     , m_absoluteRange(1.0)
 {
@@ -69,7 +70,7 @@ ccColorScale::Shared ccColorScale::copy(const QString& uuid /*=QString()*/) cons
 	try
 	{
 		newCS->m_relative         = m_relative;
-		newCS->m_locked           = m_locked;
+		newCS->m_readOnly         = m_readOnly;
 		newCS->m_absoluteMinValue = m_absoluteMinValue;
 		newCS->m_absoluteRange    = m_absoluteRange;
 		newCS->m_steps            = m_steps;
@@ -87,9 +88,9 @@ ccColorScale::Shared ccColorScale::copy(const QString& uuid /*=QString()*/) cons
 
 void ccColorScale::insert(const ccColorScaleElement& step, bool autoUpdate /*=true*/)
 {
-	if (m_locked)
+	if (m_readOnly)
 	{
-		ccLog::Warning(QString("[ccColorScale::insert] Scale '%1' is locked!").arg(m_name));
+		ccLog::Warning(QString("[ccColorScale::insert] Scale '%1' is read-only!").arg(m_name));
 		return;
 	}
 
@@ -105,9 +106,9 @@ void ccColorScale::insert(const ccColorScaleElement& step, bool autoUpdate /*=tr
 
 void ccColorScale::clear()
 {
-	if (m_locked)
+	if (m_readOnly)
 	{
-		ccLog::Warning(QString("[ccColorScale::clear] Scale '%1' is locked!").arg(m_name));
+		ccLog::Warning(QString("[ccColorScale::clear] Scale '%1' is read-only!").arg(m_name));
 		return;
 	}
 
@@ -118,9 +119,9 @@ void ccColorScale::clear()
 
 void ccColorScale::remove(int index, bool autoUpdate /*=true*/)
 {
-	if (m_locked)
+	if (m_readOnly)
 	{
-		ccLog::Warning(QString("[ccColorScale::remove] Scale '%1' is locked!").arg(m_name));
+		ccLog::Warning(QString("[ccColorScale::remove] Scale '%1' is read-only!").arg(m_name));
 		return;
 	}
 
@@ -139,6 +140,8 @@ void ccColorScale::sort()
 void ccColorScale::update()
 {
 	m_updated = false;
+
+	m_texture.clear();
 
 	if (m_steps.size() >= static_cast<int>(MIN_STEPS))
 	{
@@ -221,15 +224,15 @@ bool ccColorScale::toFile(QFile& out, short dataVersion) const
 	if (out.write((const char*)&m_relative, sizeof(bool)) < 0)
 		return WriteError();
 
-	// Absolute min value (dataVersion>=27)
+	// absolute min value (dataVersion>=27)
 	if (out.write((const char*)&m_absoluteMinValue, sizeof(double)) < 0)
 		return WriteError();
-	// Absolute range (dataVersion>=27)
+	// absolute range (dataVersion>=27)
 	if (out.write((const char*)&m_absoluteRange, sizeof(double)) < 0)
 		return WriteError();
 
-	// locked state (dataVersion>=27)
-	if (out.write((const char*)&m_locked, sizeof(bool)) < 0)
+	// read-only state (dataVersion>=27)
+	if (out.write((const char*)&m_readOnly, sizeof(bool)) < 0)
 		return WriteError();
 
 	// steps list (dataVersion>=27)
@@ -286,15 +289,15 @@ bool ccColorScale::fromFile(QFile& in, short dataVersion, int flags, LoadedIDMap
 	if (in.read((char*)&m_relative, sizeof(bool)) < 0)
 		return ReadError();
 
-	// Absolute min value (dataVersion>=27)
+	// absolute min value (dataVersion>=27)
 	if (in.read((char*)&m_absoluteMinValue, sizeof(double)) < 0)
 		return ReadError();
-	// Absolute range (dataVersion>=27)
+	// absolute range (dataVersion>=27)
 	if (in.read((char*)&m_absoluteRange, sizeof(double)) < 0)
 		return ReadError();
 
-	// locked state (dataVersion>=27)
-	if (in.read((char*)&m_locked, sizeof(bool)) < 0)
+	// read-only state (dataVersion>=27)
+	if (in.read((char*)&m_readOnly, sizeof(bool)) < 0)
 		return ReadError();
 
 	// steps list (dataVersion>=27)
@@ -511,7 +514,7 @@ ccColorScale::Shared ccColorScale::LoadFromXML(const QString& filename)
 
 		// read version number
 		QXmlStreamAttributes attributes = stream.attributes();
-		if (attributes.size() == 0 || attributes[0].name() != "version")
+		if (attributes.size() == 0 || attributes[0].name() != QStringLiteral("version"))
 		{
 			break;
 		}
@@ -542,21 +545,21 @@ ccColorScale::Shared ccColorScale::LoadFromXML(const QString& filename)
 			{
 				break;
 			}
-			QStringRef itemName  = stream.name();
-			QString    itemValue = stream.readElementText();
+			QStringView itemName  = stream.name();
+			QString     itemValue = stream.readElementText();
 			ccLog::Print(QString("[XML] Item '%1': '%2'").arg(itemName.toString(), itemValue));
 
-			if (itemName == "name")
+			if (itemName == QStringLiteral("name"))
 			{
 				scale->setName(itemValue);
 				--missingItems;
 			}
-			else if (itemName == "uuid")
+			else if (itemName == QStringLiteral("uuid"))
 			{
 				scale->setUuid(itemValue);
 				--missingItems;
 			}
-			else if (itemName == "absolute")
+			else if (itemName == QStringLiteral("absolute"))
 			{
 				if (itemValue == "1")
 				{
@@ -565,14 +568,14 @@ ccColorScale::Shared ccColorScale::LoadFromXML(const QString& filename)
 				}
 				--missingItems;
 			}
-			else if (itemName == "minValue")
+			else if (itemName == QStringLiteral("minValue"))
 			{
 				scale->m_absoluteMinValue = itemValue.toDouble(&ok);
 				if (!ok)
 					break;
 				--missingItems;
 			}
-			else if (itemName == "range")
+			else if (itemName == QStringLiteral("range"))
 			{
 				scale->m_absoluteRange = itemValue.toDouble(&ok);
 				if (!ok)
@@ -604,7 +607,7 @@ ccColorScale::Shared ccColorScale::LoadFromXML(const QString& filename)
 			{
 				if (!stream.readNextStartElement())
 					break;
-				if (stream.name() == "step")
+				if (stream.name() == QStringLiteral("step"))
 				{
 					QXmlStreamAttributes attributes     = stream.attributes();
 					int                  attributeCount = attributes.size();
@@ -641,7 +644,7 @@ ccColorScale::Shared ccColorScale::LoadFromXML(const QString& filename)
 
 					scale->insert(ccColorScaleElement(pos, rgb), false);
 				}
-				else if (stream.name() == "label")
+				else if (stream.name() == QStringLiteral("label"))
 				{
 					QXmlStreamAttributes attributes     = stream.attributes();
 					int                  attributeCount = attributes.size();
@@ -703,4 +706,69 @@ ccColorScale::Shared ccColorScale::LoadFromXML(const QString& filename)
 	}
 
 	return scale;
+}
+
+bool ccColorScale::buildTexture(QOpenGLFunctions_2_1* glFunc) const
+{
+	if (!glFunc)
+	{
+		assert(false);
+		return false;
+	}
+
+	m_texture.clear();
+
+	// Query max texture size
+	GLint maxTexSize = 0;
+	glFunc->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTexSize);
+	if (maxTexSize <= 0)
+	{
+		return false;
+	}
+
+	const GLint  squareSize = std::min(maxTexSize, (1 << 6)); // number of samples per dimension (max is 2^6 = 64)
+	const size_t texels     = static_cast<size_t>(squareSize) * static_cast<size_t>(squareSize);
+
+	// buffer RGB unsigned bytes
+	std::vector<unsigned char> pixels;
+	try
+	{
+		pixels.resize(texels * 3);
+	}
+	catch (const std::bad_alloc&)
+	{
+		ccLog::Warning("[ccColorScale::buildTexture] Not enough memory");
+		return false;
+	}
+
+	// fill: for each index, call ccNormalCompressor::Decompress
+	for (size_t i = 0; i < texels; ++i)
+	{
+		auto col = getColorByRelativePos(i / static_cast<double>(texels), &ccColor::lightGreyRGB);
+		assert(col);
+
+		pixels[i * 3 + 0] = col->r;
+		pixels[i * 3 + 1] = col->g;
+		pixels[i * 3 + 2] = col->b;
+	}
+
+	// generate GL texture
+	{
+		QSharedPointer<QOpenGLTexture> tex(new QOpenGLTexture(QOpenGLTexture::Target2D));
+
+		// configure texture
+		tex->setFormat(QOpenGLTexture::RGB8_UNorm);
+		tex->setSize(squareSize, squareSize);
+		tex->allocateStorage();
+		tex->setWrapMode(QOpenGLTexture::ClampToEdge);
+		tex->setMinificationFilter(QOpenGLTexture::Nearest);
+		tex->setMagnificationFilter(QOpenGLTexture::Nearest);
+
+		// upload data
+		tex->setData(QOpenGLTexture::RGB, QOpenGLTexture::UInt8, pixels.data());
+
+		m_texture = tex;
+	}
+
+	return true;
 }

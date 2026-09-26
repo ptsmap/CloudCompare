@@ -17,12 +17,13 @@
 // #                                                                        #
 // ##########################################################################
 
+// Local
+#include "ccGenericMesh.h"
+#include "ccPointCloud.h"
+
 // CCCoreLib
 #include <PointProjectionTools.h>
 #include <SimpleTriangle.h>
-
-// Local
-#include "ccGenericMesh.h"
 
 class ccProgressDialog;
 class ccPolyline;
@@ -53,8 +54,8 @@ class QCC_DB_LIB_API ccMesh : public ccGenericMesh
 		return CC_TYPES::MESH;
 	}
 
-	//! Sets the associated vertices cloud (warning)
-	void setAssociatedCloud(ccGenericPointCloud* cloud);
+	//! Sets the associated vertices cloud
+	void setAssociatedCloud(ccGenericPointCloud* cloud, bool autoRemoveFlags = true);
 
 	//! Clones this entity
 	/** All the main features of the entity are cloned, except from the octree
@@ -113,7 +114,6 @@ class QCC_DB_LIB_API ccMesh : public ccGenericMesh
 	unsigned capacity() const override;
 
 	// inherited methods (GenericIndexedMesh)
-	void                        forEach(genericTriangleAction action) override;
 	void                        placeIteratorAtBeginning() override;
 	CCCoreLib::GenericTriangle* _getNextTriangle() override;                   // temporary
 	CCCoreLib::GenericTriangle* _getTriangle(unsigned triangleIndex) override; // temporary
@@ -449,6 +449,33 @@ class QCC_DB_LIB_API ccMesh : public ccGenericMesh
 	//! Merges duplicated vertices
 	bool mergeDuplicatedVertices(unsigned char octreeLevel = DefaultMergeDuplicateVerticesLevel, QWidget* parentWidget = nullptr);
 
+	//! Unrolls the mesh on a cylinder or a cone
+	/** This method relies heavily on the ccPointCloud::unroll method.
+	    \param mode unrolling mode
+	    \param params unrolling parameters (must match the unrolling mode)
+	    \param removeStretchedTriangles whether to remove the triangles stretched over by the unroll process
+	    \param exportDeviationSF to export the deviations from the ideal shape as a scalar field
+	    \param startAngle_deg start angle (in degrees) - 0 corresponds to +X (east)
+	    \param stopAngle_deg stop angle (in degrees)
+	    \param arbitraryOutputCS whether the output cloud should be exported in an arbitrary coordinate system or not
+	    \param progressCb for progress notification
+	    \return the unrolled point cloud
+	**/
+	ccMesh* unroll(ccPointCloud::UnrollMode            mode,
+	               ccPointCloud::UnrollBaseParams*     params,
+	               bool                                removeStretchedTriangles,
+	               bool                                exportDeviationSF = false,
+	               double                              startAngle_deg    = 0.0,
+	               double                              stopAngle_deg     = 360.0,
+	               bool                                arbitraryOutputCS = false,
+	               CCCoreLib::GenericProgressCallback* progressCb        = nullptr) const;
+
+	//! Returns whether the mesh has a unique material (i.e. all triangles share the same material)
+	bool hasUniqueMaterial();
+
+	//! Releases OpenGL ressources (textures, VBOs, etc.)
+	static void ReleaseOpenGLRessources();
+
   protected: // methods
 	// inherited from ccHObject
 	void  drawMeOnly(CC_DRAW_CONTEXT& context) override;
@@ -524,6 +551,9 @@ class QCC_DB_LIB_API ccMesh : public ccGenericMesh
 
 	//! Per-triangle material indexes
 	triangleMaterialIndexesSet* m_triMtlIndexes;
+
+	//! Whether the mesh has a unique material (i.e. all triangles share the same material)
+	std::optional<bool> m_hasUniqueMaterial;
 
 	//! Set of triplets of indexes referring to mesh texture coordinates
 	using triangleTexCoordIndexesSet = ccArray<Tuple3i, 3, int>;

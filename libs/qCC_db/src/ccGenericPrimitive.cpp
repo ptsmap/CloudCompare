@@ -15,11 +15,10 @@
 // #                                                                        #
 // ##########################################################################
 
-// Always first
-#include "ccGenericPrimitive.h"
+#include "../include/ccGenericPrimitive.h"
 
-#include "ccIncludeGL.h"
-#include "ccPointCloud.h"
+// Local
+#include "../include/ccPointCloud.h"
 
 ccGenericPrimitive::ccGenericPrimitive(QString           name /*=QString()*/,
                                        const ccGLMatrix* transMat /*=nullptr*/,
@@ -38,7 +37,9 @@ ccGenericPrimitive::ccGenericPrimitive(QString           name /*=QString()*/,
 	vert->setLocked(true);
 
 	if (transMat)
+	{
 		m_transformation = *transMat;
+	}
 }
 
 void ccGenericPrimitive::setColor(const ccColor::Rgb& col)

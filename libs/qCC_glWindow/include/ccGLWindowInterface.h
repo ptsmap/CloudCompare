@@ -30,8 +30,9 @@
 
 // Qt
 #include <QElapsedTimer>
-#include <QOpenGLExtensions>
+#include <QOpenGLExtraFunctions>
 #include <QOpenGLTexture>
+#include <QPointF>
 #include <QTimer>
 
 // system
@@ -199,9 +200,15 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	{
 		return m_viewportParams;
 	}
+	// FIXME(RJ): temporary helper for migration
+	QPointF toCenteredGLCoordinates(const QPointF& coordinates) const;
 	QPointF toCenteredGLCoordinates(int x, int y) const override;
 	QPointF toCornerGLCoordinates(int x, int y) const override;
-	void    setupProjectiveViewport(const ccGLMatrixd& cameraMatrix, float fov_deg = 0.0f, bool viewerBasedPerspective = true, bool bubbleViewMode = false) override;
+	void    setupProjectiveViewport(const ccGLMatrixd& cameraMatrix,
+	                                float              fov_deg                = 0.0f,
+	                                bool               viewerBasedPerspective = true,
+	                                bool               bubbleViewMode         = false,
+	                                const QPointF&     projectionCenterOffset = QPointF()) override;
 	void    aboutToBeRemoved(ccDrawableObject* entity) override;
 	void    getGLCameraParameters(ccGLCameraParameters& params) override;
 
@@ -381,6 +388,14 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	//! Sets current interaction flags
 	void setInteractionMode(INTERACTION_FLAGS flags);
 
+	//! Notifies the window that a 3D mouse is currently driving the view
+	/** This enables mesh decimation-on-move (the same behaviour as when the
+	    regular mouse is dragged) so that interaction with large meshes stays
+	    smooth. Call with false when the 3D mouse is released so that the
+	    standard LOD refinement cycle can restore full quality.
+	**/
+	void set3DMouseActive(bool state);
+
 	//! Returns the current interaction flags
 	inline virtual INTERACTION_FLAGS getInteractionMode() const
 	{
@@ -473,10 +488,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	float getFov() const;
 
 	//! Whether to allow near and far clipping planes or not
-	inline void setClippingPlanesEnabled(bool enabled)
-	{
-		m_clippingPlanesEnabled = enabled;
-	}
+	void setClippingPlanesEnabled(bool enabled);
 
 	//! Whether to near and far clipping planes are enabled or not
 	inline bool clippingPlanesEnabled() const
@@ -707,20 +719,43 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 			RED_CYAN               = 3,
 			CYAN_RED               = 4,
 			NVIDIA_VISION          = 5,
-			OCULUS                 = 6,
-			GENERIC_STEREO_DISPLAY = 7
+			GENERIC_STEREO_DISPLAY = 6,
+			SIDE_BY_SIDE           = 7
 		};
 
-		//! Whether stereo-mode is 'analgyph' or real stereo mode
+		//! Whether stereo-mode is of type 'anaglyph'
 		inline bool isAnaglyph() const
 		{
 			return glassType <= 4;
 		}
 
-		int       screenWidth_mm;
-		int       screenDistance_mm;
-		int       eyeSeparation_mm;
-		int       stereoStrength;
+		//! Whether the stereo-mode required quad-buffering or not
+		inline bool quadBufferingRequired() const
+		{
+			switch (glassType)
+			{
+			case RED_BLUE:
+			case BLUE_RED:
+			case RED_CYAN:
+			case CYAN_RED:
+			case SIDE_BY_SIDE:
+				return false;
+			case NVIDIA_VISION:
+			case GENERIC_STEREO_DISPLAY:
+				return true;
+			default:
+				// unhandled type
+				break;
+			}
+
+			assert(false);
+			return false;
+		}
+
+		int       screenWidth_mm    = 0;
+		int       screenDistance_mm = 0;
+		int       eyeSeparation_mm  = 0;
+		int       stereoStrength    = 0;
 		GlassType glassType;
 	};
 
@@ -982,25 +1017,6 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	//! Draws pivot point symbol in 3D
 	void drawPivot();
 
-	//! To be overriden
-	/** \return whether the viewport is modified **/
-	virtual bool prepareOtherStereoGlassType(CC_DRAW_CONTEXT& context, RenderingParams& params, ccFrameBufferObject*& currentFBO)
-	{
-		return false;
-	}
-
-	//! To be overriden
-	virtual void processOtherStereoGlassType(RenderingParams& params)
-	{
-	}
-
-	//! To be overriden
-	/** \return whether a custom camera projection was set **/
-	virtual bool setCustomCameraProjection(RenderingParams& params, ccGLMatrixd& modelViewMat, ccGLMatrixd& projectionMat)
-	{
-		return false;
-	}
-
   protected: // other methods
 	// Qt-equivalent shortcuts
 	virtual QSurfaceFormat getSurfaceFormat() const        = 0;
@@ -1087,10 +1103,12 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	void        setStandardOrthoCorner();
 
 	// Lights controls (OpenGL scripts)
-	void glEnableSunLight();
-	void glDisableSunLight();
-	void glEnableCustomLight();
-	void glDisableCustomLight();
+	void glSetSunLightParameters(ccQOpenGLFunctions* glFunc);
+	void glEnableSunLight(ccQOpenGLFunctions* glFunc);
+	void glDisableSunLight(ccQOpenGLFunctions* glFunc);
+	void glSetCustomLightParameters(ccQOpenGLFunctions* glFunc);
+	void glEnableCustomLight(ccQOpenGLFunctions* glFunc);
+	void glDisableCustomLight(ccQOpenGLFunctions* glFunc);
 	void drawCustomLight();
 
 	//! Picking parameters
@@ -1146,7 +1164,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	/** The items must be currently displayed in this context
 	    AND at least one of them must be under the mouse cursor.
 	**/
-	void updateActiveItemsList(int x, int y, bool extendToSelectedLabels = false);
+	void updateActiveItemsList(const QPointF& position, bool extendToSelectedLabels = false);
 
 	//! Currently active items
 	/** Active items can be moved with mouse, etc.
@@ -1170,7 +1188,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	//! Converts a given (mouse) position in pixels to an orientation
 	/** The orientation vector origin is the current pivot point!
 	 **/
-	CCVector3d convertMousePositionToOrientation(int x, int y);
+	CCVector3d convertMousePositionToOrientation(const QPointF& position);
 
 	//! Draws the 'hot zone' (+/- icons for point size), 'leave bubble-view' button, etc.
 	void drawClickableItems(int xStart, int& yStart);
@@ -1249,9 +1267,11 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 
 	//! Viewport parameters (zoom, etc.)
 	ccViewportParameters m_viewportParams;
+	//! Projection center offset in normalized screen coordinates (+X right, +Y up)
+	QPointF m_projectiveViewportCenterOffset;
 
 	//! Last mouse position
-	QPoint m_lastMousePos;
+	QPointF m_lastMousePos;
 
 	//! Complete visualization matrix (GL style - double version)
 	ccGLMatrixd m_viewMatd;
@@ -1490,8 +1510,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	//! Picking radius (pixels)
 	int m_pickRadius;
 
-	//! FBO support
-	QOpenGLExtension_ARB_framebuffer_object m_glExtFunc;
+	QOpenGLExtraFunctions m_glExtFunc;
 
 	//! Whether FBO support is on
 	bool m_glExtFuncSupported;

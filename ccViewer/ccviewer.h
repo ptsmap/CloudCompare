@@ -29,13 +29,9 @@
 // GUIs
 #include <ui_ccviewer.h>
 
-// System
-#include <set>
-
 class ccGLWindowInterface;
 class ccHObject;
 class Mouse3DInput;
-class ccGamepadManager;
 
 //! Application main window
 class ccViewer : public QMainWindow
@@ -45,7 +41,7 @@ class ccViewer : public QMainWindow
 
   public:
 	//! Default constructor
-	ccViewer(QWidget* parent = 0, Qt::WindowFlags flags = 0);
+	ccViewer(QWidget* parent = 0, Qt::WindowFlags flags = QFlags<Qt::WindowType>());
 
 	//! Default destructor
 	~ccViewer() override;
@@ -180,6 +176,9 @@ class ccViewer : public QMainWindow
 	void doEnableGLFilter();
 	void doDisableGLFilter();
 
+	// Change the currently displayed SF
+	void selectNextSF(int deltaPos);
+
   protected: // methods
 	//! Loads plugins (from files)
 	void loadPlugins();
@@ -211,9 +210,6 @@ class ccViewer : public QMainWindow
 
 	//! 3D mouse handler
 	Mouse3DInput* m_3dMouseInput;
-
-	//! Gamepad handler
-	ccGamepadManager* m_gamepadManager;
 
   private:
 	//! Associated GUI

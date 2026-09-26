@@ -21,6 +21,7 @@
 #include <ScalarFieldTools.h>
 
 // qCC_db
+#include <ccBackgroundTask.h>
 #include <ccOctree.h>
 #include <ccPointCloud.h>
 #include <ccScalarField.h>
@@ -52,7 +53,9 @@ namespace ccLibAlgorithms
 		switch (densityType)
 		{
 		case CCCoreLib::GeometricalAnalysisTools::DENSITY_KNN:
-			sfName = CC_LOCAL_KNN_DENSITY_FIELD_NAME;
+			// in approximate mode only the nearest neighbor is extracted, so this is
+			// the inverse of the distance to it and not a number of neighbors
+			sfName = approx ? CC_LOCAL_NN_DISTANCE_FIELD_NAME : CC_LOCAL_KNN_DENSITY_FIELD_NAME;
 			break;
 		case CCCoreLib::GeometricalAnalysisTools::DENSITY_2D:
 			sfName = CC_LOCAL_SURF_DENSITY_FIELD_NAME;
@@ -65,10 +68,16 @@ namespace ccLibAlgorithms
 			break;
 		}
 
-		sfName += QString(" (r=%2)").arg(densityKernelSize);
-
 		if (approx)
+		{
+			// the approximate density is computed from the nearest neighbor distance,
+			// so there is no radius to report
 			sfName += " [approx]";
+		}
+		else
+		{
+			sfName += QString(" (r=%2)").arg(densityKernelSize);
+		}
 
 		return sfName;
 	}
@@ -141,7 +150,7 @@ namespace ccLibAlgorithms
 		}
 
 		// multiple features case
-		QScopedPointer<ccProgressDialog> pDlg;
+		std::unique_ptr<ccProgressDialog> pDlg;
 		if (parent)
 		{
 			pDlg.reset(new ccProgressDialog(true, parent));
@@ -156,7 +165,7 @@ namespace ccLibAlgorithms
 			                               entities,
 			                               roughnessUpDir,
 			                               parent,
-			                               pDlg.data()))
+			                               pDlg.get()))
 			{
 				return false;
 			}
@@ -228,6 +237,12 @@ namespace ccLibAlgorithms
 			case CCCoreLib::Neighbourhood::EigenValue3:
 				sfName = "3rd eigenvalue";
 				break;
+			case CCCoreLib::Neighbourhood::DegreeOfPlanarity:
+				sfName = "Degree of planarity (M)";
+				break;
+			case CCCoreLib::Neighbourhood::DegreeOfLinearity:
+				sfName = "Degree of linearity (K)";
+				break;
 			default:
 				assert(false);
 				ccLog::Error("Internal error: invalid sub option for Feature computation");
@@ -294,6 +309,7 @@ namespace ccLibAlgorithms
 			if (entities[i]->isKindOf(CC_TYPES::POINT_CLOUD))
 			{
 				ccGenericPointCloud* cloud = ccHObjectCaster::ToGenericPointCloud(entities[i]);
+				assert(nullptr != cloud);
 
 				ccPointCloud* pc    = nullptr;
 				int           sfIdx = -1;
@@ -328,13 +344,18 @@ namespace ccLibAlgorithms
 					}
 				}
 
-				CCCoreLib::GeometricalAnalysisTools::ErrorCode result = CCCoreLib::GeometricalAnalysisTools::ComputeCharactersitic(c,
-				                                                                                                                   subOption,
-				                                                                                                                   cloud,
-				                                                                                                                   radius,
-				                                                                                                                   roughnessUpDir,
-				                                                                                                                   pDlg,
-				                                                                                                                   octree.data());
+				// only the computation itself runs in a worker thread
+				CCCoreLib::GeometricalAnalysisTools::ErrorCode result = ccBackgroundTask::Run(
+				    [&]()
+				    {
+					    return CCCoreLib::GeometricalAnalysisTools::ComputeCharactersitic(c,
+					                                                                      subOption,
+					                                                                      cloud,
+					                                                                      radius,
+					                                                                      roughnessUpDir,
+					                                                                      pDlg,
+					                                                                      octree.data());
+				    });
 
 				if (result == CCCoreLib::GeometricalAnalysisTools::NoError)
 				{
@@ -466,9 +487,10 @@ namespace ccLibAlgorithms
 			switch (algo)
 			{
 			case CCLIB_ALGO_SF_GRADIENT:
+			{
 				// for scalar field gradient, we can apply it directly on meshes
-				bool lockedVertices;
-				cloud = ccHObjectCaster::ToGenericPointCloud(entities[i], &lockedVertices);
+				bool lockedVertices = false;
+				cloud               = ccHObjectCaster::ToGenericPointCloud(entities[i], &lockedVertices);
 				if (lockedVertices)
 				{
 					ccUtils::DisplayLockedVerticesWarning(entities[i]->getName(), selNum == 1);
@@ -497,12 +519,15 @@ namespace ccLibAlgorithms
 						cloud = nullptr;
 					}
 				}
-				break;
+			}
+			break;
 
 			// by default, we apply processings on clouds only
 			default:
 				if (entities[i]->isKindOf(CC_TYPES::POINT_CLOUD))
+				{
 					cloud = ccHObjectCaster::ToGenericPointCloud(entities[i]);
+				}
 				break;
 			}
 
@@ -526,7 +551,7 @@ namespace ccLibAlgorithms
 					}
 				}
 
-				QScopedPointer<ccProgressDialog> pDlg;
+				std::unique_ptr<ccProgressDialog> pDlg;
 				if (parent)
 				{
 					pDlg.reset(new ccProgressDialog(true, parent));
@@ -539,7 +564,7 @@ namespace ccLibAlgorithms
 					{
 						pDlg->show();
 					}
-					octree = cloud->computeOctree(pDlg.data());
+					octree = cloud->computeOctree(pDlg.get());
 					if (!octree)
 					{
 						ccConsole::Error(QString("Couldn't compute octree for cloud '%1'!").arg(cloud->getName()));
@@ -553,12 +578,17 @@ namespace ccLibAlgorithms
 				switch (algo)
 				{
 				case CCLIB_ALGO_SF_GRADIENT:
-					result = CCCoreLib::ScalarFieldTools::computeScalarFieldGradient(cloud,
-					                                                                 0, // auto --> FIXME: should be properly set by the user!
-					                                                                 euclidean,
-					                                                                 false,
-					                                                                 pDlg.data(),
-					                                                                 octree.data());
+					// only the computation itself runs in a worker thread
+					result = ccBackgroundTask::Run(
+					    [&]()
+					    {
+						    return CCCoreLib::ScalarFieldTools::computeScalarFieldGradient(cloud,
+						                                                                   0, // auto --> FIXME: should be properly set by the user!
+						                                                                   euclidean,
+						                                                                   false,
+						                                                                   pDlg.get(),
+						                                                                   octree.data());
+					    });
 					break;
 
 				default:
@@ -598,12 +628,31 @@ namespace ccLibAlgorithms
 	                                 double                 icpRmsDiff,
 	                                 int                    icpFinalOverlap,
 	                                 unsigned               refEntityIndex /*=0*/,
-	                                 QWidget*               parent /*=nullptr*/)
+	                                 QWidget*               parent /*=nullptr*/,
+	                                 double                 minScale /*=std::numeric_limits<double>::quiet_NaN()*/,
+	                                 double                 maxScale /*=std::numeric_limits<double>::quiet_NaN()*/)
 	{
 		if (entities.size() < 2
 		    || refEntityIndex >= entities.size())
 		{
 			ccLog::Error("[ApplyScaleMatchingAlgorithm] Invalid input parameter(s)");
+			return false;
+		}
+
+		if (std::isfinite(minScale) && minScale < 0.0)
+		{
+			ccLog::Warning("Minimum scale should not be negative");
+			minScale = 0.0;
+		}
+		if (std::isfinite(maxScale) && maxScale < 0.0)
+		{
+			ccLog::Warning("Maximum scale should not be negative");
+			maxScale = 0.0;
+		}
+
+		if (std::isfinite(minScale) && std::isfinite(maxScale) && minScale > maxScale)
+		{
+			ccLog::Error("Maximum scale should not be smaller than minimum scale");
 			return false;
 		}
 
@@ -630,20 +679,38 @@ namespace ccLibAlgorithms
 		unsigned count = static_cast<unsigned>(entities.size());
 
 		// now compute the scales
-		ccProgressDialog pDlg(true, parent);
-		pDlg.setMethodTitle(QObject::tr("Computing entities scales"));
-		pDlg.setInfo(QObject::tr("Entities: %1").arg(count));
-		CCCoreLib::NormalizedProgress nProgress(&pDlg, 2 * count - 1);
-		pDlg.start();
-		QApplication::processEvents();
+		std::unique_ptr<ccProgressDialog> pDlg(nullptr);
+		if (parent)
+		{
+			pDlg.reset(new ccProgressDialog(true, parent));
+			pDlg->setMethodTitle(QObject::tr("Computing entities scales"));
+			pDlg->setInfo(QObject::tr("Entities: %1").arg(count));
+		}
+		CCCoreLib::NormalizedProgress nProgress(pDlg.get(), 2 * count - 1);
+		if (pDlg)
+		{
+			pDlg->start();
+			QApplication::processEvents();
+		}
 
 		for (unsigned i = 0; i < count; ++i)
 		{
 			ccHObject* ent = entities[i];
 			// try to get the underlying cloud (or the vertices set for a mesh)
-			bool                 lockedVertices;
-			ccGenericPointCloud* cloud = ccHObjectCaster::ToGenericPointCloud(ent, &lockedVertices);
-			if (cloud && !lockedVertices)
+			bool                 lockedVertices = false;
+			ccGenericPointCloud* cloud          = ccHObjectCaster::ToGenericPointCloud(ent, &lockedVertices);
+
+			if (nullptr == cloud)
+			{
+				// we need a cloud or a mesh
+				ccLog::Warning(QString("[Scale Matching] Entity '%1' can't be rescaled this way!").arg(ent->getName()));
+			}
+			else if (lockedVertices)
+			{
+				// locked entities
+				ccUtils::DisplayLockedVerticesWarning(ent->getName(), false);
+			}
+			else
 			{
 				switch (algo)
 				{
@@ -652,9 +719,13 @@ namespace ccLibAlgorithms
 				{
 					ccBBox box = ent->getOwnBB();
 					if (box.isValid())
+					{
 						scales[i] = algo == BB_MAX_DIM ? box.getMaxBoxDim() : box.computeVolume();
+					}
 					else
+					{
 						ccLog::Warning(QString("[Scale Matching] Entity '%1' has an invalid bounding-box!").arg(ent->getName()));
+					}
 				}
 				break;
 
@@ -711,6 +782,8 @@ namespace ccLibAlgorithms
 						parameters.useC2MSignedDistances    = false;
 						parameters.robustC2MSignedDistances = true;
 						parameters.normalsMatching          = CCCoreLib::ICPRegistrationTools::NO_NORMAL;
+						parameters.minScale                 = minScale;
+						parameters.maxScale                 = maxScale;
 					}
 
 					if (ccRegistrationTools::ICP(
@@ -739,16 +812,6 @@ namespace ccLibAlgorithms
 					break;
 				}
 			}
-			else if (cloud && lockedVertices)
-			{
-				// locked entities
-				ccUtils::DisplayLockedVerticesWarning(ent->getName(), false);
-			}
-			else
-			{
-				// we need a cloud or a mesh
-				ccLog::Warning(QString("[Scale Matching] Entity '%1' can't be rescaled this way!").arg(ent->getName()));
-			}
 
 			// if the reference entity is invalid!
 			if (scales[i] <= 0 && i == refEntityIndex)
@@ -767,68 +830,96 @@ namespace ccLibAlgorithms
 		ccLog::Print(QString("[Scale Matching] Reference entity scale: %1").arg(scales[refEntityIndex]));
 
 		// now we can rescale
-		pDlg.setMethodTitle(QObject::tr("Rescaling entities"));
+		if (pDlg)
 		{
-			for (unsigned i = 0; i < count; ++i)
+			pDlg->setMethodTitle(QObject::tr("Rescaling entities"));
+		}
+
+		for (unsigned i = 0; i < count; ++i)
+		{
+			if (i == refEntityIndex)
 			{
-				if (i == refEntityIndex)
-					continue;
-				if (scales[i] < 0)
-					continue;
-
-				ccLog::Print(QString("[Scale Matching] Entity '%1' scale: %2").arg(entities[i]->getName()).arg(scales[i]));
-				if (scales[i] <= CCCoreLib::ZERO_TOLERANCE_D)
-				{
-					ccLog::Warning("[Scale Matching] Entity scale is too small!");
-					continue;
-				}
-
-				ccHObject* ent = entities[i];
-
-				bool                 lockedVertices;
-				ccGenericPointCloud* cloud = ccHObjectCaster::ToGenericPointCloud(ent, &lockedVertices);
-				if (!cloud || lockedVertices)
-					continue;
-
-				double scaled = 1.0;
-				if (algo == ICP_SCALE)
-					scaled = scales[i];
-				else
-					scaled = scales[refEntityIndex] / scales[i];
-
-				PointCoordinateType scale_pc = static_cast<PointCoordinateType>(scaled);
-
-				// we temporarily detach entity, as it may undergo
-				//"severe" modifications (octree deletion, etc.) --> see ccPointCloud::scale
-				MainWindow*                  instance = dynamic_cast<MainWindow*>(parent);
-				MainWindow::ccHObjectContext objContext;
-				if (instance)
-				{
-					objContext = instance->removeObjectTemporarilyFromDBTree(cloud);
-				}
-
-				CCVector3 C = cloud->getOwnBB().getCenter();
-
-				cloud->scale(scale_pc,
-				             scale_pc,
-				             scale_pc,
-				             C);
-
-				if (instance)
-					instance->putObjectBackIntoDBTree(cloud, objContext);
-				cloud->prepareDisplayForRefresh_recursive();
-
-				// don't forget the 'global shift'!
-				const CCVector3d& shift = cloud->getGlobalShift();
-				cloud->setGlobalShift(shift * scaled);
-				// DGM: nope! Not the global scale!
+				continue;
+			}
+			if (scales[i] < 0)
+			{
+				continue;
 			}
 
-			if (!nProgress.oneStep())
+			ccLog::Print(QString("[Scale Matching] Entity '%1' scale: %2").arg(entities[i]->getName()).arg(scales[i]));
+			if (scales[i] <= CCCoreLib::ZERO_TOLERANCE_D)
 			{
-				// process cancelled by user
-				return false;
+				ccLog::Warning("[Scale Matching] Entity scale is too small!");
+				continue;
 			}
+
+			ccHObject* ent = entities[i];
+
+			bool                 lockedVertices = false;
+			ccGenericPointCloud* cloud          = ccHObjectCaster::ToGenericPointCloud(ent, &lockedVertices);
+			if (nullptr == cloud || lockedVertices)
+			{
+				continue;
+			}
+
+			double scaled = 1.0;
+			if (algo == ICP_SCALE)
+			{
+				scaled = scales[i]; // already clamped normally
+				assert(!std::isfinite(minScale) || scaled >= minScale);
+				assert(!std::isfinite(maxScale) || scaled <= maxScale);
+			}
+			else
+			{
+				scaled = scales[refEntityIndex] / scales[i];
+
+				// the caller can restrict the scale factor that may be applied
+				if (std::isfinite(minScale) && scaled < minScale)
+				{
+					ccLog::Warning(QString("[Scale Matching] Entity '%1' scale factor (%2) was clamped to the minimum allowed value (%3)").arg(entities[i]->getName()).arg(scaled).arg(minScale));
+					scaled = minScale;
+				}
+				else if (std::isfinite(maxScale) && scaled > maxScale)
+				{
+					ccLog::Warning(QString("[Scale Matching] Entity '%1' scale factor (%2) was clamped to the maximum allowed value (%3)").arg(entities[i]->getName()).arg(scaled).arg(maxScale));
+					scaled = maxScale;
+				}
+			}
+
+			PointCoordinateType scale_pc = static_cast<PointCoordinateType>(scaled);
+
+			// we temporarily detach entity, as it may undergo
+			//"severe" modifications (octree deletion, etc.) --> see ccPointCloud::scale
+			MainWindow*                  instance = dynamic_cast<MainWindow*>(parent);
+			MainWindow::ccHObjectContext objContext;
+			if (instance)
+			{
+				objContext = instance->removeObjectTemporarilyFromDBTree(cloud);
+			}
+
+			CCVector3 C = cloud->getOwnBB().getCenter();
+
+			cloud->scale(scale_pc,
+			             scale_pc,
+			             scale_pc,
+			             C);
+
+			if (instance)
+			{
+				instance->putObjectBackIntoDBTree(cloud, objContext);
+			}
+			cloud->prepareDisplayForRefresh_recursive();
+
+			// don't forget the 'global shift'!
+			const CCVector3d& shift = cloud->getGlobalShift();
+			cloud->setGlobalShift(shift * scaled);
+			// DGM: nope! Not the global scale!
+		}
+
+		if (!nProgress.oneStep())
+		{
+			// process cancelled by user
+			return false;
 		}
 
 		return true;

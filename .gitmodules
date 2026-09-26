@@ -12,13 +12,14 @@
 	url = https://github.com/hvs-ait/mplane-plugin
 [submodule "plugins/core/Standard/qColorimetricSegmenter"]
 	path = plugins/core/Standard/qColorimetricSegmenter
-	url = https://gitlab.univ-nantes.fr/E164955Z/ptrans
+	url = https://github.com/CloudCompare/qColorimetricSegmenter.git
+	branch = master
 [submodule "plugins/core/Standard/qMasonry"]
 	path = plugins/core/Standard/qMasonry
 	url = https://github.com/CyberbuildLab/masonry-cc
 [submodule "plugins/core/Standard/qJSonRPCPlugin"]
 	path = plugins/core/Standard/qJSonRPCPlugin
-	url = https://gitlab.com/theadib/JSonRPCPlugin.git
+	url = https://github.com/CloudCompare/qJSonRPCPlugin.git
 [submodule "plugins/core/Standard/qCanupo/contrib/dlib"]
 	path = plugins/core/Standard/qCanupo/contrib/dlib
 	url = https://github.com/davisking/dlib.git
@@ -35,7 +36,20 @@
 	url = https://github.com/ColinDuquesnoy/QDarkStyleSheet
 [submodule "plugins/core/Standard/qVoxFall"]
 	path = plugins/core/Standard/qVoxFall
-	url = ../../farmakis/qVoxFall.git
+	url = https://github.com/farmakis/qVoxFall
 [submodule "plugins/core/Standard/qG3Point"]
 	path = plugins/core/Standard/qG3Point
 	url = https://github.com/p-leroy/qG3Point
+[submodule "plugins/core/IO/qPhotoscanIO/extern/quazip"]
+	path = plugins/core/IO/qPhotoscanIO/extern/quazip
+	url = https://github.com/stachenov/quazip.git
+[submodule "plugins/core/IO/MeshIO"]
+	path = plugins/core/IO/MeshIO
+	url = https://github.com/CloudCompare/MeshIO.git
+	branch = master
+[submodule "plugins/core/Standard/cc3DFin"]
+	path = plugins/core/Standard/cc3DFin
+	url = https://github.com/3DFin/cc3DFin.git
+[submodule "libs/CCAppCommon/devices/3dConnexion/extern/hidapi"]
+	path = libs/CCAppCommon/devices/3dConnexion/extern/hidapi
+	url = https://github.com/libusb/hidapi.git

@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -15,9 +17,6 @@
 // #                                                                        #
 // ##########################################################################
 
-#ifndef CC_MATERIAL_HEADER
-#define CC_MATERIAL_HEADER
-
 // Local
 #include "ccColorTypes.h"
 #include "ccSerializableObject.h"
@@ -25,8 +24,8 @@
 // Qt
 #include <QOpenGLTexture>
 #include <QSharedPointer>
-#include <QtGui/qopengl.h>
 
+class ccMaterialDB;
 class QImage;
 class QOpenGLContext;
 
@@ -147,7 +146,7 @@ class QCC_DB_LIB_API ccMaterial : public ccSerializableObject
 	void setTransparency(float val);
 
 	//! Apply parameters (OpenGL)
-	void applyGL(const QOpenGLContext* context, bool lightEnabled, bool skipDiffuse) const;
+	void applyGL(QOpenGLContext* context, bool lightEnabled, bool skipDiffuse) const;
 
 	//! Returns whether the material has an associated texture or not
 	bool hasTexture() const;
@@ -172,13 +171,16 @@ class QCC_DB_LIB_API ccMaterial : public ccSerializableObject
 	//! Helper: makes all active GL light sources neutral (i.e. 'gray')
 	/** \warning an OpenGL context must be active!
 	 **/
-	static void MakeLightsNeutral(const QOpenGLContext* context);
+	static void MakeLightsNeutral(QOpenGLContext* context);
 
 	//! Returns the texture image associated to a given name
 	static QImage GetTexture(const QString& absoluteFilename);
 
 	//! Adds a texture to the global texture DB
 	static void AddTexture(QImage image, const QString& absoluteFilename);
+
+	//! Returns the global texture DB
+	static ccMaterialDB* GetTextureDB();
 
 	//! Release all texture objects
 	/** Should be called BEFORE the global shared context is destroyed.
@@ -231,5 +233,3 @@ class QCC_DB_LIB_API ccMaterial : public ccSerializableObject
 	QOpenGLTexture::Filter m_texMinificationFilter;
 	QOpenGLTexture::Filter m_texMagnificationFilter;
 };
-
-#endif // CC_MATERIAL_HEADER

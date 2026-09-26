@@ -15,18 +15,19 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "ccRenderToFileDlg.h"
+#include "../include/ccRenderToFileDlg.h"
 
+// Ui
 #include "ui_renderToFileDialog.h"
 
 // Local
-#include <ccInfoDlg.h>
-
-// qCC_glWindow
-#include <ccGLWindowInterface.h>
+#include "../include/ccInfoDlg.h"
 
 // qCC_db
 #include <ccLog.h>
+
+// qCC_glWindow
+#include <ccGLWindowInterface.h>
 
 // Qt
 #include <QFileDialog>
@@ -43,7 +44,7 @@ namespace
 ccRenderToFileDlg::ccRenderToFileDlg(ccGLWindowInterface* win, QWidget* parent /*=nullptr*/)
     : QDialog(parent)
     , m_associatedWindow(win)
-    , m_ui(new Ui::RenderToFileDialog)
+    , m_ui(std::make_unique<Ui::RenderToFileDialog>())
 {
 	m_ui->setupUi(this);
 
@@ -61,10 +62,12 @@ ccRenderToFileDlg::ccRenderToFileDlg(ccGLWindowInterface* win, QWidget* parent /
 	QString firstFilter;
 	for (int i = 0; i < list.size(); ++i)
 	{
-		m_filters.append(QString("%1 image (*.%2)\n").arg(QString(list[i].data()).toUpper()).arg(list[i].data()));
+		QString filter = QString("%1 image (*.%2)").arg(QString(list[i].data()).toUpper()).arg(list[i].data());
+		m_filters.append(filter + "\n");
 		if (i == 0 || QString(list[i].data()) == "jpg")
 		{
-			firstFilter = m_filters;
+			firstExtension = list[i].data();
+			firstFilter    = filter;
 		}
 	}
 
@@ -92,10 +95,7 @@ ccRenderToFileDlg::ccRenderToFileDlg(ccGLWindowInterface* win, QWidget* parent /
 	updateInfo();
 }
 
-ccRenderToFileDlg::~ccRenderToFileDlg()
-{
-	delete m_ui;
-}
+ccRenderToFileDlg::~ccRenderToFileDlg() = default;
 
 void ccRenderToFileDlg::hideOptions()
 {

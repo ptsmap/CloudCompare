@@ -19,7 +19,8 @@
 
 // Qt
 #include <QDir>
-#include <QGLFormat>
+#include <QOpenGLContext>
+#include <QSurfaceFormat>
 
 // Local
 #include "ccviewerlog.h"
@@ -44,12 +45,6 @@
 
 int main(int argc, char* argv[])
 {
-
-#ifdef Q_OS_WIN
-	// enables automatic scaling based on the monitor's pixel density
-	ccViewerApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-#endif
-
 	ccViewerApplication::InitOpenGL();
 
 	// Convert the input arguments to QString before the application is initialized
@@ -61,14 +56,6 @@ int main(int argc, char* argv[])
 	}
 
 	ccViewerApplication a(argc, argv, false);
-
-#ifdef CC_GAMEPAD_SUPPORT
-#if QT_VERSION >= QT_VERSION_CHECK(5, 9, 0)
-#if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
-	QGamepadManager::instance(); // potential workaround to bug https://bugreports.qt.io/browse/QTBUG-61553
-#endif
-#endif
-#endif
 
 #ifdef USE_VLD
 	VLDEnable();
@@ -88,12 +75,23 @@ int main(int argc, char* argv[])
 
 	QDir::setCurrent(workingDir.absolutePath());
 
-	if (!QGLFormat::hasOpenGL())
+	QSurfaceFormat format;
+	format.setRenderableType(QSurfaceFormat::OpenGL);
+	format.setVersion(2, 1);
+	format.setProfile(QSurfaceFormat::CoreProfile);
+	QSurfaceFormat::setDefaultFormat(format);
+
+	// Create a temporary context to check OpenGL support
+	QOpenGLContext context;
+	if (!context.create())
 	{
 		QMessageBox::critical(nullptr, "Error", "This application needs OpenGL to run!");
 		return EXIT_FAILURE;
 	}
-	if ((QGLFormat::openGLVersionFlags() & QGLFormat::OpenGL_Version_2_1) == 0)
+
+	// Check if we have at least OpenGL 2.1
+	auto* glFunc = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_2_1>(&context);
+	if (!glFunc)
 	{
 		QMessageBox::critical(nullptr, "Error", "This application needs OpenGL 2.1 at least to run!");
 		return EXIT_FAILURE;
@@ -180,13 +178,16 @@ int main(int argc, char* argv[])
 	QCoreApplication::processEvents();
 #endif
 
+	// open the files the system asked to open during startup
+	// (a FileOpen event, e.g. double-clicked in the macOS Finder)
+	a.openPendingFiles();
+
 	w.checkForLoadedEntities();
 
 	int result = a.exec();
 
 	// release global structures
 	FileIOFilter::UnregisterAll();
-	ccPointCloud::ReleaseShaders();
 
 	return result;
 }

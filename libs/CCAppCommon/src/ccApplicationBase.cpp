@@ -19,26 +19,27 @@
 
 // Qt
 #include <QDir>
+#include <QOpenGLWidget>
 #include <QProcessEnvironment>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QString>
 #include <QStyleFactory>
 #include <QSurfaceFormat>
-#include <QTextCodec>
 #include <QTranslator>
 #include <QtGlobal>
 
 // CCCoreLib
-#include "CCPlatform.h"
+#include <CCPlatform.h>
 
 // qCC_db
-#include "ccMaterial.h"
-
+#include <ccColorScalesManager.h>
+#include <ccMaterial.h>
+#include <ccMesh.h>
 #include <ccPointCloud.h>
 
 // qCC_glWindow
-#include "ccGLWindowInterface.h"
+#include <ccGLWindowInterface.h>
 
 // Common
 #include "ccApplicationBase.h"
@@ -48,11 +49,8 @@
 // ccPluginAPI
 #include <ccPersistentSettings.h>
 
-// Qt
-#include <QOpenGLWidget>
-
-#if (QT_VERSION < QT_VERSION_CHECK(5, 5, 0))
-#error CloudCompare does not support versions of Qt prior to 5.5
+#if (QT_VERSION < QT_VERSION_CHECK(6, 4, 0))
+#error CloudCompare does not support versions of Qt prior to 6.4
 #endif
 
 void ccApplicationBase::InitOpenGL()
@@ -64,7 +62,9 @@ void ccApplicationBase::InitOpenGL()
 	    using the correct version and profile.
 	**/
 	{
-		QSurfaceFormat format = QSurfaceFormat::defaultFormat();
+		QSurfaceFormat format;
+		// force to "OpenGL" else it could default on something else (On wayland it will default to OpenGL ES)
+		format.setRenderableType(QSurfaceFormat::OpenGL);
 		format.setStencilBufferSize(0);
 #ifndef CC_LINUX                // seems to cause some big issues on Linux if Quad-buffering is not supported
                                 // we would need to find a way to check whether it's supported or not in advance...
@@ -105,15 +105,6 @@ ccApplicationBase::ccApplicationBase(int& argc, char** argv, bool isCommandLine,
 
 	// Force 'english' locale so as to get a consistent behavior everywhere
 	QLocale::setDefault(QLocale::English);
-	QTextCodec* utf8Codec = QTextCodec::codecForName("UTF-8");
-	if (utf8Codec)
-	{
-		QTextCodec::setCodecForLocale(utf8Codec);
-	}
-	else
-	{
-		ccLog::Warning("Failed to set the UTF-8 codec as default (codec not found)");
-	}
 
 #ifdef Q_OS_UNIX
 	// We reset the numeric locale for POSIX functions
@@ -142,7 +133,10 @@ ccApplicationBase::ccApplicationBase(int& argc, char** argv, bool isCommandLine,
 	ccTranslationManager::Get().loadTranslations();
 
 	connect(this, &ccApplicationBase::aboutToQuit, [=]()
-	        { ccMaterial::ReleaseTextures(); });
+	        { ccMaterial::ReleaseTextures();
+			  ccColorScalesManager::ReleaseUniqueInstance();
+	          ccMesh::ReleaseOpenGLRessources();
+	          ccPointCloud::ReleaseOpenGLRessources(); });
 }
 
 QString ccApplicationBase::versionLongStr(bool includeOS) const

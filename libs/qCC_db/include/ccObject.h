@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -14,9 +16,6 @@
 // #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
 // #                                                                        #
 // ##########################################################################
-
-#ifndef CC_OBJECT_HEADER
-#define CC_OBJECT_HEADER
 
 // Local
 #include "ccSerializableObject.h"
@@ -71,6 +70,7 @@ enum CC_OBJECT_FLAG
 #define CC_COORDINATESYSTEM_BIT 0x00000800000000  // CoordinateSystem (primitive)
 #define CC_CLIP_BOX_PART_BIT 0x00001000000000     // Cliping-box component
 #define CC_CIRCLE_BIT 0x00002000000000            //'3D' circle (polyline)
+#define CC_DISC_BIT 0x00004000000000              // Disc (primitive)
 // #define CC_FREE_BIT					0x00004000000000
 // #define CC_FREE_BIT					0x00008000000000
 // #define CC_FREE_BIT					0x00010000000000
@@ -125,6 +125,7 @@ namespace CC_TYPES
 		CLIPPING_BOX_PART    = CC_CLIP_BOX_PART_BIT | CC_LEAF_BIT,
 		TRANS_BUFFER         = HIERARCHY_OBJECT | CC_TRANS_BUFFER_BIT | CC_LEAF_BIT,
 		COORDINATESYSTEM     = PRIMITIVE | CC_COORDINATESYSTEM_BIT,
+		DISC                 = PRIMITIVE | CC_DISC_BIT,
 		//  Custom types
 		/** Custom objects are typically defined by plugins. They can be inserted in an object
 		    hierarchy or displayed in an OpenGL context like any other ccHObject.
@@ -258,16 +259,16 @@ class QCC_DB_LIB_API ccObject : public ccSerializableObject
 		setEnabled(!isEnabled());
 	}
 
-	//! Returns whether the object is locked  or not
-	/** Shortcut to access flag CC_LOCKED
+	//! Returns whether the object is locked or not
+	/** Locked entities should not be deleted or modified (number of elements, etc.).
 	 **/
 	virtual inline bool isLocked() const
 	{
 		return getFlagState(CC_LOCKED);
 	}
 
-	//! Sets the "enabled" property
-	/** Shortcut to modify flag CC_LOCKED
+	//! Sets the "locked" property
+	/** Locked entities should not be deleted or modified (number of elements, etc.).
 	 **/
 	virtual inline void setLocked(bool state)
 	{
@@ -389,5 +390,3 @@ class QCC_DB_LIB_API ccObject : public ccSerializableObject
 	//! Object unique ID
 	unsigned m_uniqueID;
 };
-
-#endif // CC_OBJECT_HEADER

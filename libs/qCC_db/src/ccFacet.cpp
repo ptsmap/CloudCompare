@@ -15,11 +15,12 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "ccFacet.h"
+#include "../include/ccFacet.h"
 
-#include "ccMesh.h"
-#include "ccPointCloud.h"
-#include "ccPolyline.h"
+// Local
+#include "../include/ccMesh.h"
+#include "../include/ccPointCloud.h"
+#include "../include/ccPolyline.h"
 
 // CCCoreLib
 #include <Delaunay2dMesh.h>
@@ -217,6 +218,7 @@ bool ccFacet::createInternalRepresentation(CCCoreLib::GenericIndexedCloudPersist
 
 	// compute resulting RMS
 	m_rms = CCCoreLib::DistanceComputationTools::computeCloud2PlaneDistanceRMS(points, m_planeEquation);
+	assert(std::isfinite(m_rms));
 
 	// update the points indexes (not done by Neighbourhood::projectPointsOn2DPlane)
 	{

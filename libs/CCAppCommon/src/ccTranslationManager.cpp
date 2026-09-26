@@ -16,6 +16,7 @@
 // ##########################################################################
 
 // Qt
+#include <QActionGroup>
 #include <QDebug>
 #include <QDir>
 #include <QGlobalStatic>
@@ -162,7 +163,7 @@ ccTranslationManager::LanguageList ccTranslationManager::availableLanguages(cons
 
 		if (!countryCode.isEmpty())
 		{
-			menuItem += QStringLiteral(" (%1)").arg(locale.nativeCountryName());
+			menuItem += QStringLiteral(" (%1)").arg(locale.nativeTerritoryName());
 		}
 
 		languageList += {localeStr, menuItem};

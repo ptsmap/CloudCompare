@@ -114,7 +114,7 @@ CC_FILE_ERROR STLFilter::saveToBINFile(ccGenericMesh* mesh, QFile& theFile, QWid
 	unsigned faceCount = mesh->size();
 
 	// progress
-	QScopedPointer<ccProgressDialog> pDlg(nullptr);
+	std::unique_ptr<ccProgressDialog> pDlg(nullptr);
 	if (parentWidget)
 	{
 		pDlg.reset(new ccProgressDialog(true, parentWidget));
@@ -123,7 +123,7 @@ CC_FILE_ERROR STLFilter::saveToBINFile(ccGenericMesh* mesh, QFile& theFile, QWid
 		pDlg->start();
 		QApplication::processEvents();
 	}
-	CCCoreLib::NormalizedProgress nprogress(pDlg.data(), faceCount);
+	CCCoreLib::NormalizedProgress nprogress(pDlg.get(), faceCount);
 
 	// header
 	{
@@ -206,7 +206,7 @@ CC_FILE_ERROR STLFilter::saveToASCIIFile(ccGenericMesh* mesh, QFile& theFile, QW
 	unsigned faceCount = mesh->size();
 
 	// progress
-	QScopedPointer<ccProgressDialog> pDlg(nullptr);
+	std::unique_ptr<ccProgressDialog> pDlg(nullptr);
 	if (parentWidget)
 	{
 		pDlg.reset(new ccProgressDialog(true, parentWidget));
@@ -215,10 +215,10 @@ CC_FILE_ERROR STLFilter::saveToASCIIFile(ccGenericMesh* mesh, QFile& theFile, QW
 		pDlg->start();
 		QApplication::processEvents();
 	}
-	CCCoreLib::NormalizedProgress nprogress(pDlg.data(), faceCount);
+	CCCoreLib::NormalizedProgress nprogress(pDlg.get(), faceCount);
 
 	QTextStream stream(&theFile);
-	stream << "solid " << mesh->getName() << endl;
+	stream << "solid " << mesh->getName() << Qt::endl;
 	if (theFile.error() != QFile::NoError) // empty names are acceptable!
 	{
 		return CC_FERR_WRITING;
@@ -239,17 +239,17 @@ CC_FILE_ERROR STLFilter::saveToASCIIFile(ccGenericMesh* mesh, QFile& theFile, QW
 		CCVector3 N = (*B - *A).cross(*C - *A);
 
 		//%e = scientific notation
-		stream << "facet normal " << N.x << ' ' << N.y << ' ' << N.z << endl;
-		stream << "outer loop" << endl;
+		stream << "facet normal " << N.x << ' ' << N.y << ' ' << N.z << Qt::endl;
+		stream << "outer loop" << Qt::endl;
 
 		CCVector3d Aglobal = vertices->toGlobal3d<PointCoordinateType>(*A);
-		stream << "vertex " << Aglobal.x << ' ' << Aglobal.y << ' ' << Aglobal.z << endl;
+		stream << "vertex " << Aglobal.x << ' ' << Aglobal.y << ' ' << Aglobal.z << Qt::endl;
 		CCVector3d Bglobal = vertices->toGlobal3d<PointCoordinateType>(*B);
-		stream << "vertex " << Bglobal.x << ' ' << Bglobal.y << ' ' << Bglobal.z << endl;
+		stream << "vertex " << Bglobal.x << ' ' << Bglobal.y << ' ' << Bglobal.z << Qt::endl;
 		CCVector3d Cglobal = vertices->toGlobal3d<PointCoordinateType>(*C);
-		stream << "vertex " << Cglobal.x << ' ' << Cglobal.y << ' ' << Cglobal.z << endl;
-		stream << "endloop" << endl;
-		stream << "endfacet" << endl;
+		stream << "vertex " << Cglobal.x << ' ' << Cglobal.y << ' ' << Cglobal.z << Qt::endl;
+		stream << "endloop" << Qt::endl;
+		stream << "endfacet" << Qt::endl;
 
 		if (theFile.error() != QFile::NoError)
 		{
@@ -263,7 +263,7 @@ CC_FILE_ERROR STLFilter::saveToASCIIFile(ccGenericMesh* mesh, QFile& theFile, QW
 		}
 	}
 
-	stream << "endsolid " << mesh->getName() << endl;
+	stream << "endsolid " << mesh->getName() << Qt::endl;
 	if (theFile.error() != QFile::NoError)
 	{
 		return CC_FERR_WRITING;
@@ -381,7 +381,7 @@ CC_FILE_ERROR STLFilter::loadFile(const QString& filename, ccHObject& container,
 		}
 
 		meshVertices->setEnabled(false);
-		// meshVertices->setLocked(true); //DGM: no need to lock it as it is only used by one mesh!
+
 		mesh->addChild(meshVertices);
 
 		container.addChild(mesh);
@@ -414,7 +414,7 @@ CC_FILE_ERROR STLFilter::loadASCIIFile(QFile&          fp,
 		{
 			return CC_FERR_READING;
 		}
-		QStringList tokens = currentLine.simplified().split(QChar(' '), QString::SkipEmptyParts);
+		QStringList tokens = currentLine.simplified().split(QChar(' '), Qt::SkipEmptyParts);
 		if (tokens.empty() || tokens[0].toUpper() != "SOLID")
 		{
 			ccLog::Warning("[STL] File should begin by 'solid [name]'!");
@@ -430,7 +430,7 @@ CC_FILE_ERROR STLFilter::loadASCIIFile(QFile&          fp,
 	mesh->setName(name);
 
 	// progress dialog
-	QScopedPointer<ccProgressDialog> pDlg(nullptr);
+	std::unique_ptr<ccProgressDialog> pDlg(nullptr);
 	if (parameters.parentWidget)
 	{
 		pDlg.reset(new ccProgressDialog(true, parameters.parentWidget));
@@ -472,7 +472,7 @@ CC_FILE_ERROR STLFilter::loadASCIIFile(QFile&          fp,
 			}
 			++lineCount;
 
-			QStringList tokens = currentLine.simplified().split(QChar(' '), QString::SkipEmptyParts);
+			QStringList tokens = currentLine.simplified().split(QChar(' '), Qt::SkipEmptyParts);
 			if (tokens.empty() || tokens[0].toUpper() != "FACET")
 			{
 				if (tokens[0].toUpper() != "ENDSOLID")
@@ -546,7 +546,7 @@ CC_FILE_ERROR STLFilter::loadASCIIFile(QFile&          fp,
 			}
 			++lineCount;
 
-			QStringList tokens = QString(currentLine).simplified().split(QChar(' '), QString::SkipEmptyParts);
+			QStringList tokens = QString(currentLine).simplified().split(QChar(' '), Qt::SkipEmptyParts);
 			if (tokens.size() < 4)
 			{
 				ccLog::Warning("[STL] Error on line #%i: incomplete 'vertex' description!", lineCount);
@@ -739,7 +739,7 @@ CC_FILE_ERROR STLFilter::loadBinaryFile(QFile&          fp,
 	}
 
 	// progress dialog
-	QScopedPointer<ccProgressDialog> pDlg(nullptr);
+	std::unique_ptr<ccProgressDialog> pDlg(nullptr);
 	if (parameters.parentWidget)
 	{
 		pDlg.reset(new ccProgressDialog(true, parameters.parentWidget));
@@ -748,7 +748,7 @@ CC_FILE_ERROR STLFilter::loadBinaryFile(QFile&          fp,
 		pDlg->start();
 		QApplication::processEvents();
 	}
-	CCCoreLib::NormalizedProgress nProgress(pDlg.data(), faceCount);
+	CCCoreLib::NormalizedProgress nProgress(pDlg.get(), faceCount);
 
 	// current vertex shift
 	CCVector3d Pshift(0, 0, 0);

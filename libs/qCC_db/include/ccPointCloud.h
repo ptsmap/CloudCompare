@@ -17,21 +17,21 @@
 // #                                                                        #
 // ##########################################################################
 
-#ifdef _MSC_VER
-// To get rid of the warnings about dominant inheritance
-#pragma warning(disable : 4250)
-#endif
-
-// CCCoreLib
-#include <PointCloudTpl.h>
-
 // Local
 #include "ccColorScale.h"
 #include "ccNormalVectors.h"
 #include "ccWaveform.h"
 
+// CCCoreLib
+#include <PointCloudTpl.h>
+
 // Qt
 #include <QOpenGLBuffer>
+
+#ifdef _MSC_VER
+// To get rid of the warnings about dominant inheritance
+#pragma warning(disable : 4250)
+#endif
 
 class ccScalarField;
 class ccPolyline;
@@ -412,7 +412,7 @@ class QCC_DB_LIB_API ccPointCloud : public CCCoreLib::PointCloudTpl<ccGenericPoi
 	void setNormalLength(const float& value);
 
 	//! Get the length of the normals
-	const float& getNormalLength()
+	const float& getNormalLength() const
 	{
 		return m_normalLineParameters.length;
 	}
@@ -431,7 +431,7 @@ class QCC_DB_LIB_API ccPointCloud : public CCCoreLib::PointCloudTpl<ccGenericPoi
 	void setNormalLineColor(int colorIdx);
 
 	//! Get the color of the normals
-	const int& getNormalLineColor()
+	const int& getNormalLineColor() const
 	{
 		return m_normalLineParameters.colorIdx;
 	}
@@ -707,7 +707,6 @@ class QCC_DB_LIB_API ccPointCloud : public CCCoreLib::PointCloudTpl<ccGenericPoi
 		bool             applyToSFduringRGB      = false;
 		RGB_FILTER_TYPES filterType              = RGB_FILTER_TYPES::NONE;
 		unsigned char    burntOutColorThreshold  = 0;
-		bool             commandLine             = false;
 		double           sigmaSF                 = -1;
 		double           spatialSigma            = -1;
 		bool             blendGrayscale          = false;
@@ -914,6 +913,9 @@ class QCC_DB_LIB_API ccPointCloud : public CCCoreLib::PointCloudTpl<ccGenericPoi
 	//! Exports the specified normal dimension(s) to scalar field(s)
 	bool exportNormalToSF(bool exportDims[3]);
 
+	//! Sets normals from scalar fields
+	bool setNormalsFromSF(CCCoreLib::ScalarField* sfX, CCCoreLib::ScalarField* sfY, CCCoreLib::ScalarField* sfZ);
+
 	//! Release VBOs
 	void releaseVBOs();
 
@@ -933,6 +935,9 @@ class QCC_DB_LIB_API ccPointCloud : public CCCoreLib::PointCloudTpl<ccGenericPoi
 	/** Must be called before the OpenGL context is released.
 	 **/
 	static void ReleaseShaders();
+
+	//! Releases OpenGL ressources (textures, VBOs, etc.)
+	static void ReleaseOpenGLRessources();
 
   protected:
 	// inherited from ccHObject
@@ -976,26 +981,10 @@ class QCC_DB_LIB_API ccPointCloud : public CCCoreLib::PointCloudTpl<ccGenericPoi
 
   protected: // VBO
 	//! Init/updates VBOs
-	bool updateVBOs(const CC_DRAW_CONTEXT& context, const glDrawParams& glParams);
+	bool updateVBOs(const CC_DRAW_CONTEXT& context, const glDrawParams& glParams, bool noSF = false, bool noNormals = false);
 
-	class VBO : public QOpenGLBuffer
-	{
-	  public:
-		int rgbShift;
-		int normalShift;
-
-		//! Inits the VBO
-		/** \return the number of allocated bytes (or -1 if an error occurred)
-		 **/
-		int init(int count, bool withColors, bool withNormals, bool* reallocated = nullptr);
-
-		VBO()
-		    : QOpenGLBuffer(QOpenGLBuffer::VertexBuffer)
-		    , rgbShift(0)
-		    , normalShift(0)
-		{
-		}
-	};
+	//! Composite VBO structure
+	class VBO;
 
 	//! VBO set
 	struct vboSet
@@ -1044,10 +1033,10 @@ class QCC_DB_LIB_API ccPointCloud : public CCCoreLib::PointCloudTpl<ccGenericPoi
 	vboSet m_vboManager;
 
 	// per-block data transfer to the GPU (VBO or standard mode)
-	void glChunkVertexPointer(const CC_DRAW_CONTEXT& context, size_t chunkIndex, unsigned decimStep, bool useVBOs);
-	void glChunkColorPointer(const CC_DRAW_CONTEXT& context, size_t chunkIndex, unsigned decimStep, bool useVBOs);
-	void glChunkSFPointer(const CC_DRAW_CONTEXT& context, size_t chunkIndex, unsigned decimStep, bool useVBOs);
-	void glChunkNormalPointer(const CC_DRAW_CONTEXT& context, size_t chunkIndex, unsigned decimStep, bool useVBOs);
+	void glChunkVertexPointer(const CC_DRAW_CONTEXT& context, size_t chunkIndex, unsigned decimStep, bool useVBOs, bool useProg = false);
+	void glChunkColorPointer(const CC_DRAW_CONTEXT& context, size_t chunkIndex, unsigned decimStep, bool useVBOs, bool useProg = false);
+	void glChunkSFPointer(const CC_DRAW_CONTEXT& context, size_t chunkIndex, unsigned decimStep, bool useVBOs, bool useProg = false);
+	void glChunkNormalPointer(const CC_DRAW_CONTEXT& context, size_t chunkIndex, unsigned decimStep, bool useVBOs, bool useProg = false);
 
   public: // Level of Detail (LOD)
 	//! Initializes the LOD structure

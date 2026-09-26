@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -14,9 +16,6 @@
 // #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
 // #                                                                        #
 // ##########################################################################
-
-#ifndef CC_MESH_GROUP_HEADER
-#define CC_MESH_GROUP_HEADER
 
 // Local
 #include "ccGenericMesh.h"
@@ -43,7 +42,7 @@ class QCC_DB_LIB_API ccMeshGroup : public ccGenericMesh
 	// inherited methods (ccGenericMesh)
 	ccGenericPointCloud* getAssociatedCloud() const override
 	{
-		return 0;
+		return nullptr;
 	}
 	void refreshBB() override
 	{
@@ -86,7 +85,7 @@ class QCC_DB_LIB_API ccMeshGroup : public ccGenericMesh
 	}
 	const ccMaterialSet* getMaterialSet() const override
 	{
-		return 0;
+		return nullptr;
 	}
 	int getTriangleMtlIndex(unsigned triangleIndex) const override
 	{
@@ -98,7 +97,7 @@ class QCC_DB_LIB_API ccMeshGroup : public ccGenericMesh
 	}
 	TextureCoordsContainer* getTexCoordinatesTable() const override
 	{
-		return 0;
+		return nullptr;
 	}
 	void getTriangleTexCoordinates(unsigned triIndex, TexCoords2D*& tx1, TexCoords2D*& tx2, TexCoords2D*& tx3) const override
 	{
@@ -126,18 +125,19 @@ class QCC_DB_LIB_API ccMeshGroup : public ccGenericMesh
 	}
 	NormsIndexesTableType* getTriNormsTable() const override
 	{
-		return 0;
+		return nullptr;
 	}
-	virtual unsigned capacity() const override
+	unsigned capacity() const override
 	{
 		return 0;
 	}
-	virtual bool trianglePicking(const CCVector2d&           clickPos,
-	                             const ccGLCameraParameters& camera,
-	                             int&                        nearestTriIndex,
-	                             double&                     nearestSquareDist,
-	                             CCVector3d&                 nearestPoint,
-	                             CCVector3d*                 barycentricCoords = nullptr) const override
+	bool trianglePicking(const CCVector2d&           clickPos,
+	                     const ccGLCameraParameters& camera,
+	                     bool                        edgeOnly,
+	                     int&                        nearestTriIndex,
+	                     double&                     nearestSquareDist,
+	                     CCVector3d&                 nearestPoint,
+	                     CCVector3d*                 barycentricCoords = nullptr) const override
 	{
 		return false;
 	}
@@ -164,27 +164,24 @@ class QCC_DB_LIB_API ccMeshGroup : public ccGenericMesh
 	{
 		return 0;
 	}
-	void forEach(genericTriangleAction action) override
-	{
-	}
 	void placeIteratorAtBeginning() override
 	{
 	}
 	CCCoreLib::GenericTriangle* _getNextTriangle() override
 	{
-		return 0;
+		return nullptr;
 	}
 	CCCoreLib::GenericTriangle* _getTriangle(unsigned index) override
 	{
-		return 0;
+		return nullptr;
 	}
 	CCCoreLib::VerticesIndexes* getNextTriangleVertIndexes() override
 	{
-		return 0;
+		return nullptr;
 	}
 	CCCoreLib::VerticesIndexes* getTriangleVertIndexes(unsigned triangleIndex) override
 	{
-		return 0;
+		return nullptr;
 	}
 	void getTriangleVertices(unsigned triangleIndex, CCVector3& A, CCVector3& B, CCVector3& C) const override
 	{
@@ -195,7 +192,5 @@ class QCC_DB_LIB_API ccMeshGroup : public ccGenericMesh
 
   protected:
 	// inherited from ccHObject
-	virtual void drawMeOnly(CC_DRAW_CONTEXT& context) override;
+	void drawMeOnly(CC_DRAW_CONTEXT& context) override;
 };
-
-#endif // CC_MESH_GROUP_HEADER

@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -15,9 +17,6 @@
 // #                                                                        #
 // ##########################################################################
 
-#ifndef CC_REGISTRATION_TOOLS_HEADER
-#define CC_REGISTRATION_TOOLS_HEADER
-
 // CCCoreLib
 #include <RegistrationTools.h>
 
@@ -25,7 +24,6 @@
 #include <ccGLMatrix.h>
 
 class QWidget;
-class QStringList;
 class ccHObject;
 
 //! Registration tools wrapper
@@ -47,5 +45,3 @@ class ccRegistrationTools
 	                bool                                               useModelSFAsWeights = false,
 	                QWidget*                                           parent              = nullptr);
 };
-
-#endif // CC_REGISTRATION_TOOLS_HEADER

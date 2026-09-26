@@ -19,7 +19,6 @@
 
 // Qt
 #include <QDir>
-#include <QGLFormat>
 #include <QMessageBox>
 #include <QPixmap>
 #include <QSettings>
@@ -27,15 +26,11 @@
 #include <QTime>
 #include <QTimer>
 #include <QTranslator>
-#ifdef CC_GAMEPAD_SUPPORT
-#include <QGamepadManager>
-#endif
 
 // qCC_db
 #include <ccColorScalesManager.h>
 #include <ccLog.h>
 #include <ccNormalVectors.h>
-#include <ccPointCloud.h>
 
 // qCC_io
 #include <FileIOFilter.h>
@@ -55,6 +50,10 @@
 
 #ifdef USE_VLD
 #include <vld.h>
+#endif
+
+#ifdef _WIN32
+#include <Windows.h>
 #endif
 
 static bool IsCommandLine(int argc, char** argv)
@@ -156,11 +155,6 @@ int main(int argc, char** argv)
 		}
 	}
 
-#ifdef Q_OS_WIN
-	// enables automatic scaling based on the monitor's pixel density
-	ccApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-#endif
-
 	ccApplication::InitOpenGL();
 
 	ccApplication app(argc, argv, commandLine);
@@ -171,23 +165,25 @@ int main(int argc, char** argv)
 		ccLog::SetVerbosityLevel(ccGui::Parameters().logVerbosityLevel);
 	}
 
-#ifdef CC_GAMEPAD_SUPPORT
-#if QT_VERSION >= QT_VERSION_CHECK(5, 9, 0)
-#if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
-	QGamepadManager::instance(); // potential workaround to bug https://bugreports.qt.io/browse/QTBUG-61553
-#endif
-#endif
-#endif
 	// store the log message until a valid logging instance is registered
 	ccLog::EnableMessageBackup(true);
 
 	// splash screen
-	QScopedPointer<QSplashScreen> splash(nullptr);
+	std::unique_ptr<QSplashScreen> splash(nullptr);
 
 	// standard mode
 	if (!commandLine)
 	{
-		if ((QGLFormat::openGLVersionFlags() & QGLFormat::OpenGL_Version_2_1) == 0)
+		QOpenGLContext context;
+		if (!context.create())
+		{
+			QMessageBox::critical(nullptr, "Error", "This application needs OpenGL to run!");
+			return EXIT_FAILURE;
+		}
+
+		auto* glFunc = QOpenGLVersionFunctionsFactory::get<QOpenGLFunctions_2_1>(&context);
+		// Check if we have at least OpenGL 2.1
+		if (!glFunc)
 		{
 			QMessageBox::critical(nullptr, "Error", "This application needs OpenGL 2.1 at least to run!");
 			return EXIT_FAILURE;
@@ -298,6 +294,10 @@ int main(int argc, char** argv)
 			mainWindow->addToDB(filenames);
 		}
 
+		// open the files the system asked to open during startup
+		// (a FileOpen event, e.g. double-clicked in the macOS Finder)
+		app.setMainWindowReady();
+
 		// change the default path to the application one (do this AFTER processing the command line)
 		QDir workingDir = QCoreApplication::applicationDirPath();
 
@@ -335,7 +335,6 @@ int main(int argc, char** argv)
 	}
 
 	// release global structures
-	ccPointCloud::ReleaseShaders(); // must be done before the OpenGL context is released (i.e. before the windows is destroyed)
 	MainWindow::DestroyInstance();
 	FileIOFilter::UnregisterAll();
 

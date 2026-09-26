@@ -4,7 +4,8 @@
 // #                                                                        #
 // #  This program is free software; you can redistribute it and/or modify  #
 // #  it under the terms of the GNU Library General Public License as       #
-// #  published by the Free Software Foundation; version 2 or later of the License.  #
+// #  published by the Free Software Foundation; version 2 or later of the  #
+// #  License.                                                              #
 // #                                                                        #
 // #  This program is distributed in the hope that it will be useful,       #
 // #  but WITHOUT ANY WARRANTY; without even the implied warranty of        #
@@ -15,11 +16,11 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "ccBilateralFilter.h"
+#include "../include/ccBilateralFilter.h"
 
-// system
+// System
 #include <algorithm>
-#include <assert.h>
+#include <cassert>
 #include <cmath>
 
 //! Max kernel size
@@ -66,7 +67,7 @@ void ccBilateralFilter::reset()
 	m_width = m_height = 0;
 }
 
-bool ccBilateralFilter::init(unsigned width, unsigned height, const QString& shadersPath, QString& error)
+bool ccBilateralFilter::init(unsigned width, unsigned height, const QString& shadersPath, QString& error, bool silent)
 {
 	if (width == 0 || height == 0)
 	{

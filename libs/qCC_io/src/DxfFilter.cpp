@@ -76,6 +76,7 @@ class DxfImporter : public DL_CreationAdapter
 	    , m_poly(nullptr)
 	    , m_polyVertices(nullptr)
 	    , m_firstPoint(true)
+	    , m_polyElevation(0.0)
 	    , m_globalShift(0, 0, 0)
 	    , m_preserveCoordinateShift(false)
 	    , m_loadParameters(parameters)
@@ -185,7 +186,7 @@ class DxfImporter : public DL_CreationAdapter
 		}
 		m_polyVertices->setEnabled(false);
 		m_poly->setVisible(true);
-		m_poly->setName("Polyline");
+		m_poly->setName(getLayerNameOr("Polyline"));
 
 		// flags
 		m_poly->setClosed(poly.flags & 1);
@@ -201,7 +202,8 @@ class DxfImporter : public DL_CreationAdapter
 
 		// some entities can have small coordinates (drawings, origin, etc.)
 		// hiding the fact that other polylines have large coordinates!
-		m_firstPoint = true;
+		m_firstPoint    = true;
+		m_polyElevation = poly.elevation;
 	}
 
 	void addVertex(const DL_VertexData& vertex) override
@@ -223,7 +225,7 @@ class DxfImporter : public DL_CreationAdapter
 			}
 
 			m_poly->addPointIndex(m_polyVertices->size());
-			m_polyVertices->addPoint(convertPoint(vertex.x, vertex.y, vertex.z));
+			m_polyVertices->addPoint(convertPoint(vertex.x, vertex.y, vertex.z + m_polyElevation));
 
 			if (m_poly->size() == 1)
 			{
@@ -255,7 +257,7 @@ class DxfImporter : public DL_CreationAdapter
 			m_faces->addChild(vertices);
 			m_faces->setVisible(true);
 			vertices->setEnabled(false);
-			// vertices->setLocked(true);  //DGM: no need to lock it as it is only used by one mesh!
+
 			if (m_preserveCoordinateShift)
 			{
 				vertices->setGlobalShift(m_globalShift);
@@ -480,13 +482,14 @@ class DxfImporter : public DL_CreationAdapter
 		}
 		polyVertices->setEnabled(false);
 		poly->setVisible(true);
-		poly->setName("Arc");
+		poly->setName(getLayerNameOr("Arc"));
 		poly->addPointIndex(0, vertexCount);
 		poly->setClosed(arcLength_deg >= 360.0);
 
 		// some entities can have small coordinates (drawings, origin, etc.)
 		// hiding the fact that other polylines have large coordinates!
-		m_firstPoint = true;
+		m_firstPoint    = true;
+		m_polyElevation = 0.0;
 
 		CCVector3 Clocal = convertPoint(data.cx, data.cy, data.cz);
 
@@ -577,12 +580,13 @@ class DxfImporter : public DL_CreationAdapter
 		}
 		polyVertices->setEnabled(false);
 		poly->setVisible(true);
-		poly->setName("Line");
+		poly->setName(getLayerNameOr("Line"));
 		poly->addPointIndex(0, 2);
 
 		// some entities can have small coordinates (drawings, origin, etc.)
 		// hiding the fact that other polylines have large coordinates!
-		m_firstPoint = true;
+		m_firstPoint    = true;
+		m_polyElevation = 0.0;
 
 		// add first point
 		polyVertices->addPoint(convertPoint(line.x1, line.y1, line.z1));
@@ -651,11 +655,21 @@ class DxfImporter : public DL_CreationAdapter
 		return true;
 	}
 
+	//! Returns the name or the current layer or a user defined default value
+	QString getLayerNameOr(const QString& defaultName)
+	{
+		const auto layerName = QString::fromStdString(getAttributes().getLayer());
+		return layerName.isEmpty() ? defaultName : layerName;
+	}
+
 	//! Keep track of the colour of each layer in case the colour attribute is set to BYLAYER
 	QMap<QString, int> m_layerColourMap;
 
 	//! Whether the very first point has been loaded or not
 	bool m_firstPoint;
+
+	//! Elevation for the current polyline
+	double m_polyElevation;
 
 	//! Global shift
 	CCVector3d m_globalShift;
@@ -1065,7 +1079,7 @@ CC_FILE_ERROR DxfFilter::loadFile(const QString& filename, ccHObject& container,
 		{
 			ccLog::Warning("[DXF] Input file contains special characters. It might be rejected by the third party library...");
 		}
-		if (DL_Dxf().in(qPrintable(filename), &importer)) // DGM: warning, toStdString doesn't preserve "local" characters
+		if (DL_Dxf().in(qUtf8Printable(filename), &importer)) // DGM: warning, toStdString doesn't preserve "local" characters
 #endif
 		{
 			importer.applyGlobalShift(); // apply the (potential) global shift to shared clouds

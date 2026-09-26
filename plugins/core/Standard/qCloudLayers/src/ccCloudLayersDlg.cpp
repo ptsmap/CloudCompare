@@ -130,6 +130,8 @@ bool ccCloudLayersDlg::setPointCloud(ccPointCloud* cloud)
 		cbScalarField->addItems(m_helper->getScalarFields());
 		cbScalarField->setCurrentIndex(m_helper->getCurrentScalarFieldIndex());
 		cbScalarField->blockSignals(false);
+
+		m_helper->applyClassColors(m_asprsModel.getData());
 	}
 
 	return true;
@@ -264,7 +266,7 @@ void ccCloudLayersDlg::deleteClicked()
 	}
 
 	QModelIndexList mapIndices = select->selectedIndexes();
-	qSort(mapIndices);
+	std::sort(mapIndices.begin(), mapIndices.end());
 
 	QModelIndexList sourceIndices;
 	for (QModelIndex index : mapIndices)
@@ -520,7 +522,7 @@ void ccCloudLayersDlg::outputClassIndexChanged(int index)
 		return;
 	}
 	ccCloudLayersHelper::Parameters& params = m_helper->getParameters();
-	if (cbInput->currentIndex() < 0)
+	if (cbOutput->currentIndex() < 0)
 	{
 		params.output = nullptr;
 		return;

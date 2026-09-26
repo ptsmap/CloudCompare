@@ -32,6 +32,7 @@
 #include <ccScalarField.h>
 
 //Qt
+#include <QElapsedTimer>
 #include <QMainWindow>
 #include <QProgressBar>
 
@@ -99,7 +100,7 @@ void qPCV::doAction()
 			assert(false);
 			continue;
 		}
-		
+
 		if (obj->isA(CC_TYPES::POINT_CLOUD))
 		{
 			//we need a real point cloud
@@ -137,12 +138,12 @@ void qPCV::doAction()
 	{
 		ccHObject::Container clouds;
 		root->filterChildren(clouds, true, CC_TYPES::POINT_CLOUD);
-		
+
 		for (auto & pointCloud : clouds)
 		{
 			//we keep only clouds with normals
-			ccGenericPointCloud* cloud = ccHObjectCaster::ToGenericPointCloud( pointCloud );
-			
+			ccGenericPointCloud* cloud = ccHObjectCaster::ToGenericPointCloud(pointCloud);
+
 			if (cloud && cloud->hasNormals())
 			{
 				cloudsWithNormals.push_back(cloud);
@@ -156,7 +157,7 @@ void qPCV::doAction()
 			}
 		}
 	}
-	
+
 	if (cloudsWithNormals.empty())
 	{
 		dlg.useCloudRadioButton->setEnabled(false);
@@ -180,7 +181,7 @@ void qPCV::doAction()
 	bool mode360 = !dlg.mode180CheckBox->isChecked();
 
 	//PCV type ShadeVis
-	std::vector<CCVector3> rays;
+	std::vector<CCVector3d> rays;
 	if (!cloudsWithNormals.empty() && dlg.useCloudRadioButton->isChecked())
 	{
 		//Version with cloud normals as light rays
@@ -191,14 +192,14 @@ void qPCV::doAction()
 		{
 			rays.resize(count);
 		}
-		catch (std::bad_alloc)
+		catch (const std::bad_alloc&)
 		{
 			m_app->dispToConsole("Not enough memory to generate the set of rays", ccMainAppInterface::ERR_CONSOLE_MESSAGE);
 			return;
 		}
 		for (unsigned i = 0; i < count; ++i)
 		{
-			rays[i] = CCVector3(pc->getPointNormal(i));
+			rays[i] = CCVector3d(pc->getPointNormal(i));
 		}
 	}
 	else
@@ -221,7 +222,10 @@ void qPCV::doAction()
 	ccProgressDialog pcvProgressCb(true, m_app->getMainWindow());
 	pcvProgressCb.setAutoClose(false);
 
+	QElapsedTimer timer;
+	timer.start();
 	PCVCommand::Process(candidates, rays, meshIsClosed, resolution, &pcvProgressCb, m_app);
+	ccLog::Print(QString("[PCV] Timing: %1 sec").arg(timer.elapsed() / 1000.0));
 
 	pcvProgressCb.close();
 

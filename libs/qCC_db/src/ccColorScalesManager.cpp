@@ -15,17 +15,17 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "ccColorScalesManager.h"
+#include "../include/ccColorScalesManager.h"
 
 // Local
-#include "ccLog.h"
-#include "ccSingleton.h"
-
-// Qt
-#include <QSettings>
+#include "../include/ccLog.h"
+#include "../include/ccSingleton.h"
 
 // CCCoreLib
 #include <MeshSamplingTools.h>
+
+// Qt
+#include <QSettings>
 
 // System
 #include <assert.h>
@@ -47,7 +47,7 @@ static const char c_csm_customLabels[]     = "labels";
 static const char c_csm_customLabelValue[] = "value";
 static const char c_csm_customLabelText[]  = "text";
 
-// matplotlib library colorscale created by Stéfan van der Walt and Nathaniel Smith
+// matplotlib library colorscale created by Stefan van der Walt and Nathaniel Smith
 static const double s_viridis[] =
     {
         0.26700401,
@@ -1124,6 +1124,7 @@ ccColorScalesManager::ccColorScalesManager()
 		addScale(Create(CIVIDIS));
 		addScale(Create(ASPRS_CLASSES));
 		addScale(Create(ASPRS_WITH_LABELS));
+		addScale(Create(GREY_INV));
 	}
 }
 
@@ -1214,7 +1215,7 @@ void ccColorScalesManager::toPersistentSettings() const
 	// add each scale
 	for (ScalesMap::const_iterator it = m_scales.begin(); it != m_scales.end(); ++it)
 	{
-		if (!(*it)->isLocked()) // locked scales are pre-defined ones!
+		if (!(*it)->isReadOnly()) // read-only scales are pre-defined ones!
 		{
 			settings.beginGroup((*it)->getUuid());
 
@@ -1285,9 +1286,9 @@ void ccColorScalesManager::removeScale(QString UUID)
 	ScalesMap::const_iterator it = m_scales.constFind(UUID);
 	if (it != m_scales.constEnd())
 	{
-		if ((*it)->isLocked())
+		if ((*it)->isReadOnly())
 		{
-			ccLog::Warning(QString("[ccColorScalesManager::addScale] Can't remove a locked scale (%1)!").arg(UUID));
+			ccLog::Warning(QString("[ccColorScalesManager::addScale] Can't remove a read-only scale (%1)!").arg(UUID));
 		}
 		else
 		{
@@ -1338,6 +1339,8 @@ ccColorScale::Shared ccColorScalesManager::Create(DEFAULT_SCALES scaleType)
 			return QStringLiteral("ASPRS classes");
 		case ASPRS_WITH_LABELS:
 			return QStringLiteral("ASPRS classes (with labels)");
+		case GREY_INV:
+			return QStringLiteral("Grey (inverted)");
 		default:
 			assert(false);
 			break;
@@ -1364,6 +1367,10 @@ ccColorScale::Shared ccColorScalesManager::Create(DEFAULT_SCALES scaleType)
 	case GREY:
 		scale->insert(ccColorScaleElement(0.0, Qt::black), false);
 		scale->insert(ccColorScaleElement(1.0, Qt::white), false);
+		break;
+	case GREY_INV:
+		scale->insert(ccColorScaleElement(0.0, Qt::white), false);
+		scale->insert(ccColorScaleElement(1.0, Qt::black), false);
 		break;
 	case BWR:
 		scale->insert(ccColorScaleElement(0.0, Qt::blue), false);
@@ -1519,7 +1526,7 @@ ccColorScale::Shared ccColorScalesManager::Create(DEFAULT_SCALES scaleType)
 			classes.push_back({"Wire - Guard (Shield)", 13, qRgb(191, 231, 205)});
 			classes.push_back({"Wire - Conductor (Phase)", 14, qRgb(193, 230, 125)});
 			classes.push_back({"Transmission Tower", 15, Qt::darkBlue});
-			classes.push_back({"Wire-strucutre Connector", 16, Qt::darkYellow});
+			classes.push_back({"Wire-structure Connector", 16, Qt::darkYellow});
 			classes.push_back({"Bridge Deck", 17, Qt::darkCyan});
 			classes.push_back({"High Noise", 18, Qt::darkRed});
 			classes.push_back({"Overhead structure", 19, qRgb(270, 170, 255)});
@@ -1566,7 +1573,7 @@ ccColorScale::Shared ccColorScalesManager::Create(DEFAULT_SCALES scaleType)
 
 	// don't forget to update internal representation!
 	scale->update();
-	scale->setLocked(true);
+	scale->setReadOnly(true);
 
 	return scale;
 }

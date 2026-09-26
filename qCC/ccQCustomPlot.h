@@ -1,3 +1,5 @@
+#pragma once
+
 // ##########################################################################
 // #                                                                        #
 // #                              CLOUDCOMPARE                              #
@@ -14,9 +16,6 @@
 // #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
 // #                                                                        #
 // ##########################################################################
-
-#ifndef CC_QCUSTOMPLOT_HEADER
-#define CC_QCUSTOMPLOT_HEADER
 
 // QCustomPlot
 #ifdef _MSC_VER
@@ -96,7 +95,7 @@ class QCPBarsWithText : public QCPBars
 			{
 				QPointF Pstart = P;
 				if (m_textOnTheLeft)
-					Pstart.setX(P.x() - painter->fontMetrics().width(m_text[i]));
+					Pstart.setX(P.x() - painter->fontMetrics().horizontalAdvance(m_text[i]));
 				painter->drawText(Pstart, m_text[i]);
 				P.setY(P.y() + fontHeight);
 			}
@@ -120,7 +119,7 @@ class QCPColoredBars : public QCPBars
 
 		QColor color;
 	};
-	typedef QMap<double, QCPColoredBarData> QCPColoredBarDataMap;
+	typedef QMultiMap<double, QCPColoredBarData> QCPColoredBarDataMap;
 
 	QCPColoredBars(QCPAxis* keyAxis, QCPAxis* valueAxis)
 	    : QCPBars(keyAxis, valueAxis)
@@ -149,7 +148,7 @@ class QCPColoredBars : public QCPBars
 			newData.value = value[i];
 			if (colors.size() > i)
 				newData.color = colors[i];
-			m_coloredData.insertMulti(newData.key, newData);
+			m_coloredData.insert(newData.key, newData);
 			QCPBars::addData(newData.key, newData.value);
 		}
 	}
@@ -477,5 +476,3 @@ class QCPArrow : public QCPSelectableCursor
 		}
 	}
 };
-
-#endif // CC_QCUSTOMPLOT_HEADER

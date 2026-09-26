@@ -1,3 +1,20 @@
+// ##########################################################################
+// #                                                                        #
+// #                              CLOUDCOMPARE                              #
+// #                                                                        #
+// #  This program is free software; you can redistribute it and/or modify  #
+// #  it under the terms of the GNU General Public License as published by  #
+// #  the Free Software Foundation; version 2 or later of the License.      #
+// #                                                                        #
+// #  This program is distributed in the hope that it will be useful,       #
+// #  but WITHOUT ANY WARRANTY; without even the implied warranty of        #
+// #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
+// #  GNU General Public License for more details.                          #
+// #                                                                        #
+// #          COPYRIGHT: EDF R&D / TELECOM ParisTech (ENST-TSI)             #
+// #                                                                        #
+// ##########################################################################
+
 // CCCoreLib
 #include <AutoSegmentationTools.h>
 #include <CCConst.h>
@@ -38,10 +55,14 @@
 #include "ccCommandLineCommands.h"
 
 // Local
+#include "ccArgumentParser.h"
 #include "ccEntityAction.h"
 
 #include <QDateTime>
 #include <QFileInfo>
+#include <limits>
+#include <optional>
+#include <utility>
 
 // commands
 constexpr char COMMAND_CLOUD_EXPORT_FORMAT[]              = "C_EXPORT_FMT";
@@ -84,9 +105,16 @@ constexpr char COMMAND_REMOVE_SENSORS[]                   = "REMOVE_SENSORS";
 constexpr char COMMAND_REMOVE_RGB[]                       = "REMOVE_RGB";
 constexpr char COMMAND_REMOVE_NORMALS[]                   = "REMOVE_NORMALS";
 constexpr char COMMAND_MATCH_BB_CENTERS[]                 = "MATCH_CENTERS";
+constexpr char COMMAND_MATCH_SCALES[]                     = "MATCH_SCALES";
+constexpr char COMMAND_MATCH_SCALES_REFERENCE[]           = "REFERENCE";
+constexpr char COMMAND_MATCH_SCALES_RMS_DIFF[]            = "RMS_DIFF";
+constexpr char COMMAND_MATCH_SCALES_OVERLAP[]             = "OVERLAP";
+constexpr char COMMAND_MATCH_SCALES_MIN_SCALE[]           = "MIN_SCALE";
+constexpr char COMMAND_MATCH_SCALES_MAX_SCALE[]           = "MAX_SCALE";
 constexpr char COMMAND_BEST_FIT_PLANE[]                   = "BEST_FIT_PLANE";
 constexpr char COMMAND_BEST_FIT_PLANE_MAKE_HORIZ[]        = "MAKE_HORIZ";
 constexpr char COMMAND_BEST_FIT_PLANE_KEEP_LOADED[]       = "KEEP_LOADED";
+constexpr char COMMAND_BEST_FIT_PLANE_OUTPUT_INFO_FILE[]  = "OUTPUT_INFO_FILE";
 constexpr char COMMAND_ORIENT_NORMALS[]                   = "ORIENT_NORMS_MST";
 constexpr char COMMAND_SOR_FILTER[]                       = "SOR";
 constexpr char COMMAND_NOISE_FILTER[]                     = "NOISE";
@@ -116,6 +144,7 @@ constexpr char COMMAND_C2C_LOCAL_MODEL[]                  = "MODEL";
 constexpr char COMMAND_C2X_MAX_DISTANCE[]                 = "MAX_DIST";
 constexpr char COMMAND_C2X_OCTREE_LEVEL[]                 = "OCTREE_LEVEL";
 constexpr char COMMAND_STAT_TEST[]                        = "STAT_TEST";
+constexpr char COMMAND_STAT_FIT[]                         = "STAT_FIT";
 constexpr char COMMAND_DELAUNAY[]                         = "DELAUNAY";
 constexpr char COMMAND_DELAUNAY_AA[]                      = "AA";
 constexpr char COMMAND_DELAUNAY_BF[]                      = "BEST_FIT";
@@ -126,15 +155,19 @@ constexpr char COMMAND_SF_OP[]                            = "SF_OP";
 constexpr char COMMAND_SF_OP_NOT_IN_PLACE[]               = "NOT_IN_PLACE";
 constexpr char COMMAND_SF_OP_SF[]                         = "SF_OP_SF";
 constexpr char COMMAND_SF_INTERP[]                        = "SF_INTERP";
-constexpr char COMMAND_COLOR_INTERP[]                     = "COLOR_INTERP";
 constexpr char COMMAND_SF_INTERP_DEST_IS_FIRST[]          = "DEST_IS_FIRST";
+constexpr char COMMAND_SF_INTERP_NN[]                     = "INTERP_NN";
+constexpr char COMMAND_SF_INTERP_RADIUS[]                 = "INTERP_RADIUS";
+constexpr char COMMAND_COLOR_INTERP[]                     = "COLOR_INTERP";
 constexpr char COMMAND_SF_ADD_CONST[]                     = "SF_ADD_CONST";
 constexpr char COMMAND_SF_ADD_ID[]                        = "SF_ADD_ID";
 constexpr char COMMAND_SF_ADD_ID_AS_INT[]                 = "AS_INT";
 constexpr char COMMAND_RENAME_ENTITIES[]                  = "RENAME_ENTITIES"; //+ base name
 constexpr char COMMAND_RENAME_SF[]                        = "RENAME_SF";
 constexpr char COMMAND_COORD_TO_SF[]                      = "COORD_TO_SF";
+constexpr char COMMAND_NORM_TO_SF[]                       = "NORM_TO_SF";
 constexpr char COMMAND_SF_TO_COORD[]                      = "SF_TO_COORD";
+constexpr char COMMAND_SF_TO_NORM[]                       = "SF_TO_NORM";
 constexpr char COMMAND_EXTRACT_VERTICES[]                 = "EXTRACT_VERTICES";
 constexpr char COMMAND_ICP[]                              = "ICP";
 constexpr char COMMAND_ICP_REFERENCE_IS_FIRST[]           = "REFERENCE_IS_FIRST";
@@ -151,7 +184,9 @@ constexpr char COMMAND_ICP_SKIP_TX[]                      = "SKIP_TX";
 constexpr char COMMAND_ICP_SKIP_TY[]                      = "SKIP_TY";
 constexpr char COMMAND_ICP_SKIP_TZ[]                      = "SKIP_TZ";
 constexpr char COMMAND_ICP_C2M_DIST[]                     = "USE_C2M_DIST";
+constexpr char COMMAND_ICP_OUTPUT_MATRIX_FILE[]           = "OUTPUT_MATRIX_FILE";
 constexpr char COMMAND_PLY_EXPORT_FORMAT[]                = "PLY_EXPORT_FMT";
+constexpr char COMMAND_PLY_NO_SF_PREFIX[]                 = "PLY_NO_SF_PREFIX";
 constexpr char COMMAND_COMPUTE_GRIDDED_NORMALS[]          = "COMPUTE_NORMALS";
 constexpr char COMMAND_INVERT_NORMALS[]                   = "INVERT_NORMALS";
 constexpr char COMMAND_COMPUTE_OCTREE_NORMALS[]           = "OCTREE_NORMALS";
@@ -627,59 +662,41 @@ CommandLoad::CommandLoad()
 {
 }
 
+constexpr char COMMAND_OPEN_SHIFT_ON_LOAD[] = "GLOBAL_SHIFT"; //!< Global shift
+
 bool CommandLoad::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: filename after \"-%1\"").arg(COMMAND_OPEN));
-	}
+
+	ccArgumentParser parser(cmd.arguments());
 
 	// optional parameters
 	int                                        skipLines = 0;
 	ccCommandLineInterface::GlobalShiftOptions globalShiftOptions;
 	bool                                       doNotCreateLabels = false;
 
-	while (!cmd.arguments().empty())
+	while (!parser.isEmpty())
 	{
-		QString argument = cmd.arguments().front();
-		if (ccCommandLineInterface::IsCommand(argument, COMMAND_OPEN_NO_LABEL))
+		if (parser.tryConsumeOption(COMMAND_OPEN_NO_LABEL))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
 			cmd.print(QObject::tr("Will not load labels"));
 
 			doNotCreateLabels = true;
 		}
-		if (ccCommandLineInterface::IsCommand(argument, COMMAND_OPEN_SKIP_LINES))
+		if (parser.tryConsumeOption(COMMAND_OPEN_SKIP_LINES))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
 
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: number of lines after '%1'").arg(COMMAND_OPEN_SKIP_LINES));
-			}
-
-			bool ok;
-			skipLines = cmd.arguments().takeFirst().toInt(&ok);
-			if (!ok)
-			{
-				return cmd.error(QObject::tr("Invalid parameter: number of lines after '%1'").arg(COMMAND_OPEN_SKIP_LINES));
-			}
-
+			const auto maybeSkipLines = parser.takeInt(QObject::tr("number of lines"));
+			if (!maybeSkipLines)
+				return false;
+			skipLines = *maybeSkipLines;
 			cmd.print(QObject::tr("Will skip %1 lines").arg(skipLines));
 		}
-		else if (cmd.nextCommandIsGlobalShift())
+		else if (parser.tryConsumeOption(COMMAND_OPEN_SHIFT_ON_LOAD))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (!cmd.processGlobalShiftCommand(globalShiftOptions))
-			{
-				// error message already issued
+			const auto maybeGlobalShiftOptions = ccCommandLineInterface::ParseGlobalShiftOptions(parser);
+			if (!maybeGlobalShiftOptions)
 				return false;
-			}
+			globalShiftOptions = *maybeGlobalShiftOptions;
 		}
 		else
 		{
@@ -694,7 +711,11 @@ bool CommandLoad::process(ccCommandLineInterface& cmd)
 	AsciiFilter::SetNoLabelCreated(doNotCreateLabels);
 
 	// open specified file
-	QString filename(cmd.arguments().takeFirst());
+	if (parser.isEmpty())
+	{
+		return cmd.error(QObject::tr("Missing parameter: filename after \"-%1\"").arg(COMMAND_OPEN));
+	}
+	QString filename(parser.takeNext());
 	if (!cmd.importFile(filename, globalShiftOptions))
 	{
 		return false;
@@ -986,23 +1007,23 @@ bool CommandOctreeNormal::process(ccCommandLineInterface& cmd)
 	{
 		return cmd.error(QObject::tr("No point cloud to compute normals (be sure to open one with \"-%1 [cloud filename]\" before \"-%2\")").arg(COMMAND_OPEN, COMMAND_COMPUTE_OCTREE_NORMALS));
 	}
+	ccArgumentParser parser(cmd.arguments());
 
-	if (cmd.arguments().empty())
+	QString radiusArg = parser.takeNext();
+	if (radiusArg.isEmpty())
 	{
 		return cmd.error(QObject::tr("Missing parameter: radius after \"-%1\"").arg(COMMAND_COMPUTE_OCTREE_NORMALS));
 	}
 
-	float   radius    = std::numeric_limits<float>::quiet_NaN(); // if this stays
-	QString radiusArg = cmd.arguments().takeFirst();
+	float radius = std::numeric_limits<float>::quiet_NaN();
 	if (radiusArg.toUpper() != "AUTO")
 	{
-		bool ok = false;
-		radius  = radiusArg.toFloat(&ok);
-		if (!ok)
-		{
-			return cmd.error(QObject::tr("Invalid radius"));
-		}
+		auto maybeRadius = ccArgumentParser::ParseFloat(radiusArg, QObject::tr("radius"));
+		if (!maybeRadius)
+			return false;
+		radius = *maybeRadius;
 	}
+
 	cmd.print(QObject::tr("\tRadius: %1").arg(radiusArg));
 
 	CCCoreLib::LOCAL_MODEL_TYPES model       = CCCoreLib::QUADRIC;
@@ -1012,134 +1033,81 @@ bool CommandOctreeNormal::process(ccCommandLineInterface& cmd)
 	bool  orientNormalsWithGrids   = false;
 	bool  orientNormalsWithSensors = false;
 	float angle                    = std::numeric_limits<float>::quiet_NaN(); // if this stays
-	while (!cmd.arguments().isEmpty())
+	while (!parser.isEmpty())
 	{
-		QString argument = cmd.arguments().front().toUpper();
-		if (ccCommandLineInterface::IsCommand(argument, OPTION_ORIENT))
+		if (parser.tryConsumeOption(OPTION_ORIENT))
 		{
-			cmd.arguments().takeFirst();
-			if (!cmd.arguments().isEmpty())
-			{
-				QString orient_argument = cmd.arguments().takeFirst().toUpper();
-				if (orient_argument == "PLUS_ZERO" || orient_argument == "PLUS_ORIGIN")
-				{
-					orientation = ccNormalVectors::Orientation::PLUS_ORIGIN;
-				}
-				else if (orient_argument == "MINUS_ZERO" || orient_argument == "MINUS_ORIGIN")
-				{
-					orientation = ccNormalVectors::Orientation::MINUS_ORIGIN;
-				}
-				else if (orient_argument == "PLUS_BARYCENTER")
-				{
-					orientation = ccNormalVectors::Orientation::PLUS_BARYCENTER;
-				}
-				else if (orient_argument == "MINUS_BARYCENTER")
-				{
-					orientation = ccNormalVectors::Orientation::MINUS_BARYCENTER;
-				}
-				else if (orient_argument == "PLUS_X")
-				{
-					orientation = ccNormalVectors::Orientation::PLUS_X;
-				}
-				else if (orient_argument == "MINUS_X")
-				{
-					orientation = ccNormalVectors::Orientation::MINUS_X;
-				}
-				else if (orient_argument == "PLUS_Y")
-				{
-					orientation = ccNormalVectors::Orientation::PLUS_Y;
-				}
-				else if (orient_argument == "MINUS_Y")
-				{
-					orientation = ccNormalVectors::Orientation::MINUS_Y;
-				}
-				else if (orient_argument == "PLUS_Z")
-				{
-					orientation = ccNormalVectors::Orientation::PLUS_Z;
-				}
-				else if (orient_argument == "MINUS_Z")
-				{
-					orientation = ccNormalVectors::Orientation::MINUS_Z;
-				}
-				else if (orient_argument == "PREVIOUS")
-				{
-					orientation = ccNormalVectors::Orientation::PREVIOUS;
-				}
-				else if (orient_argument == "PLUS_SENSOR_ORIGIN")
-				{
-					orientation = ccNormalVectors::Orientation::PLUS_SENSOR_ORIGIN;
-				}
-				else if (orient_argument == "MINUS_SENSOR_ORIGIN")
-				{
-					orientation = ccNormalVectors::Orientation::MINUS_SENSOR_ORIGIN;
-				}
-				else if (orient_argument == OPTION_WITH_GRIDS)
-				{
-					orientation            = ccNormalVectors::Orientation::UNDEFINED;
-					orientNormalsWithGrids = true;
-				}
-				else if (orient_argument == OPTION_WITH_SENSOR)
-				{
-					orientation              = ccNormalVectors::Orientation::UNDEFINED;
-					orientNormalsWithSensors = true;
-				}
-				else
-				{
-					return cmd.error(QObject::tr("Invalid parameter: unknown orientation '%1'").arg(orient_argument));
-				}
-			}
-			else
+			const QString orientArg = parser.peek();
+			if (orientArg.isNull())
 			{
 				return cmd.error(QObject::tr("Missing orientation"));
 			}
-		}
-		else if (ccCommandLineInterface::IsCommand(argument, OPTION_MODEL))
-		{
-			cmd.arguments().takeFirst();
-			if (!cmd.arguments().isEmpty())
+
+			QString upper = orientArg.toUpper();
+			if (upper == OPTION_WITH_GRIDS)
 			{
-				QString model_arg = cmd.arguments().takeFirst().toUpper();
-				if (model_arg == "LS")
-				{
-					model = CCCoreLib::LOCAL_MODEL_TYPES::LS;
-				}
-				else if (model_arg == "TRI")
-				{
-					model = CCCoreLib::LOCAL_MODEL_TYPES::TRI;
-				}
-				else if (model_arg == "QUADRIC")
-				{
-					model = CCCoreLib::LOCAL_MODEL_TYPES::QUADRIC;
-				}
-				else
-				{
-					return cmd.error(QObject::tr("Invalid parameter: unknown model '%1'").arg(model_arg));
-				}
+				parser.skip();
+				orientation            = ccNormalVectors::Orientation::UNDEFINED;
+				orientNormalsWithGrids = true;
+			}
+			else if (upper == OPTION_WITH_SENSOR)
+			{
+				parser.skip();
+				orientation              = ccNormalVectors::Orientation::UNDEFINED;
+				orientNormalsWithSensors = true;
 			}
 			else
 			{
-				return cmd.error(QObject::tr("Missing model"));
+				auto maybeOrientation = parser.takeEnum<ccNormalVectors::Orientation>({
+				                                                                          {"PLUS_ORIGIN", ccNormalVectors::Orientation::PLUS_ORIGIN},
+				                                                                          {"PLUS_ZERO", ccNormalVectors::Orientation::PLUS_ORIGIN},
+				                                                                          {"MINUS_ORIGIN", ccNormalVectors::Orientation::MINUS_ORIGIN},
+				                                                                          {"MINUS_ZERO", ccNormalVectors::Orientation::MINUS_ORIGIN},
+				                                                                          {"PLUS_BARYCENTER", ccNormalVectors::Orientation::PLUS_BARYCENTER},
+				                                                                          {"MINUS_BARYCENTER", ccNormalVectors::Orientation::MINUS_BARYCENTER},
+				                                                                          {"PLUS_X", ccNormalVectors::Orientation::PLUS_X},
+				                                                                          {"MINUS_X", ccNormalVectors::Orientation::MINUS_X},
+				                                                                          {"PLUS_Y", ccNormalVectors::Orientation::PLUS_Y},
+				                                                                          {"MINUS_Y", ccNormalVectors::Orientation::MINUS_Y},
+				                                                                          {"PLUS_Z", ccNormalVectors::Orientation::PLUS_Z},
+				                                                                          {"MINUS_Z", ccNormalVectors::Orientation::MINUS_Z},
+				                                                                          {"PREVIOUS", ccNormalVectors::Orientation::PREVIOUS},
+				                                                                          {"PLUS_SENSOR_ORIGIN", ccNormalVectors::Orientation::PLUS_SENSOR_ORIGIN},
+				                                                                          {"MINUS_SENSOR_ORIGIN", ccNormalVectors::Orientation::MINUS_SENSOR_ORIGIN},
+				                                                                      },
+				                                                                      QObject::tr("orientation"));
+				if (!maybeOrientation)
+					return false;
+				orientation = *maybeOrientation;
 			}
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, OPTION_WITH_GRIDS))
+		else if (parser.tryConsumeOption(OPTION_MODEL))
 		{
-			cmd.arguments().takeFirst();
-			if (!cmd.arguments().isEmpty())
-			{
-				bool    ok       = false;
-				QString angleArg = cmd.arguments().takeFirst();
-				angle            = angleArg.toFloat(&ok);
-				if (!ok)
-				{
-					return cmd.error(QObject::tr("Invalid angle for scan grids"));
-				}
-				cmd.print(QObject::tr("\tAngle for scan grids: %1").arg(angleArg));
-				useGridStructure = true;
-			}
-			else
+			auto maybeModel = parser.takeEnum<CCCoreLib::LOCAL_MODEL_TYPES>({
+			                                                                    {"LS", CCCoreLib::LOCAL_MODEL_TYPES::LS},
+			                                                                    {"TRI", CCCoreLib::LOCAL_MODEL_TYPES::TRI},
+			                                                                    {"QUADRIC", CCCoreLib::LOCAL_MODEL_TYPES::QUADRIC},
+			                                                                },
+			                                                                QObject::tr("model"));
+			if (!maybeModel)
+				return false;
+			model = *maybeModel;
+		}
+		else if (parser.tryConsumeOption(OPTION_WITH_GRIDS))
+		{
+			QString angleArg = parser.takeNext();
+			if (angleArg.isNull())
 			{
 				return cmd.error(QObject::tr("Missing min angle for scan grids"));
 			}
+			auto maybeAngle = ccArgumentParser::ParseFloat(angleArg, QObject::tr("angle for scan grids"));
+			if (!maybeAngle)
+			{
+				return false;
+			}
+			angle = *maybeAngle;
+			cmd.print(QObject::tr("\tAngle for scan grids: %1").arg(angleArg));
+			useGridStructure = true;
 		}
 		else
 		{
@@ -1151,7 +1119,7 @@ bool CommandOctreeNormal::process(ccCommandLineInterface& cmd)
 	{
 		ccPointCloud* cloud = thisCloudDesc.pc;
 
-		QScopedPointer<ccProgressDialog> progressDialog(nullptr);
+		std::unique_ptr<ccProgressDialog> progressDialog(nullptr);
 		if (!cmd.silentMode())
 		{
 			progressDialog.reset(new ccProgressDialog(true, cmd.widgetParent()));
@@ -1160,7 +1128,7 @@ bool CommandOctreeNormal::process(ccCommandLineInterface& cmd)
 
 		if (!cloud->getOctree())
 		{
-			if (!cloud->computeOctree(progressDialog.data()))
+			if (!cloud->computeOctree(progressDialog.get()))
 			{
 				return cmd.error(QObject::tr("Failed to compute octree for cloud '%1'").arg(cloud->getName()));
 			}
@@ -1191,7 +1159,7 @@ bool CommandOctreeNormal::process(ccCommandLineInterface& cmd)
 			if (orientation == ccNormalVectors::UNDEFINED)
 			{
 				ccLog::Print("\tcompute + orient normals with grids");
-				success = cloud->computeNormalsWithGrids(angle, progressDialog.data(), ccNormalVectors::UNDEFINED);
+				success = cloud->computeNormalsWithGrids(angle, progressDialog.get(), ccNormalVectors::UNDEFINED);
 				if (orientNormalsWithGrids)
 				{
 					normalsAlreadyOriented = true;
@@ -1200,7 +1168,7 @@ bool CommandOctreeNormal::process(ccCommandLineInterface& cmd)
 			else
 			{
 				ccLog::Print("\tcompute normals with grids, preferred orientation: " + QString::number(orientation));
-				success = cloud->computeNormalsWithGrids(angle, progressDialog.data(), orientation);
+				success = cloud->computeNormalsWithGrids(angle, progressDialog.get(), orientation);
 			}
 			if (!success)
 			{
@@ -1210,7 +1178,7 @@ bool CommandOctreeNormal::process(ccCommandLineInterface& cmd)
 		else
 		{
 			ccLog::Print("\tcompute normals with octree, preferred orientation: " + QString::number(orientation));
-			success = cloud->computeNormalsWithOctree(model, orientation, thisCloudRadius, progressDialog.data());
+			success = cloud->computeNormalsWithOctree(model, orientation, thisCloudRadius, progressDialog.get());
 			if (!success)
 			{
 				return cmd.error(QObject::tr("computeNormalsWithOctree failed"));
@@ -1417,16 +1385,19 @@ bool CommandSubsample::process(ccCommandLineInterface& cmd)
 		return cmd.error(QObject::tr("No point cloud to resample (be sure to open one with \"-%1 [cloud filename]\" before \"-%2\")").arg(COMMAND_OPEN, COMMAND_SUBSAMPLE));
 	}
 
-	if (cmd.arguments().empty())
+	ccArgumentParser parser(cmd.arguments());
+
+	QString method = parser.takeNext();
+	if (method.isNull())
 	{
 		return cmd.error(QObject::tr("Missing parameter: resampling method after \"-%1\"").arg(COMMAND_SUBSAMPLE));
 	}
 
-	QString method = cmd.arguments().takeFirst().toUpper();
+	method = method.toUpper();
 	cmd.print(QObject::tr("\tMethod: ") + method);
 	if (method == "RANDOM")
 	{
-		if (cmd.arguments().empty())
+		if (parser.isEmpty())
 		{
 			return cmd.error(QObject::tr("Missing parameter: number of points or option \"%2\" after \"-%1 RANDOM \"").arg(COMMAND_SUBSAMPLE).arg(OPTION_PERCENT));
 		}
@@ -1435,32 +1406,21 @@ bool CommandSubsample::process(ccCommandLineInterface& cmd)
 		unsigned count     = 0;
 
 		// handle percent argument
-		if (cmd.arguments().front() == OPTION_PERCENT)
+		if (parser.peek().toUpper() == OPTION_PERCENT)
 		{
-			// local option verified
-			cmd.arguments().pop_front();
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: number after \"-%1 RANDOM %2\"").arg(COMMAND_SUBSAMPLE).arg(OPTION_PERCENT));
-			}
-
-			bool ok;
-			percent = cmd.arguments().takeFirst().toDouble(&ok);
-			if (!ok || percent < 0 || percent > 100)
-			{
-				return cmd.error(QObject::tr("Invalid parameter: number after \"-%1 RANDOM %2\" must be decimal between 0 and 100").arg(COMMAND_SUBSAMPLE).arg(OPTION_PERCENT));
-			}
-
+			parser.skip();
+			const auto maybePercent = parser.takeDouble(QObject::tr("percent"), 0.0, 100.0);
+			if (!maybePercent)
+				return false;
+			percent   = *maybePercent;
 			isPercent = true;
 		}
 		else
 		{
-			bool ok;
-			count = cmd.arguments().takeFirst().toUInt(&ok);
-			if (!ok)
-			{
-				return cmd.error(QObject::tr("Invalid parameter: number of points or option \"%2\" after \"-%1 RANDOM \"").arg(COMMAND_SUBSAMPLE).arg(OPTION_PERCENT));
-			}
+			const auto maybeCount = parser.takeInt(QObject::tr("number of points"));
+			if (!maybeCount)
+				return false;
+			count = *maybeCount;
 			cmd.print(QObject::tr("\tOutput points: %1").arg(count));
 		}
 
@@ -1513,45 +1473,32 @@ bool CommandSubsample::process(ccCommandLineInterface& cmd)
 	}
 	else if (method == "SPATIAL")
 	{
-		if (cmd.arguments().empty())
-		{
-			return cmd.error(QObject::tr("Missing parameter: spatial step after \"-%1 SPATIAL\"").arg(COMMAND_SUBSAMPLE));
-		}
 
-		bool   ok;
-		double step = cmd.arguments().takeFirst().toDouble(&ok);
-		if (!ok || step <= 0)
-		{
-			return cmd.error(QObject::tr("Invalid step value for spatial subsampling!"));
-		}
+		// Note: min for double is the minimum positive value representable
+		const auto maybeStep = parser.takeDouble(QObject::tr("step"), std::numeric_limits<double>::min());
+		if (!maybeStep)
+			return false;
+		double step = *maybeStep;
+
 		cmd.print(QObject::tr("\tSpatial step: %1").arg(step));
 
 		double sfMinSpacing = 0;
 		double sfMaxSpacing = 0;
 		bool   useActiveSF  = false;
-		if (!cmd.arguments().empty())
+		if (!parser.isEmpty() && parser.peek().toUpper() == OPTION_USE_ACTIVE_SF)
 		{
-			if (cmd.arguments().front().toUpper() == OPTION_USE_ACTIVE_SF)
-			{
-				// enable USE_ACTIVE_SF
-				useActiveSF = true;
-				cmd.arguments().pop_front();
-				if (cmd.arguments().size() >= 2)
-				{
-					bool validMin = false;
-					sfMinSpacing  = cmd.arguments().takeFirst().toDouble(&validMin);
-					bool validMax = false;
-					sfMaxSpacing  = cmd.arguments().takeFirst().toDouble(&validMax);
-					if (!validMin || !validMax || sfMinSpacing < 0 || sfMaxSpacing < 0)
-					{
-						return cmd.error(QObject::tr("Invalid parameters: Two positive decimal number required after '%1'").arg(OPTION_USE_ACTIVE_SF));
-					}
-				}
-				else
-				{
-					return cmd.error(QObject::tr("Missing parameters: Two positive decimal number required after '%1'").arg(OPTION_USE_ACTIVE_SF));
-				}
-			}
+			parser.skip();
+			useActiveSF = true;
+
+			const auto maybeMinSpacing = parser.takeDouble(QObject::tr("SF min spacing"), 0.0);
+			if (!maybeMinSpacing)
+				return false;
+			sfMinSpacing = *maybeMinSpacing;
+
+			const auto maybeMaxSpacing = parser.takeDouble(QObject::tr("SF max spacing"), 0.0);
+			if (!maybeMaxSpacing)
+				return false;
+			sfMaxSpacing = *maybeMaxSpacing;
 		}
 
 		for (CLCloudDesc& desc : cmd.clouds())
@@ -1671,89 +1618,61 @@ bool CommandSubsample::process(ccCommandLineInterface& cmd)
 		double    percent             = 0.0;
 		const int maxOctreeLevel      = CCCoreLib::DgmOctree::MAX_OCTREE_LEVEL;
 
-		if (!cmd.arguments().empty())
+		if (!parser.isEmpty())
 		{
 			// params for automatic OCTREE level calculation based on cell size
-			if (cmd.arguments().front() == "CELL_SIZE")
+			if (parser.peek().toUpper() == "CELL_SIZE")
 			{
-				cmd.arguments().pop_front();
-
-				if (cmd.arguments().empty())
-				{
-					return cmd.error(QObject::tr("Missing parameter: octree cell size after \"-%1 OCTREE CELL_SIZE \"").arg(COMMAND_SUBSAMPLE));
-				}
-
-				bool ok  = false;
-				cellSize = cmd.arguments().takeFirst().toDouble(&ok);
-				if (!ok)
-				{
-					return cmd.error(QObject::tr("Invalid parameter: octree cell size after \"-%1 OCTREE CELL_SIZE \"").arg(COMMAND_SUBSAMPLE));
-				}
+				parser.skip();
+				const auto maybeCellSize = parser.takeDouble(QObject::tr("octree cell size"), std::numeric_limits<double>::min());
+				if (!maybeCellSize)
+					return false;
+				cellSize   = *maybeCellSize;
 				byCellSize = true;
 				cmd.print(QObject::tr("\tOctree cell size: %1").arg(cellSize));
 			}
-
 			// params for automatic OCTREE level calculation based on number of points
-			else if (cmd.arguments().front() == OPTION_NUMBER_OF_POINTS)
+			else if (parser.peek().toUpper() == OPTION_NUMBER_OF_POINTS)
 			{
-				// local option verified
+				parser.skip();
 				byMaxNumberOfPoints = true;
-				cmd.arguments().pop_front();
 
-				if (cmd.arguments().empty())
+				if (parser.isEmpty())
 				{
-					return cmd.error(QObject::tr("Missing parameter: number of points or option \"%3\" after \"-%1 OCTREE %2 \"").arg(COMMAND_SUBSAMPLE).arg(OPTION_NUMBER_OF_POINTS).arg(OPTION_PERCENT));
+					return cmd.error(QObject::tr("Missing parameter: number of points or option \"%3\" after \"-%1 OCTREE %2 \"").arg(COMMAND_SUBSAMPLE, OPTION_NUMBER_OF_POINTS, OPTION_PERCENT));
 				}
 
 				// handle percent argument
-				if (cmd.arguments().front() == OPTION_PERCENT)
+				if (parser.peek().toUpper() == OPTION_PERCENT)
 				{
-					// local option verified
-					cmd.arguments().pop_front();
-					if (cmd.arguments().empty())
-					{
-						return cmd.error(QObject::tr("Missing parameter: number after \"-%1 OCTREE %2 %3\"").arg(COMMAND_SUBSAMPLE).arg(OPTION_NUMBER_OF_POINTS).arg(OPTION_PERCENT));
-					}
-
-					bool ok = false;
-					percent = cmd.arguments().takeFirst().toDouble(&ok);
-					if (!ok || percent < 0 || percent > 100)
-					{
-						return cmd.error(QObject::tr("Invalid parameter: number after \"-%1 OCTREE %2 %3\" must be decimal between 0 and 100").arg(COMMAND_SUBSAMPLE).arg(OPTION_NUMBER_OF_POINTS).arg(OPTION_PERCENT));
-					}
-
+					parser.skip();
+					const auto maybePercent = parser.takeDouble(QObject::tr("percent"), 0.0, 100.0);
+					if (!maybePercent)
+						return false;
+					percent   = *maybePercent;
 					isPercent = true;
 				}
 				else
 				{
-					bool ok           = false;
-					maxNumberOfPoints = cmd.arguments().takeFirst().toUInt(&ok);
-					if (!ok)
-					{
-						return cmd.error(QObject::tr("Invalid parameter: number of points or option \"%3\" after \"-%1 OCTREE %2 \"").arg(COMMAND_SUBSAMPLE).arg(OPTION_NUMBER_OF_POINTS).arg(OPTION_PERCENT));
-					}
+					const auto maybeCount = parser.takeInt(QObject::tr("number of points"), 1);
+					if (!maybeCount)
+						return false;
+					maxNumberOfPoints = static_cast<unsigned>(*maybeCount);
 					cmd.print(QObject::tr("\tOctree target number of points: %1").arg(maxNumberOfPoints));
 				}
 			}
 			// params for original version octree calculation based on given level
 			else
 			{
-				if (cmd.arguments().empty())
-				{
-					return cmd.error(QObject::tr("Missing parameter: octree level after \"-%1 OCTREE\"").arg(COMMAND_SUBSAMPLE));
-				}
-
-				bool ok     = false;
-				octreeLevel = cmd.arguments().takeFirst().toInt(&ok);
-				if (!ok || octreeLevel < 1 || octreeLevel > maxOctreeLevel)
-				{
-					return cmd.error(QObject::tr("Invalid octree level!"));
-				}
+				const auto maybeLevel = parser.takeInt(QObject::tr("octree level"), 1, maxOctreeLevel);
+				if (!maybeLevel)
+					return false;
+				octreeLevel = *maybeLevel;
 				cmd.print(QObject::tr("\tOctree level: %1").arg(octreeLevel));
 			}
 		}
 
-		QScopedPointer<ccProgressDialog> progressDialog(nullptr);
+		std::unique_ptr<ccProgressDialog> progressDialog(nullptr);
 		if (!cmd.silentMode())
 		{
 			progressDialog.reset(new ccProgressDialog(false, cmd.widgetParent()));
@@ -1821,7 +1740,7 @@ bool CommandSubsample::process(ccCommandLineInterface& cmd)
 				refCloud = CCCoreLib::CloudSamplingTools::subsampleCloudWithOctreeAtLevel(desc.pc,
 				                                                                          static_cast<unsigned char>(octreeLevel),
 				                                                                          CCCoreLib::CloudSamplingTools::NEAREST_POINT_TO_CELL_CENTER,
-				                                                                          progressDialog.data(),
+				                                                                          progressDialog.get(),
 				                                                                          octree);
 
 				if (!refCloud)
@@ -1925,7 +1844,7 @@ bool CommandExtractCCs::process(ccCommandLineInterface& cmd)
 
 	try
 	{
-		QScopedPointer<ccProgressDialog> progressDialog(nullptr);
+		std::unique_ptr<ccProgressDialog> progressDialog(nullptr);
 		if (!cmd.silentMode())
 		{
 			progressDialog.reset(new ccProgressDialog(false, cmd.widgetParent()));
@@ -1955,7 +1874,7 @@ bool CommandExtractCCs::process(ccCommandLineInterface& cmd)
 			int componentCount = CCCoreLib::AutoSegmentationTools::labelConnectedComponents(desc.pc,
 			                                                                                static_cast<unsigned char>(octreeLevel),
 			                                                                                false,
-			                                                                                progressDialog.data());
+			                                                                                progressDialog.get());
 
 			if (componentCount == 0)
 			{
@@ -2054,43 +1973,28 @@ CommandCurvature::CommandCurvature()
 
 bool CommandCurvature::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().empty())
+	ccArgumentParser parser(cmd.arguments());
+	const QString    curvTypeStr = parser.takeNext();
+	if (curvTypeStr.isNull())
 	{
 		return cmd.error(QObject::tr("Missing parameter: curvature type after \"-%1\"").arg(COMMAND_CURVATURE));
 	}
+	const auto maybeCurvType = ccArgumentParser::ParseEnum<CCCoreLib::Neighbourhood::CurvatureType>(
+	    curvTypeStr, {
+	                     {"MEAN", CCCoreLib::Neighbourhood::MEAN_CURV},
+	                     {"GAUSS", CCCoreLib::Neighbourhood::GAUSSIAN_CURV},
+	                     {"NORMAL_CHANGE", CCCoreLib::Neighbourhood::NORMAL_CHANGE_RATE},
+	                 },
+	    QObject::tr("curvature type"));
+	if (!maybeCurvType)
+		return false;
+	const CCCoreLib::Neighbourhood::CurvatureType curvType = *maybeCurvType;
 
-	QString                                 curvTypeStr = cmd.arguments().takeFirst().toUpper();
-	CCCoreLib::Neighbourhood::CurvatureType curvType    = CCCoreLib::Neighbourhood::MEAN_CURV;
-	if (curvTypeStr == "MEAN")
-	{
-		// curvType = CCCoreLib::Neighbourhood::MEAN_CURV;
-	}
-	else if (curvTypeStr == "GAUSS")
-	{
-		curvType = CCCoreLib::Neighbourhood::GAUSSIAN_CURV;
-	}
-	else if (curvTypeStr == "NORMAL_CHANGE")
-	{
-		curvType = CCCoreLib::Neighbourhood::NORMAL_CHANGE_RATE;
-	}
-	else
-	{
-		return cmd.error(QObject::tr("Invalid curvature type after \"-%1\". Got '%2' instead of MEAN or GAUSS.").arg(COMMAND_CURVATURE, curvTypeStr));
-	}
-
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: kernel size after curvature type"));
-	}
-
-	bool                paramOk    = false;
-	QString             kernelStr  = cmd.arguments().takeFirst();
-	PointCoordinateType kernelSize = static_cast<PointCoordinateType>(kernelStr.toDouble(&paramOk));
-	if (!paramOk)
-	{
-		return cmd.error(QObject::tr("Failed to read a numerical parameter: kernel size (after curvature type). Got '%1' instead.").arg(kernelStr));
-	}
-	cmd.print(QObject::tr("\tKernel size: %1").arg(kernelSize));
+	const auto maybeKernelSize = parser.takeDouble(QObject::tr("kernel size"));
+	if (!maybeKernelSize)
+		return false;
+	PointCoordinateType kernelSize = static_cast<PointCoordinateType>(*maybeKernelSize);
+	cmd.print(QObject::tr("\tKernel size: %1").arg(QString::number(kernelSize)));
 
 	if (cmd.clouds().empty())
 	{
@@ -2116,33 +2020,14 @@ bool CommandCurvature::process(ccCommandLineInterface& cmd)
 	return true;
 }
 
-static bool ReadDensityType(ccCommandLineInterface& cmd, CCCoreLib::GeometricalAnalysisTools::Density& density)
+static std::optional<CCCoreLib::GeometricalAnalysisTools::Density> ReadDensityType(ccArgumentParser& parser)
 {
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: density type after \"-%1\" (KNN/SURFACE/VOLUME)").arg(COMMAND_DENSITY_TYPE));
-	}
-
-	// read option confirmed, we can move on
-	QString typeArg = cmd.arguments().takeFirst().toUpper();
-	if (typeArg == "KNN")
-	{
-		density = CCCoreLib::GeometricalAnalysisTools::DENSITY_KNN;
-	}
-	else if (typeArg == "SURFACE")
-	{
-		density = CCCoreLib::GeometricalAnalysisTools::DENSITY_2D;
-	}
-	else if (typeArg == "VOLUME")
-	{
-		density = CCCoreLib::GeometricalAnalysisTools::DENSITY_3D;
-	}
-	else
-	{
-		return cmd.error(QObject::tr("Invalid parameter: density type is expected after \"-%1\" (KNN/SURFACE/VOLUME)").arg(COMMAND_DENSITY_TYPE));
-	}
-
-	return true;
+	return parser.takeEnum<CCCoreLib::GeometricalAnalysisTools::Density>({
+	                                                                         {"KNN", CCCoreLib::GeometricalAnalysisTools::DENSITY_KNN},
+	                                                                         {"SURFACE", CCCoreLib::GeometricalAnalysisTools::DENSITY_2D},
+	                                                                         {"VOLUME", CCCoreLib::GeometricalAnalysisTools::DENSITY_3D},
+	                                                                     },
+	                                                                     QObject::tr("density type"));
 }
 
 CommandApproxDensity::CommandApproxDensity()
@@ -2165,25 +2050,15 @@ bool CommandApproxDensity::process(ccCommandLineInterface& cmd)
 		entities[i] = cmd.clouds()[i].pc;
 	}
 
+	ccArgumentParser parser(cmd.arguments());
 	// optional parameter: density type
 	CCCoreLib::GeometricalAnalysisTools::Density densityType = CCCoreLib::GeometricalAnalysisTools::DENSITY_3D;
-	if (!cmd.arguments().empty())
+	if (parser.tryConsumeOption(COMMAND_DENSITY_TYPE))
 	{
-		QString argument = cmd.arguments().front();
-		if (ccCommandLineInterface::IsCommand(argument, COMMAND_DENSITY_TYPE))
-		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: density type after \"-%1\" (KNN/SURFACE/VOLUME)").arg(COMMAND_DENSITY_TYPE));
-			}
-			// read option confirmed, we can move on
-			if (!ReadDensityType(cmd, densityType))
-			{
-				return false;
-			}
-		}
+		const auto maybeDensityType = ReadDensityType(parser);
+		if (!maybeDensityType)
+			return false;
+		densityType = *maybeDensityType;
 	}
 
 	if (ccLibAlgorithms::ComputeGeomCharacteristic(CCCoreLib::GeometricalAnalysisTools::ApproxLocalDensity, densityType, 0, entities, nullptr, cmd.widgetParent()))
@@ -2205,39 +2080,22 @@ CommandDensity::CommandDensity()
 
 bool CommandDensity::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: sphere radius after \"-%1\"").arg(COMMAND_DENSITY));
-	}
+	ccArgumentParser parser(cmd.arguments());
 
-	bool                paramOk    = false;
-	QString             kernelStr  = cmd.arguments().takeFirst();
-	PointCoordinateType kernelSize = static_cast<PointCoordinateType>(kernelStr.toDouble(&paramOk));
-	if (!paramOk)
-	{
-		return cmd.error(QObject::tr("Failed to read a numerical parameter: sphere radius (after \"-%1\"). Got '%2' instead.").arg(COMMAND_DENSITY, kernelStr));
-	}
+	const auto maybeKernelSize = parser.takeDouble(QObject::tr("kernel size"));
+	if (!maybeKernelSize)
+		return false;
+	PointCoordinateType kernelSize = static_cast<PointCoordinateType>(*maybeKernelSize);
 	cmd.print(QObject::tr("\tSphere radius: %1").arg(kernelSize));
 
 	// optional parameter: density type
 	CCCoreLib::GeometricalAnalysisTools::Density densityType = CCCoreLib::GeometricalAnalysisTools::DENSITY_3D;
-	if (!cmd.arguments().empty())
+	if (parser.tryConsumeOption(COMMAND_DENSITY_TYPE))
 	{
-		QString argument = cmd.arguments().front();
-		if (ccCommandLineInterface::IsCommand(argument, COMMAND_DENSITY_TYPE))
-		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: density type after \"-%1\" (KNN/SURFACE/VOLUME)").arg(COMMAND_DENSITY_TYPE));
-			}
-			// read option confirmed, we can move on
-			if (!ReadDensityType(cmd, densityType))
-			{
-				return false;
-			}
-		}
+		const auto maybeDensityType = ReadDensityType(parser);
+		if (!maybeDensityType)
+			return false;
+		densityType = *maybeDensityType;
 	}
 
 	if (cmd.clouds().empty())
@@ -2342,40 +2200,26 @@ CommandRoughness::CommandRoughness()
 
 bool CommandRoughness::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: kernel size after \"-%1\"").arg(COMMAND_ROUGHNESS));
-	}
-
-	bool                paramOk    = false;
-	QString             kernelStr  = cmd.arguments().takeFirst();
-	PointCoordinateType kernelSize = static_cast<PointCoordinateType>(kernelStr.toDouble(&paramOk));
-	if (!paramOk)
-	{
-		return cmd.error(QObject::tr("Failed to read a numerical parameter: kernel size (after \"-%1\"). Got '%2' instead.").arg(COMMAND_ROUGHNESS, kernelStr));
-	}
+	ccArgumentParser parser(cmd.arguments());
+	const auto       maybeKernelSize = parser.takeDouble(QObject::tr("kernel size"));
+	if (!maybeKernelSize)
+		return false;
+	PointCoordinateType kernelSize = static_cast<PointCoordinateType>(*maybeKernelSize);
 	cmd.print(QObject::tr("\tKernel size: %1").arg(kernelSize));
 
 	// optional argument
 	CCVector3  roughnessUpDir;
 	CCVector3* _roughnessUpDir = nullptr;
-	if (cmd.arguments().size() >= 4)
+	if (parser.size() >= 4)
 	{
-		QString nextArg = cmd.arguments().first();
-		if (nextArg.startsWith('-') && nextArg.mid(1).toUpper() == COMMAND_ROUGHNESS_UP_DIR)
+		if (parser.tryConsumeOption(COMMAND_ROUGHNESS_UP_DIR))
 		{
-			// option confirmed
-			cmd.arguments().takeFirst();
-			QString xStr = cmd.arguments().takeFirst();
-			QString yStr = cmd.arguments().takeFirst();
-			QString zStr = cmd.arguments().takeFirst();
-			bool    okX = false, okY = false, okZ = false;
-			roughnessUpDir.x = static_cast<PointCoordinateType>(xStr.toDouble(&okX));
-			roughnessUpDir.y = static_cast<PointCoordinateType>(yStr.toDouble(&okY));
-			roughnessUpDir.z = static_cast<PointCoordinateType>(zStr.toDouble(&okZ));
-			if (!okX || !okY || !okZ)
+			for (unsigned i = 0; i < 3; ++i)
 			{
-				return cmd.error(QObject::tr("Invalid 'up direction' vector after option -%1 (3 coordinates expected)").arg(COMMAND_ROUGHNESS_UP_DIR));
+				const auto maybeValue = parser.takeDouble(QObject::tr("up direction vector coordinate"));
+				if (!maybeValue)
+					return false;
+				roughnessUpDir[i] = static_cast<PointCoordinateType>(*maybeValue);
 			}
 			_roughnessUpDir = &roughnessUpDir;
 		}
@@ -3254,8 +3098,8 @@ bool CommandComputeMeshVolume::process(ccCommandLineInterface& cmd)
 
 		if (outFile.isOpen())
 		{
-			outStream << titleStr << endl;
-			outStream << volumeStr << endl;
+			outStream << titleStr << Qt::endl;
+			outStream << volumeStr << Qt::endl;
 		}
 	}
 
@@ -3279,8 +3123,8 @@ bool CommandMergeMeshes::process(ccCommandLineInterface& cmd)
 	bool       firstValidMesh = true;
 
 	// create the destination mesh
-	ccPointCloud*          vertices = new ccPointCloud("vertices");
-	QScopedPointer<ccMesh> mergedMesh(new ccMesh(vertices));
+	ccPointCloud*           vertices = new ccPointCloud("vertices");
+	std::unique_ptr<ccMesh> mergedMesh(new ccMesh(vertices));
 	mergedMesh->setName("Merged mesh");
 	mergedMesh->addChild(vertices);
 	vertices->setEnabled(false);
@@ -3323,7 +3167,7 @@ bool CommandMergeMeshes::process(ccCommandLineInterface& cmd)
 	cmd.removeMeshes();
 	// add the new mesh
 	mergedMeshDesc.basename += QObject::tr("_MERGED");
-	mergedMeshDesc.mesh = mergedMesh.take();
+	mergedMeshDesc.mesh = mergedMesh.release();
 	cmd.meshes().push_back(mergedMeshDesc);
 
 	if (cmd.autoSaveMode())
@@ -3354,16 +3198,35 @@ bool CommandMergeClouds::process(ccCommandLineInterface& cmd)
 	// merge clouds
 	if (!cmd.clouds().empty())
 	{
+		size_t totalSize = 0;
+		for (size_t i = 0; i < cmd.clouds().size(); ++i)
+		{
+			totalSize += cmd.clouds()[i].pc->size();
+		}
+
+		if (totalSize > std::numeric_limits<unsigned>::max())
+		{
+			return cmd.error(QObject::tr("Merged cloud is too big!"));
+		}
+
+		ccPointCloud* firstCloud = cmd.clouds().front().pc;
+
+		// reserve the final required number of points
+		if (!firstCloud->reserve(static_cast<unsigned>(totalSize)))
+		{
+			return cmd.error(QObject::tr("Not enough memory!"));
+		}
+
 		for (size_t i = 1; i < cmd.clouds().size(); ++i)
 		{
-			unsigned beforePts = cmd.clouds().front().pc->size();
+			unsigned countBefore = firstCloud->size();
 
-			CLCloudDesc& desc   = cmd.clouds()[i];
-			unsigned     newPts = desc.pc->size();
-			*cmd.clouds().front().pc += desc.pc;
+			CLCloudDesc& desc       = cmd.clouds()[i];
+			unsigned     countAdded = desc.pc->size();
+			firstCloud->append(desc.pc, countBefore, false, false);
 
 			// success?
-			if (cmd.clouds().front().pc->size() == beforePts + newPts)
+			if (firstCloud->size() == countBefore + countAdded)
 			{
 				delete desc.pc;
 				desc.pc = nullptr;
@@ -3402,9 +3265,14 @@ bool CommandSetGlobalShift::process(ccCommandLineInterface& cmd)
 		return cmd.error(QObject::tr("No loaded entity! (be sure to open one with \"-%1 [filename]\" before \"-%2\")").arg(COMMAND_OPEN, COMMAND_SET_GLOBAL_SHIFT));
 	}
 
+	ccArgumentParser parser(cmd.arguments());
+
+	const auto maybeGlobalShift = ccCommandLineInterface::ParseGlobalShiftOptions(parser);
+	if (!maybeGlobalShift)
+		return false;
+
 	// process globalshift options first
-	ccCommandLineInterface::GlobalShiftOptions globalShiftOptions;
-	cmd.processGlobalShiftCommand(globalShiftOptions);
+	ccCommandLineInterface::GlobalShiftOptions globalShiftOptions = *maybeGlobalShift;
 	// if it is not a valid global shift then an error msg already issued.
 	if (globalShiftOptions.mode != ccCommandLineInterface::GlobalShiftOptions::Mode::CUSTOM_GLOBAL_SHIFT)
 	{
@@ -3412,23 +3280,11 @@ bool CommandSetGlobalShift::process(ccCommandLineInterface& cmd)
 	}
 	CCVector3d newShift = globalShiftOptions.customGlobalShift;
 
-	// look for additional parameters
 	bool keepOrigFixed = false;
-	while (!cmd.arguments().empty())
+	if (parser.tryConsumeOption(COMMAND_SET_GLOBAL_SHIFT_KEEP_ORIG_FIXED))
 	{
-		QString argument = cmd.arguments().front();
-		if (ccCommandLineInterface::IsCommand(argument, COMMAND_SET_GLOBAL_SHIFT_KEEP_ORIG_FIXED))
-		{
-			// local option confirmed, pop that from front
-			cmd.arguments().pop_front();
-
-			keepOrigFixed = true;
-			cmd.print(QObject::tr("[%1]").arg(COMMAND_SET_GLOBAL_SHIFT_KEEP_ORIG_FIXED));
-		}
-		else
-		{
-			break;
-		}
+		keepOrigFixed = true;
+		cmd.print(QObject::tr("[%1] Option detected").arg(COMMAND_SET_GLOBAL_SHIFT_KEEP_ORIG_FIXED));
 	}
 
 	// create an entity vector
@@ -3905,6 +3761,143 @@ bool CommandMatchBBCenters::process(ccCommandLineInterface& cmd)
 	return true;
 }
 
+CommandMatchScales::CommandMatchScales()
+    : ccCommandLineInterface::Command(QObject::tr("Match scales"), COMMAND_MATCH_SCALES)
+{
+}
+
+bool CommandMatchScales::process(ccCommandLineInterface& cmd)
+{
+	cmd.print(QObject::tr("[MATCH SCALES]"));
+
+	ccArgumentParser parser(cmd.arguments());
+
+	// the scale matching algorithm is a mandatory first parameter
+	const auto maybeAlgo = parser.takeEnum<ccLibAlgorithms::ScaleMatchingAlgorithm>({{"BB_MAX_DIM", ccLibAlgorithms::BB_MAX_DIM},
+	                                                                                 {"BB_VOLUME", ccLibAlgorithms::BB_VOLUME},
+	                                                                                 {"PCA_MAX_DIM", ccLibAlgorithms::PCA_MAX_DIM},
+	                                                                                 {"ICP", ccLibAlgorithms::ICP_SCALE}},
+	                                                                                QObject::tr("scale matching algorithm"));
+	if (!maybeAlgo)
+	{
+		return false;
+	}
+	const ccLibAlgorithms::ScaleMatchingAlgorithm algo = *maybeAlgo;
+
+	// optional parameters (defaults match the GUI dialog, see MainWindow::doActionMatchScales)
+	unsigned referenceIndex  = 0;
+	double   icpRmsDiff      = 1.0e-5;
+	int      icpFinalOverlap = 100;
+	// a NaN value means 'no limit'
+	double minScale = std::numeric_limits<double>::quiet_NaN();
+	double maxScale = std::numeric_limits<double>::quiet_NaN();
+
+	while (!parser.isEmpty())
+	{
+		if (parser.tryConsumeOption(COMMAND_MATCH_SCALES_REFERENCE))
+		{
+			const auto maybeIndex = parser.takeUInt(QObject::tr("reference index"));
+			if (!maybeIndex)
+				return false;
+			referenceIndex = *maybeIndex;
+		}
+		else if (parser.tryConsumeOption(COMMAND_MATCH_SCALES_RMS_DIFF))
+		{
+			const auto maybeRmsDiff = parser.takeDouble(QObject::tr("RMS difference"), std::numeric_limits<double>::min());
+			if (!maybeRmsDiff)
+				return false;
+			icpRmsDiff = *maybeRmsDiff;
+		}
+		else if (parser.tryConsumeOption(COMMAND_MATCH_SCALES_OVERLAP))
+		{
+			const auto maybeOverlap = parser.takeUInt(QObject::tr("overlap"), 10, 100);
+			if (!maybeOverlap)
+				return false;
+			icpFinalOverlap = static_cast<int>(*maybeOverlap);
+		}
+		else if (parser.tryConsumeOption(COMMAND_MATCH_SCALES_MIN_SCALE))
+		{
+			const auto maybeMinScale = parser.takeDouble(QObject::tr("minimum scale"), std::numeric_limits<double>::min());
+			if (!maybeMinScale)
+				return false;
+			minScale = *maybeMinScale;
+		}
+		else if (parser.tryConsumeOption(COMMAND_MATCH_SCALES_MAX_SCALE))
+		{
+			const auto maybeMaxScale = parser.takeDouble(QObject::tr("maximum scale"), std::numeric_limits<double>::min());
+			if (!maybeMaxScale)
+				return false;
+			maxScale = *maybeMaxScale;
+		}
+		else
+		{
+			break;
+		}
+	}
+
+	if (std::isfinite(minScale) && std::isfinite(maxScale) && minScale > maxScale)
+	{
+		return cmd.error(QObject::tr("Invalid parameters: '-%1' value must not exceed '-%2' value").arg(COMMAND_MATCH_SCALES_MIN_SCALE, COMMAND_MATCH_SCALES_MAX_SCALE));
+	}
+
+	// gather the loaded entities (clouds and meshes)
+	std::vector<CLEntityDesc*> entities;
+	for (auto& cloud : cmd.clouds())
+	{
+		entities.push_back(&cloud);
+	}
+	for (auto& mesh : cmd.meshes())
+	{
+		entities.push_back(&mesh);
+	}
+
+	if (entities.size() < 2)
+	{
+		return cmd.error(QObject::tr("Not enough loaded entities (2 or more clouds/meshes are expected)"));
+	}
+	if (referenceIndex >= entities.size())
+	{
+		return cmd.error(QObject::tr("Invalid reference index (%1): only %2 entities are loaded").arg(referenceIndex).arg(entities.size()));
+	}
+
+	// build the container expected by the algorithm
+	ccHObject::Container entityContainer;
+	entityContainer.reserve(entities.size());
+	for (CLEntityDesc* desc : entities)
+	{
+		entityContainer.push_back(desc->getEntity());
+	}
+
+	if (!ccLibAlgorithms::ApplyScaleMatchingAlgorithm(algo,
+	                                                  entityContainer,
+	                                                  icpRmsDiff,
+	                                                  icpFinalOverlap,
+	                                                  referenceIndex,
+	                                                  cmd.widgetParent(),
+	                                                  minScale,
+	                                                  maxScale))
+	{
+		return cmd.error(QObject::tr("Failed to match scales"));
+	}
+
+	// save output if needed (the reference entity is left unchanged)
+	if (cmd.autoSaveMode())
+	{
+		for (size_t i = 0; i < entities.size(); ++i)
+		{
+			if (i == referenceIndex)
+				continue;
+			QString errorStr = cmd.exportEntity(*entities[i]);
+			if (!errorStr.isEmpty())
+			{
+				return cmd.error(errorStr);
+			}
+		}
+	}
+
+	return true;
+}
+
 CommandMatchBestFitPlane::CommandMatchBestFitPlane()
     : ccCommandLineInterface::Command(QObject::tr("Compute best fit plane"), COMMAND_BEST_FIT_PLANE)
 {
@@ -3913,8 +3906,9 @@ CommandMatchBestFitPlane::CommandMatchBestFitPlane()
 bool CommandMatchBestFitPlane::process(ccCommandLineInterface& cmd)
 {
 	// look for local options
-	bool makeCloudsHoriz = false;
-	bool keepLoaded      = false;
+	bool    makeCloudsHoriz = false;
+	bool    keepLoaded      = false;
+	QString outputInfoFile;
 
 	while (!cmd.arguments().empty())
 	{
@@ -3933,6 +3927,22 @@ bool CommandMatchBestFitPlane::process(ccCommandLineInterface& cmd)
 
 			keepLoaded = true;
 		}
+		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_BEST_FIT_PLANE_OUTPUT_INFO_FILE))
+		{
+			// local option confirmed, we can move on
+			cmd.arguments().pop_front();
+
+			if (!cmd.arguments().empty())
+			{
+				outputInfoFile = cmd.arguments().front();
+				cmd.arguments().pop_front();
+				cmd.print(QObject::tr("Plane info file: %1").arg(outputInfoFile));
+			}
+			else
+			{
+				return cmd.error(QObject::tr("Missing argument: filename after '%1'").arg(COMMAND_BEST_FIT_PLANE_OUTPUT_INFO_FILE));
+			}
+		}
 		else
 		{
 			break; // as soon as we encounter an unrecognized argument, we break the local loop to go back to the main one!
@@ -3942,6 +3952,12 @@ bool CommandMatchBestFitPlane::process(ccCommandLineInterface& cmd)
 	if (cmd.clouds().empty())
 	{
 		return cmd.error(QObject::tr("No cloud available. Be sure to open one first!"));
+	}
+
+	// one info file is generated per cloud, so a forced output path can only describe a single one
+	if (!outputInfoFile.isEmpty() && cmd.clouds().size() > 1)
+	{
+		return cmd.error(QObject::tr("Option '%1' requires a single loaded cloud (%2 are loaded)").arg(COMMAND_BEST_FIT_PLANE_OUTPUT_INFO_FILE).arg(cmd.clouds().size()));
 	}
 
 	for (CLCloudDesc& desc : cmd.clouds())
@@ -3977,20 +3993,25 @@ bool CommandMatchBestFitPlane::process(ccCommandLineInterface& cmd)
 
 			// open text file to save plane related information
 			{
-				QString txtFilename = QObject::tr("%1/%2_BEST_FIT_PLANE_INFO").arg(desc.path, desc.basename);
-				if (cmd.addTimestamp())
+				// the user can force the output path, in which case it is used as is
+				QString txtFilename = outputInfoFile;
+				if (txtFilename.isEmpty())
 				{
-					QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_hh'h'mm_ss_zzz");
-					txtFilename += QObject::tr("_%1").arg(timestamp);
+					txtFilename = QObject::tr("%1/%2_BEST_FIT_PLANE_INFO").arg(desc.path, desc.basename);
+					if (cmd.addTimestamp())
+					{
+						QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_hh'h'mm_ss_zzz");
+						txtFilename += QObject::tr("_%1").arg(timestamp);
+					}
+					txtFilename += QObject::tr(".txt");
 				}
-				txtFilename += QObject::tr(".txt");
 				QFile txtFile(txtFilename);
 				if (txtFile.open(QIODevice::WriteOnly | QIODevice::Text))
 				{
 					QTextStream txtStream(&txtFile);
 
-					txtStream << QObject::tr("Filename: %1").arg(outputFilename) << endl;
-					txtStream << QObject::tr("Fitting RMS: %1").arg(rms) << endl;
+					txtStream << QObject::tr("Filename: %1").arg(outputFilename) << Qt::endl;
+					txtStream << QObject::tr("Fitting RMS: %1").arg(rms) << Qt::endl;
 
 					// We always consider the normal with a positive 'Z' by default!
 					if (N.z < 0.0)
@@ -3999,18 +4020,18 @@ bool CommandMatchBestFitPlane::process(ccCommandLineInterface& cmd)
 					}
 
 					int precision = cmd.numericalPrecision();
-					txtStream << QObject::tr("Normal: (%1,%2,%3)").arg(N.x, 0, 'f', precision).arg(N.y, 0, 'f', precision).arg(N.z, 0, 'f', precision) << endl;
+					txtStream << QObject::tr("Normal: (%1,%2,%3)").arg(N.x, 0, 'f', precision).arg(N.y, 0, 'f', precision).arg(N.z, 0, 'f', precision) << Qt::endl;
 
 					// we compute strike & dip by the way
 					{
 						PointCoordinateType dip    = 0;
 						PointCoordinateType dipDir = 0;
 						ccNormalVectors::ConvertNormalToDipAndDipDir(N, dip, dipDir);
-						txtStream << ccNormalVectors::ConvertDipAndDipDirToString(dip, dipDir) << endl;
+						txtStream << ccNormalVectors::ConvertDipAndDipDirToString(dip, dipDir) << Qt::endl;
 					}
 
-					txtStream << "Orientation matrix:" << endl;
-					txtStream << makeZPosMatrix.toString(precision, ' ') << endl;
+					txtStream << "Orientation matrix:" << Qt::endl;
+					txtStream << makeZPosMatrix.toString(precision, ' ') << Qt::endl;
 
 					// close the text file
 					txtFile.close();
@@ -4059,25 +4080,18 @@ CommandOrientNormalsMST::CommandOrientNormalsMST()
 
 bool CommandOrientNormalsMST::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: number of neighbors after \"-%1\"").arg(COMMAND_ORIENT_NORMALS));
-	}
-
-	QString knnStr = cmd.arguments().takeFirst();
-	bool    ok;
-	int     knn = knnStr.toInt(&ok);
-	if (!ok || knn <= 0)
-	{
-		return cmd.error(QObject::tr("Invalid parameter: number of neighbors (%1)").arg(knnStr));
-	}
+	ccArgumentParser parser(cmd.arguments());
+	const auto       maybeKnn = parser.takeInt(QObject::tr("number of neighbors"), 1);
+	if (!maybeKnn)
+		return false;
+	const int knn = *maybeKnn;
 
 	if (cmd.clouds().empty())
 	{
 		return cmd.error(QObject::tr("No cloud available. Be sure to open one first!"));
 	}
 
-	QScopedPointer<ccProgressDialog> progressDialog(nullptr);
+	std::unique_ptr<ccProgressDialog> progressDialog(nullptr);
 	if (!cmd.silentMode())
 	{
 		progressDialog.reset(new ccProgressDialog(false, cmd.widgetParent()));
@@ -4094,7 +4108,7 @@ bool CommandOrientNormalsMST::process(ccCommandLineInterface& cmd)
 		}
 
 		// computation
-		if (desc.pc->orientNormalsWithMST(knn, progressDialog.data()))
+		if (desc.pc->orientNormalsWithMST(knn, progressDialog.get()))
 		{
 			desc.basename += QObject::tr("_NORMS_REORIENTED");
 			if (cmd.autoSaveMode())
@@ -4128,36 +4142,24 @@ CommandSORFilter::CommandSORFilter()
 
 bool CommandSORFilter::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: number of neighbors mode after \"-%1\"").arg(COMMAND_SOR_FILTER));
-	}
+	ccArgumentParser parser(cmd.arguments());
 
-	QString knnStr = cmd.arguments().takeFirst();
-	bool    ok;
-	int     knn = knnStr.toInt(&ok);
-	if (!ok || knn <= 0)
-	{
-		return cmd.error(QObject::tr("Invalid parameter: number of neighbors (%1)").arg(knnStr));
-	}
+	const auto maybeKnn = parser.takeInt(QObject::tr("number of neighbors"), 1);
+	if (!maybeKnn)
+		return false;
+	int knn = *maybeKnn;
 
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: sigma multiplier after number of neighbors (SOR)"));
-	}
-	QString sigmaStr = cmd.arguments().takeFirst();
-	double  nSigma   = sigmaStr.toDouble(&ok);
-	if (!ok || nSigma < 0)
-	{
-		return cmd.error(QObject::tr("Invalid parameter: sigma multiplier (%1)").arg(nSigma));
-	}
+	const auto maybeNSigma = parser.takeDouble(QObject::tr("sigma multiplier"), 0.0);
+	if (!maybeNSigma)
+		return false;
+	double nSigma = *maybeNSigma;
 
 	if (cmd.clouds().empty())
 	{
 		return cmd.error(QObject::tr("No cloud available. Be sure to open one first!"));
 	}
 
-	QScopedPointer<ccProgressDialog> progressDialog(nullptr);
+	std::unique_ptr<ccProgressDialog> progressDialog(nullptr);
 	if (!cmd.silentMode())
 	{
 		progressDialog.reset(new ccProgressDialog(false, cmd.widgetParent()));
@@ -4173,7 +4175,7 @@ bool CommandSORFilter::process(ccCommandLineInterface& cmd)
 		                                                                                knn,
 		                                                                                nSigma,
 		                                                                                nullptr,
-		                                                                                progressDialog.data());
+		                                                                                progressDialog.get());
 
 		if (selection)
 		{
@@ -4234,75 +4236,65 @@ bool CommandNoiseFilter::process(ccCommandLineInterface& cmd)
 		return cmd.error(QObject::tr("Missing parameters: 'KNN/RADIUS {value} REL/ABS {value}' expected after \"-%1\"").arg(COMMAND_NOISE_FILTER));
 	}
 
-	QString firstOption = cmd.arguments().takeFirst().toUpper();
+	ccArgumentParser parser(cmd.arguments());
+
+	QString firstOption = parser.takeNext().toUpper();
 	int     knn         = -1;
 	double  radius      = std::numeric_limits<double>::quiet_NaN();
 
 	if (firstOption == COMMAND_NOISE_FILTER_KNN)
 	{
-		QString knnStr = cmd.arguments().takeFirst();
-		bool    ok;
-		knn = knnStr.toInt(&ok);
-		if (!ok || knn <= 0)
+		const auto maybeKnn = parser.takeInt(QObject::tr("number of neighbors after KNN"));
+		if (!maybeKnn)
 		{
-			return cmd.error(QObject::tr("Invalid parameter: number of neighbors after KNN (got '%1' instead)").arg(knnStr));
+			return false;
 		}
+		knn = *maybeKnn;
 	}
 	else if (firstOption == COMMAND_NOISE_FILTER_RADIUS)
 	{
-		QString radiusStr = cmd.arguments().takeFirst();
-		bool    ok;
-		radius = radiusStr.toDouble(&ok);
-		if (!ok || radius <= 0)
-		{
-			return cmd.error(QObject::tr("Invalid parameter: radius after RADIUS (got '%1' instead)").arg(radiusStr));
-		}
+		const auto maybeRadius = parser.takeDouble(QObject::tr("radius"));
+		if (!maybeRadius)
+			return false;
+		if (*maybeRadius <= 0)
+			return cmd.error(QObject::tr("Invalid parameter: radius must be > 0 (got '%1')").arg(*maybeRadius));
+		radius = *maybeRadius;
 	}
 	else
 	{
 		return cmd.error(QObject::tr("Invalid parameter: KNN or RADIUS expected after \"-%1\"").arg(COMMAND_NOISE_FILTER));
 	}
 
-	QString secondOption  = cmd.arguments().takeFirst().toUpper();
-	bool    absoluteError = true;
-	if (secondOption == COMMAND_NOISE_FILTER_REL)
+	const auto maybeAbsoluteError = parser.takeEnum<bool>({{COMMAND_NOISE_FILTER_REL, false},
+	                                                       {COMMAND_NOISE_FILTER_ABS, true}},
+	                                                      QObject::tr("error type"));
+	bool       absoluteError;
+	if (!maybeAbsoluteError)
 	{
-		absoluteError = false;
+		return false;
 	}
-	else if (secondOption == COMMAND_NOISE_FILTER_ABS)
-	{
-		absoluteError = true;
-	}
-	else
-	{
-		return cmd.error(QObject::tr("Invalid parameter: REL or ABS expected"));
-	}
+	absoluteError = *maybeAbsoluteError;
 
 	double error = std::numeric_limits<double>::quiet_NaN();
 	{
-		QString errorStr = cmd.arguments().takeFirst();
-		bool    ok;
-		error = errorStr.toDouble(&ok);
-		if (!ok || error <= 0)
-		{
-			return cmd.error(QObject::tr("Invalid parameter: relative or absolute error expected after KNN (got '%1' instead)").arg(errorStr));
-		}
+		const auto maybeError = parser.takeDouble(QObject::tr("error"));
+		if (!maybeError)
+			return false;
+		if (*maybeError <= 0)
+			return cmd.error(QObject::tr("Invalid parameter: error must be > 0 (got '%1')").arg(*maybeError));
+		error = *maybeError;
 	}
 
 	// optional arguments
 	bool removeIsolatedPoints = false;
-	if (!cmd.arguments().empty())
+	if (parser.peek() == COMMAND_NOISE_FILTER_RIP)
 	{
-		QString argument = cmd.arguments().front();
-		if (argument == COMMAND_NOISE_FILTER_RIP)
-		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-			removeIsolatedPoints = true;
-		}
+		// local option confirmed, we can move on
+		parser.skip();
+		removeIsolatedPoints = true;
 	}
 
-	QScopedPointer<ccProgressDialog> progressDialog(nullptr);
+	std::unique_ptr<ccProgressDialog> progressDialog(nullptr);
 	if (!cmd.silentMode())
 	{
 		progressDialog.reset(new ccProgressDialog(false, cmd.widgetParent()));
@@ -4323,7 +4315,7 @@ bool CommandNoiseFilter::process(ccCommandLineInterface& cmd)
 		                                                                                  absoluteError,
 		                                                                                  error,
 		                                                                                  nullptr,
-		                                                                                  progressDialog.data());
+		                                                                                  progressDialog.get());
 
 		if (selection)
 		{
@@ -4379,28 +4371,28 @@ CommandRemoveDuplicatePoints::CommandRemoveDuplicatePoints()
 
 bool CommandRemoveDuplicatePoints::process(ccCommandLineInterface& cmd)
 {
+	ccArgumentParser parser(cmd.arguments());
+
 	double minDistanceBetweenPoints = std::numeric_limits<double>::epsilon();
 
-	// get optional argument
-	if (!cmd.arguments().empty())
+	if (!parser.isEmpty())
 	{
-		bool   paramOk = false;
-		double arg     = cmd.arguments().front().toDouble(&paramOk);
-		if (paramOk)
+		bool   ok  = false;
+		double arg = parser.peek().toDouble(&ok);
+		if (ok)
 		{
 			if (arg < minDistanceBetweenPoints)
 			{
 				return cmd.error(QObject::tr("Invalid argument: '%1'").arg(arg));
 			}
-
+			parser.skip();
 			minDistanceBetweenPoints = arg;
-			cmd.arguments().pop_front();
 		}
 	}
 
 	cmd.print(QObject::tr("Minimum distance between points: '%1'").arg(minDistanceBetweenPoints));
 
-	QScopedPointer<ccProgressDialog> progressDialog(nullptr);
+	std::unique_ptr<ccProgressDialog> progressDialog(nullptr);
 	if (!cmd.silentMode())
 	{
 		progressDialog.reset(new ccProgressDialog(false, cmd.widgetParent()));
@@ -4410,7 +4402,7 @@ bool CommandRemoveDuplicatePoints::process(ccCommandLineInterface& cmd)
 	for (CLCloudDesc& desc : cmd.clouds())
 	{
 		assert(desc.pc);
-		ccPointCloud* filteredCloud = desc.pc->removeDuplicatePoints(minDistanceBetweenPoints, progressDialog.data());
+		ccPointCloud* filteredCloud = desc.pc->removeDuplicatePoints(minDistanceBetweenPoints, progressDialog.get());
 		if (!filteredCloud)
 		{
 			return cmd.error(QObject::tr("Process failed (see log)"));
@@ -4534,58 +4526,45 @@ CommandSampleMesh::CommandSampleMesh()
 
 bool CommandSampleMesh::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: sampling mode after \"-%1\" (POINTS/DENSITY)").arg(COMMAND_SAMPLE_MESH));
-	}
+	ccArgumentParser parser(cmd.arguments());
 
-	bool   useDensity = false;
-	double parameter  = 0;
+	const auto maybeUseDensity = parser.takeEnum<bool>({
+	                                                       {"POINTS", false},
+	                                                       {"DENSITY", true},
+	                                                   },
+	                                                   QObject::tr("sample mode"));
 
-	QString sampleMode = cmd.arguments().takeFirst().toUpper();
-	if (sampleMode == "POINTS")
-	{
-		useDensity = false;
-	}
-	else if (sampleMode == "DENSITY")
-	{
-		useDensity = true;
-	}
-	else
-	{
-		return cmd.error(QObject::tr("Invalid parameter: unknown sampling mode \"%1\"").arg(sampleMode));
-	}
+	if (!maybeUseDensity)
+		return false;
+	const bool useDensity = *maybeUseDensity;
 
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: value after sampling mode"));
-	}
-	bool conversionOk = false;
-	parameter         = cmd.arguments().takeFirst().toDouble(&conversionOk);
-	if (!conversionOk)
-	{
-		return cmd.error(QObject::tr("Invalid parameter: value after sampling mode"));
-	}
+	const auto maybeParameter = parser.takeDouble(QObject::tr("sampling mode value"));
+	if (!maybeParameter)
+		return false;
+	const double parameter = *maybeParameter;
 
 	if (cmd.meshes().empty())
 	{
 		return cmd.error(QObject::tr("No mesh available. Be sure to open one first!"));
 	}
 
-	QScopedPointer<ccProgressDialog> progressDialog(nullptr);
+	std::unique_ptr<ccProgressDialog> progressDialog(nullptr);
 	if (!cmd.silentMode())
 	{
 		progressDialog.reset(new ccProgressDialog(false, cmd.widgetParent()));
 		progressDialog->setAutoClose(false);
 	}
 
+	bool errors = false;
+
 	for (CLMeshDesc& desc : cmd.meshes())
 	{
-		ccPointCloud* cloud = desc.mesh->samplePoints(useDensity, parameter, true, true, true, progressDialog.data());
+		ccPointCloud* cloud = desc.mesh->samplePoints(useDensity, parameter, true, true, true, progressDialog.get());
 
 		if (!cloud)
 		{
-			return cmd.error(QObject::tr("Cloud sampling failed!"));
+			errors = true;
+			continue;
 		}
 
 		// add the resulting cloud to the main set
@@ -4608,6 +4587,9 @@ bool CommandSampleMesh::process(ccCommandLineInterface& cmd)
 		progressDialog->close();
 		QCoreApplication::processEvents();
 	}
+
+	if (errors)
+		ccLog::Error(QObject::tr("Errors occurred during the process! Result may be incomplete!"));
 
 	return true;
 }
@@ -4847,24 +4829,26 @@ CommandCoordToSF::CommandCoordToSF()
 
 bool CommandCoordToSF::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter after \"-%1\" (DIMENSION)").arg(COMMAND_COORD_TO_SF));
-	}
+	ccArgumentParser parser(cmd.arguments());
+
 	if (cmd.clouds().empty())
 	{
 		return cmd.error(QObject::tr("No point cloud available. Be sure to open or generate one first!"));
 	}
 
 	// dimension
-	QString dimStr = cmd.arguments().takeFirst().toUpper();
+	if (parser.isEmpty())
+	{
+		return cmd.error(QObject::tr("Missing parameter after \"-%1\" (DIMENSION)").arg(COMMAND_COORD_TO_SF));
+	}
+	QString dimStr = parser.takeNext().toUpper();
 	bool    exportDims[3]{dimStr == "X", dimStr == "Y", dimStr == "Z"};
 	if (!exportDims[0] && !exportDims[1] && !exportDims[2])
 	{
 		return cmd.error(QObject::tr("Invalid parameter: dimension after \"-%1\" (expected: X, Y or Z)").arg(COMMAND_COORD_TO_SF));
 	}
 
-	// now we can export the corresponding coordinate
+	// now we can export the corresponding normal components
 	for (CLCloudDesc& desc : cmd.clouds())
 	{
 		if (desc.pc->exportCoordToSF(exportDims))
@@ -4888,6 +4872,122 @@ bool CommandCoordToSF::process(ccCommandLineInterface& cmd)
 	return true;
 }
 
+CommandSFToNorm::CommandSFToNorm()
+    : ccCommandLineInterface::Command(QObject::tr("SF to Normals"), COMMAND_SF_TO_NORM)
+{
+}
+
+bool CommandSFToNorm::process(ccCommandLineInterface& cmd)
+{
+	if (cmd.arguments().size() < 3)
+	{
+		return cmd.error(QObject::tr("Missing parameter(s) after \"-%1\" (SF INDEX OR NAME OR -1) (SF INDEX OR NAME OR -1) (SF INDEX OR NAME OR -1)").arg(COMMAND_SF_TO_NORM));
+	}
+	if (cmd.clouds().empty())
+	{
+		return cmd.error(QObject::tr("No point cloud available. Be sure to open or generate one first!"));
+	}
+
+	int     sfIndexX = -1;
+	QString sfNameX;
+	if (!GetSFIndexOrName(cmd, sfIndexX, sfNameX, true))
+	{
+		return false;
+	}
+	int     sfIndexY = -1;
+	QString sfNameY;
+	if (!GetSFIndexOrName(cmd, sfIndexY, sfNameY, true))
+	{
+		return false;
+	}
+	int     sfIndexZ = -1;
+	QString sfNameZ;
+	if (!GetSFIndexOrName(cmd, sfIndexZ, sfNameZ, true))
+	{
+		return false;
+	}
+
+	// now we can export the corresponding normals
+	for (CLCloudDesc& desc : cmd.clouds())
+	{
+		if (desc.pc && desc.pc->hasScalarFields())
+		{
+			CCCoreLib::ScalarField* sfX = GetScalarField(desc.pc, sfIndexX, sfNameX, true);
+			CCCoreLib::ScalarField* sfY = GetScalarField(desc.pc, sfIndexY, sfNameY, true);
+			CCCoreLib::ScalarField* sfZ = GetScalarField(desc.pc, sfIndexZ, sfNameZ, true);
+			if (sfX || sfY || sfZ)
+			{
+				if (desc.pc->setNormalsFromSF(sfX, sfY, sfZ))
+				{
+					desc.basename += "_SF_TO_NORM";
+					if (cmd.autoSaveMode())
+					{
+						QString errorStr = cmd.exportEntity(desc);
+						if (!errorStr.isEmpty())
+						{
+							return cmd.error(errorStr);
+						}
+					}
+				}
+			}
+			else
+			{
+				return cmd.error(QObject::tr("Failed to set SF %1 %2 and %3 as normals on cloud '%4'!").arg(sfNameX).arg(sfNameY).arg(sfNameZ).arg(desc.pc->getName()));
+			}
+		}
+	}
+
+	return true;
+}
+
+CommandNormToSF::CommandNormToSF()
+    : ccCommandLineInterface::Command(QObject::tr("Normals to SF"), COMMAND_NORM_TO_SF)
+{
+}
+
+bool CommandNormToSF::process(ccCommandLineInterface& cmd)
+{
+	if (cmd.arguments().empty())
+	{
+		return cmd.error(QObject::tr("Missing parameter after \"-%1\" (DIMENSION)").arg(COMMAND_NORM_TO_SF));
+	}
+	if (cmd.clouds().empty())
+	{
+		return cmd.error(QObject::tr("No point cloud available. Be sure to open or generate one first!"));
+	}
+
+	// dimension
+	QString dimStr = cmd.arguments().takeFirst().toUpper();
+	bool    exportDims[3]{dimStr.contains("X"), dimStr.contains("Y"), dimStr.contains("Z")};
+	if (!exportDims[0] && !exportDims[1] && !exportDims[2])
+	{
+		return cmd.error(QObject::tr("Invalid parameter: dimension after \"-%1\" (expected: X, Y or Z)").arg(COMMAND_NORM_TO_SF));
+	}
+
+	// now we can export the corresponding coordinate
+	for (CLCloudDesc& desc : cmd.clouds())
+	{
+		if (desc.pc && desc.pc->hasNormals() && desc.pc->exportNormalToSF(exportDims))
+		{
+			desc.basename += QObject::tr("_NORM_%1_TO_SF").arg(dimStr);
+			if (cmd.autoSaveMode())
+			{
+				QString errorStr = cmd.exportEntity(desc);
+				if (!errorStr.isEmpty())
+				{
+					return cmd.error(errorStr);
+				}
+			}
+		}
+		else
+		{
+			return cmd.error(QObject::tr("Failed to export normal %1 to SF on cloud '%2'!").arg(dimStr, desc.pc->getName()));
+		}
+	}
+
+	return true;
+}
+
 CommandCrop2D::CommandCrop2D()
     : ccCommandLineInterface::Command(QObject::tr("Crop 2D"), COMMAND_CROP_2D)
 {
@@ -4895,7 +4995,9 @@ CommandCrop2D::CommandCrop2D()
 
 bool CommandCrop2D::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().size() < 6)
+	ccArgumentParser parser(cmd.arguments());
+
+	if (parser.size() < 6)
 	{
 		return cmd.error(QObject::tr("Missing parameter(s) after \"-%1\" (ORTHO_DIM N X1 Y1 X2 Y2 ... XN YN)").arg(COMMAND_CROP_2D));
 	}
@@ -4912,61 +5014,37 @@ bool CommandCrop2D::process(ccCommandLineInterface& cmd)
 	unsigned char orthoDim     = 2;
 	bool          orderFlipped = false;
 	{
-		QString orthoDimStr = cmd.arguments().takeFirst().toUpper();
+		QString orthoDimStr = parser.takeNext().toUpper();
 		if (orthoDimStr.endsWith("FLIP"))
 		{
 			orderFlipped = true;
 			orthoDimStr  = orthoDimStr.left(orthoDimStr.size() - 4);
 		}
 
-		if (orthoDimStr == "X")
-		{
-			orthoDim = 0;
-		}
-		else if (orthoDimStr == "Y")
-		{
-			orthoDim = 1;
-		}
-		else if (orthoDimStr == "Z")
-		{
-			orthoDim = 2;
-		}
-		else
-		{
-			return cmd.error(QObject::tr("Invalid parameter: orthogonal dimension after \"-%1\" (expected: X, Y or Z)").arg(COMMAND_CROP_2D));
-		}
+		const auto maybeDim = ccArgumentParser::ParseEnum<unsigned>(orthoDimStr, {{"X", 0}, {"Y", 1}, {"Z", 2}}, QObject::tr("orthogonal dimension"));
+		if (!maybeDim)
+			return false;
+		orthoDim = *maybeDim;
 	}
 
 	ccCommandLineInterface::GlobalShiftOptions globalShiftOptions;
 	globalShiftOptions.mode = ccCommandLineInterface::GlobalShiftOptions::NO_GLOBAL_SHIFT;
-
-	if (cmd.arguments().size() >= 4)
+	if (parser.tryConsumeOption(COMMAND_OPEN_SHIFT_ON_LOAD))
 	{
-		if (cmd.nextCommandIsGlobalShift())
-		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (!cmd.processGlobalShiftCommand(globalShiftOptions))
-			{
-				// error message already issued
-				return false;
-			}
-
-			cmd.setGlobalShiftOptions(globalShiftOptions);
-		}
+		const auto maybeGlobalShift = ccCommandLineInterface::ParseGlobalShiftOptions(parser);
+		if (!maybeGlobalShift)
+			return false;
+		globalShiftOptions = *maybeGlobalShift;
+		cmd.setGlobalShiftOptions(globalShiftOptions);
 	}
 
 	// number of vertices
-	bool     ok = true;
-	unsigned N  = 0;
+	unsigned N = 0;
 	{
-		QString countStr = cmd.arguments().takeFirst();
-		N                = countStr.toUInt(&ok);
-		if (!ok)
-		{
-			return cmd.error(QObject::tr("Invalid parameter: number of vertices for the 2D polyline after \"-%1\"").arg(COMMAND_CROP_2D));
-		}
+		const auto maybeCount = parser.takeUInt(QObject::tr("number of vertices"));
+		if (!maybeCount)
+			return false;
+		N = *maybeCount;
 	}
 
 	// now read the vertices
@@ -4990,25 +5068,21 @@ bool CommandCrop2D::process(ccCommandLineInterface& cmd)
 		CCVector3d PShift(0, 0, 0);
 		for (unsigned i = 0; i < N; ++i)
 		{
-			if (cmd.arguments().size() < 2)
+			if (parser.size() < 2)
 			{
 				return cmd.error(QObject::tr("Missing parameter(s): vertex #%1 data and following").arg(i + 1));
 			}
 
 			CCVector3d Pd(0, 0, 0);
 
-			QString coordStr = cmd.arguments().takeFirst();
-			Pd.u[Xread]      = coordStr.toDouble(&ok);
-			if (!ok)
-			{
-				return cmd.error(QObject::tr("Invalid parameter: X-coordinate of vertex #%1").arg(i + 1));
-			}
-			/*QString */ coordStr = cmd.arguments().takeFirst();
-			Pd.u[Yread]           = coordStr.toDouble(&ok);
-			if (!ok)
-			{
-				return cmd.error(QObject::tr("Invalid parameter: Y-coordinate of vertex #%1").arg(i + 1));
-			}
+			const auto maybeX = parser.takeDouble(QObject::tr("Invalid parameter: X-coordinate of vertex #%1").arg(i + 1));
+			const auto maybeY = parser.takeDouble(QObject::tr("Invalid parameter: Y-coordinate of vertex #%1").arg(i + 1));
+
+			if (!maybeX || !maybeY)
+				return false;
+
+			Pd.u[Xread] = *maybeX;
+			Pd.u[Yread] = *maybeY;
 
 			if (i == 0)
 			{
@@ -5038,19 +5112,9 @@ bool CommandCrop2D::process(ccCommandLineInterface& cmd)
 
 	// optional parameters
 	bool inside = true;
-	while (!cmd.arguments().empty())
+	if (parser.tryConsumeOption(COMMAND_CROP_OUTSIDE))
 	{
-		QString argument = cmd.arguments().front();
-		if (ccCommandLineInterface::IsCommand(argument, COMMAND_CROP_OUTSIDE))
-		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-			inside = false;
-		}
-		else
-		{
-			break;
-		}
+		inside = false;
 	}
 
 	// now we can crop the loaded cloud(s)
@@ -5117,40 +5181,26 @@ bool CommandColorBanding::process(ccCommandLineInterface& cmd)
 		return cmd.error(QObject::tr("No entity available. Be sure to open or generate one first!"));
 	}
 
-	// dimension
-	unsigned char dim    = 2;
-	QString       dimStr = "Z";
-	{
-		dimStr = cmd.arguments().takeFirst().toUpper();
-		if (dimStr == "X")
-		{
-			dim = 0;
-		}
-		else if (dimStr == "Y")
-		{
-			dim = 1;
-		}
-		else if (dimStr == "Z")
-		{
-			dim = 2;
-		}
-		else
-		{
-			return cmd.error(QObject::tr("Invalid parameter: dimension after \"-%1\" (expected: X, Y or Z)").arg(COMMAND_COLOR_BANDING));
-		}
-	}
+	ccArgumentParser parser(cmd.arguments());
+
+	const QString dimStr   = parser.takeNext();
+	const auto    maybeDim = ccArgumentParser::ParseEnum<unsigned char>(
+        dimStr,
+        {
+            {"X", 0},
+            {"Y", 1},
+            {"Z", 2},
+        },
+        QObject::tr("dimension"));
+	if (!maybeDim)
+		return false;
+	unsigned char dim = *maybeDim;
 
 	// frequency
-	bool   ok   = true;
-	double freq = 0;
-	{
-		QString countStr = cmd.arguments().takeFirst();
-		freq             = countStr.toDouble(&ok);
-		if (!ok)
-		{
-			return cmd.error(QObject::tr("Invalid parameter: frequency after \"-%1 DIM\" (in Hz, integer value)").arg(COMMAND_COLOR_BANDING));
-		}
-	}
+	const auto maybeFreq = parser.takeDouble(QObject::tr("frequency"));
+	if (!maybeFreq)
+		return false;
+	const double freq = *maybeFreq;
 
 	// process clouds
 	if (!cmd.clouds().empty())
@@ -5228,8 +5278,11 @@ bool CommandColorLevels::process(ccCommandLineInterface& cmd)
 		return cmd.error(QObject::tr("No entity available. Be sure to open or generate one first!"));
 	}
 
+	ccArgumentParser parser(cmd.arguments());
+
 	// color bands
-	QString band = cmd.arguments().takeFirst().toUpper();
+	// the check above guarantees it's not null
+	QString band = parser.takeNext().toUpper();
 	bool    rgb[3]{band.contains('R'), band.contains('G'), band.contains('B')};
 	{
 		QString testBand = band;
@@ -5246,13 +5299,10 @@ bool CommandColorLevels::process(ccCommandLineInterface& cmd)
 	int levels[4] = {0};
 	for (int i = 0; i < 4; ++i)
 	{
-		bool    ok       = true;
-		QString levelStr = cmd.arguments().takeFirst();
-		levels[i]        = levelStr.toInt(&ok);
-		if (!ok || levels[i] < 0 || levels[i] > 255)
-		{
-			return cmd.error(QObject::tr("Invalid parameter: color level after \"-%1 COLOR-BANDS\" (integer value between 0 and 255 expected)").arg(COMMAND_COLOR_LEVELS));
-		}
+		const auto maybeLevel = parser.takeInt(QObject::tr("color level"), 0, 255);
+		if (!maybeLevel)
+			return false;
+		levels[i] = *maybeLevel;
 	}
 
 	// process clouds
@@ -5714,7 +5764,7 @@ bool CommandCPS::process(ccCommandLineInterface& cmd)
 	// COMPUTE CLOUD 2 CLOUD DISTANCE, THIS INCLUDES THE CLOSEST POINT SET GENERATION
 	int result = CCCoreLib::DistanceComputationTools::computeCloud2CloudDistances(compPointCloud, refPointCloud, params, &pDlg);
 
-	if (result >= 0)
+	if (result >= CCCoreLib::DistanceComputationTools::DISTANCE_COMPUTATION_RESULTS::SUCCESS)
 	{
 		// the extracted CPS will get the attributes of the reference cloud
 		ccPointCloud* newCloud = refPointCloud->partialClone(&closestPointSet);
@@ -5861,7 +5911,7 @@ bool CommandStatTest::process(ccCommandLineInterface& cmd)
 		return cmd.error(QObject::tr("No cloud available. Be sure to open one first!"));
 	}
 
-	QScopedPointer<ccProgressDialog> progressDialog(nullptr);
+	std::unique_ptr<ccProgressDialog> progressDialog(nullptr);
 	if (!cmd.silentMode())
 	{
 		progressDialog.reset(new ccProgressDialog(false, cmd.widgetParent()));
@@ -5893,7 +5943,7 @@ bool CommandStatTest::process(ccCommandLineInterface& cmd)
 			ccOctree::Shared theOctree = desc.pc->getOctree();
 			if (!theOctree)
 			{
-				theOctree = desc.pc->computeOctree(progressDialog.data());
+				theOctree = desc.pc->computeOctree(progressDialog.get());
 				if (!theOctree)
 				{
 					delete distrib;
@@ -5902,7 +5952,7 @@ bool CommandStatTest::process(ccCommandLineInterface& cmd)
 				}
 			}
 
-			double chi2dist = CCCoreLib::StatisticalTestingTools::testCloudWithStatisticalModel(distrib, desc.pc, kNN, pValue, progressDialog.data(), theOctree.data());
+			double chi2dist = CCCoreLib::StatisticalTestingTools::testCloudWithStatisticalModel(distrib, desc.pc, kNN, pValue, progressDialog.get(), theOctree.data());
 
 			cmd.print(QObject::tr("[Chi2 Test] %1 test result = %2").arg(distrib->getName()).arg(chi2dist));
 
@@ -5941,6 +5991,90 @@ bool CommandStatTest::process(ccCommandLineInterface& cmd)
 	return true;
 }
 
+CommandStatFit::CommandStatFit()
+    : ccCommandLineInterface::Command(QObject::tr("Statistical model fitting"), COMMAND_STAT_FIT)
+{
+}
+
+bool CommandStatFit::process(ccCommandLineInterface& cmd)
+{
+	// distribution
+	if (cmd.arguments().empty())
+	{
+		return cmd.error(QObject::tr("Missing parameter: distribution type after \"-%1\" (GAUSS/WEIBULL)").arg(COMMAND_STAT_FIT));
+	}
+
+	QString distribStr = cmd.arguments().takeFirst().toUpper();
+	if (distribStr != "GAUSS" && distribStr != "WEIBULL")
+	{
+		return cmd.error(QObject::tr("Invalid parameter: unknown distribution '%1' after \"-%2\" (GAUSS/WEIBULL)").arg(distribStr, COMMAND_STAT_FIT));
+	}
+
+	if (cmd.clouds().empty())
+	{
+		return cmd.error(QObject::tr("No cloud available. Be sure to open one first!"));
+	}
+
+	int precision = cmd.numericalPrecision();
+
+	for (CLCloudDesc& desc : cmd.clouds())
+	{
+		// we apply the method on the currently 'output' SF (the one '-SET_ACTIVE_SF' sets)
+		CCCoreLib::ScalarField* sf = desc.pc->getCurrentOutScalarField();
+		if (!sf)
+		{
+			cmd.warning(QObject::tr("Cloud '%1' has no active scalar field. Set one with '-%2'").arg(desc.pc->getName(), COMMAND_SET_ACTIVE_SF));
+			continue;
+		}
+
+		if (sf->countValidValues() == 0)
+		{
+			cmd.warning(QObject::tr("Scalar field '%1' of cloud '%2' has no valid values").arg(QString::fromStdString(sf->getName()), desc.pc->getName()));
+			continue;
+		}
+
+		std::unique_ptr<CCCoreLib::GenericDistribution> distrib;
+		if (distribStr == "GAUSS")
+		{
+			distrib.reset(new CCCoreLib::NormalDistribution());
+		}
+		else
+		{
+			distrib.reset(new CCCoreLib::WeibullDistribution());
+		}
+
+		if (!distrib->computeParameters(CCCoreLib::GenericDistribution::SFAsScalarContainer(*sf)))
+		{
+			cmd.warning(QObject::tr("Failed to compute the %1 distribution parameters for cloud '%2'").arg(distrib->getName(), desc.pc->getName()));
+			continue;
+		}
+
+		QString description;
+		if (distribStr == "GAUSS")
+		{
+			const CCCoreLib::NormalDistribution* normal = static_cast<const CCCoreLib::NormalDistribution*>(distrib.get());
+			description                                 = QObject::tr("mean = %1 / std.dev. = %2").arg(normal->getMu(), 0, 'f', precision).arg(sqrt(normal->getSigma2()), 0, 'f', precision);
+		}
+		else
+		{
+			const CCCoreLib::WeibullDistribution* weibull = static_cast<const CCCoreLib::WeibullDistribution*>(distrib.get());
+			ScalarType                            a       = 0;
+			ScalarType                            b       = 0;
+			weibull->getParameters(a, b);
+			description = QString("a = %1 / b = %2 / shift = %3").arg(a, 0, 'f', precision).arg(b, 0, 'f', precision).arg(weibull->getValueShift(), 0, 'f', precision);
+			cmd.print(QObject::tr("[Distribution fitting] Additional Weibull distrib. parameters: mode = %1 / skewness = %2").arg(weibull->computeMode()).arg(weibull->computeSkewness()));
+		}
+
+		cmd.print(QObject::tr("[Distribution fitting] Cloud '%1' (SF '%2') - %3: %4")
+		              .arg(desc.pc->getName())
+		              .arg(QString::fromStdString(sf->getName()))
+		              .arg(distrib->getName())
+		              .arg(description));
+	}
+
+	return true;
+}
+
 CommandDelaunayTri::CommandDelaunayTri()
     : ccCommandLineInterface::Command(QObject::tr("Delaunay triangulation"), COMMAND_DELAUNAY)
 {
@@ -5951,36 +6085,23 @@ bool CommandDelaunayTri::process(ccCommandLineInterface& cmd)
 	bool   axisAligned   = true;
 	double maxEdgeLength = 0;
 
-	while (!cmd.arguments().empty())
+	ccArgumentParser parser(cmd.arguments());
+	while (!parser.isEmpty())
 	{
-		QString argument = cmd.arguments().front();
-		if (ccCommandLineInterface::IsCommand(argument, COMMAND_DELAUNAY_AA))
+		if (parser.tryConsumeOption(COMMAND_DELAUNAY_AA))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
 			axisAligned = true;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_DELAUNAY_BF))
+		else if (parser.tryConsumeOption(COMMAND_DELAUNAY_BF))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
 			axisAligned = false;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_DELAUNAY_MAX_EDGE_LENGTH))
+		else if (parser.tryConsumeOption(COMMAND_DELAUNAY_MAX_EDGE_LENGTH))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: max edge length value after '%1'").arg(COMMAND_DELAUNAY_MAX_EDGE_LENGTH));
-			}
-			bool ok;
-			maxEdgeLength = cmd.arguments().takeFirst().toDouble(&ok);
-			if (!ok)
-			{
-				return cmd.error(QObject::tr("Invalid value for max edge length (%1)! (after %2)").arg(maxEdgeLength).arg(COMMAND_DELAUNAY_MAX_EDGE_LENGTH));
-			}
+			const auto maybeMaxEdgeLength = parser.takeDouble(QObject::tr("max edge length"));
+			if (!maybeMaxEdgeLength)
+				return false;
+			maxEdgeLength = *maybeMaxEdgeLength;
 		}
 		else
 		{
@@ -6122,9 +6243,11 @@ bool CommandSFArithmetic::process(ccCommandLineInterface& cmd)
 	// and meshes!
 	for (size_t j = 0; j < cmd.meshes().size(); ++j)
 	{
-		bool           isLocked = false;
-		ccGenericMesh* mesh     = cmd.meshes()[j].mesh;
-		ccPointCloud*  cloud    = ccHObjectCaster::ToPointCloud(mesh, &isLocked);
+		ccGenericMesh* mesh = cmd.meshes()[j].mesh;
+
+		bool          isLocked = false;
+		ccPointCloud* cloud    = ccHObjectCaster::ToPointCloud(mesh, &isLocked);
+
 		if (cloud && !isLocked)
 		{
 			int thisSFIndex = GetScalarFieldIndex(cloud, sfIndex, sfName, true);
@@ -6247,9 +6370,11 @@ bool CommandSFOperation::process(ccCommandLineInterface& cmd)
 	// and meshes!
 	for (size_t j = 0; j < cmd.meshes().size(); ++j)
 	{
-		bool           isLocked = false;
-		ccGenericMesh* mesh     = cmd.meshes()[j].mesh;
-		ccPointCloud*  cloud    = ccHObjectCaster::ToPointCloud(mesh, &isLocked);
+		ccGenericMesh* mesh = cmd.meshes()[j].mesh;
+
+		bool          isLocked = false;
+		ccPointCloud* cloud    = ccHObjectCaster::ToPointCloud(mesh, &isLocked);
+
 		if (cloud && !isLocked)
 		{
 			int thisSFIndex = GetScalarFieldIndex(cloud, sfIndex, sfName, true);
@@ -6353,9 +6478,11 @@ bool CommandSFOperationSF::process(ccCommandLineInterface& cmd)
 	// and meshes!
 	for (size_t j = 0; j < cmd.meshes().size(); ++j)
 	{
-		bool           isLocked = false;
-		ccGenericMesh* mesh     = cmd.meshes()[j].mesh;
-		ccPointCloud*  cloud    = ccHObjectCaster::ToPointCloud(mesh, &isLocked);
+		ccGenericMesh* mesh = cmd.meshes()[j].mesh;
+
+		bool          isLocked = false;
+		ccPointCloud* cloud    = ccHObjectCaster::ToPointCloud(mesh, &isLocked);
+
 		if (cloud && !isLocked)
 		{
 			int thisSFFIndex  = GetScalarFieldIndex(cloud, sfIndex, sfName);
@@ -6409,7 +6536,7 @@ bool CommandSFInterpolation::process(ccCommandLineInterface& cmd)
 	}
 
 	bool destIsFirst = false;
-	while (!cmd.arguments().empty())
+	if (!cmd.arguments().empty())
 	{
 		QString argument = cmd.arguments().front();
 		if (ccCommandLineInterface::IsCommand(argument, COMMAND_SF_INTERP_DEST_IS_FIRST))
@@ -6418,10 +6545,6 @@ bool CommandSFInterpolation::process(ccCommandLineInterface& cmd)
 			// local option confirmed, we can move on
 			cmd.arguments().pop_front();
 			destIsFirst = true;
-		}
-		else
-		{
-			break; // as soon as we encounter an unrecognized argument, we break the local loop to go back to the main one!
 		}
 	}
 
@@ -6438,10 +6561,8 @@ bool CommandSFInterpolation::process(ccCommandLineInterface& cmd)
 	{
 		return false;
 	}
-
 	cmd.print("SF to interpolate: index " + QString::number(sfIndex) + ", name " + QString::fromStdString(source->getScalarField(sfIndex)->getName()));
 
-	// semi-persistent parameters
 	ccPointCloudInterpolator::Parameters params;
 	{
 		params.method = ccPointCloudInterpolator::Parameters::NEAREST_NEIGHBOR; // nearest neighbor
@@ -6449,6 +6570,48 @@ bool CommandSFInterpolation::process(ccCommandLineInterface& cmd)
 		params.knn    = 6;
 		params.radius = static_cast<float>(dest->getOwnBB().getDiagNormd() / 100);
 		params.sigma  = params.radius / 2.5; // see ccInterpolationDlg::onRadiusUpdated
+	}
+
+	if (!cmd.arguments().empty())
+	{
+		QString argument = cmd.arguments().front();
+		if (ccCommandLineInterface::IsCommand(argument, COMMAND_SF_INTERP_NN))
+		{
+			cmd.print(QObject::tr("[Nearest Neighbor interpolation]"));
+			params.method = ccPointCloudInterpolator::Parameters::K_NEAREST_NEIGHBORS;
+			// local option confirmed
+			cmd.arguments().pop_front();
+
+			if (cmd.arguments().empty())
+			{
+				return cmd.error(QObject::tr("Missing argument after '%1': number of nearest neighbors").arg(COMMAND_SF_INTERP_NN));
+			}
+
+			bool ok;
+			params.knn = cmd.arguments().takeFirst().toInt(&ok);
+			if (!ok || params.knn < 1)
+			{
+				return cmd.error(QObject::tr("Invalid number of nearest neighbors! (after %1)").arg(COMMAND_SF_INTERP_NN));
+			}
+		}
+		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_SF_INTERP_RADIUS))
+		{
+			cmd.print(QObject::tr("[Sphere interpolation]"));
+			params.method = ccPointCloudInterpolator::Parameters::RADIUS;
+			// local option confirmed
+			cmd.arguments().pop_front();
+
+			if (cmd.arguments().empty())
+			{
+				return cmd.error(QObject::tr("Missing argument after '%1': radius of the sphere").arg(COMMAND_SF_INTERP_RADIUS));
+			}
+			bool ok;
+			params.radius = cmd.arguments().takeFirst().toFloat(&ok);
+			if (!ok || params.radius <= 0)
+			{
+				return cmd.error(QObject::tr("Invalid sphere radius! (after %1)").arg(COMMAND_SF_INTERP_RADIUS));
+			}
+		}
 	}
 
 	return ccEntityAction::interpolateSFs(source, dest, sfIndex, params, cmd.widgetParent());
@@ -6482,7 +6645,6 @@ bool CommandFilter::process(ccCommandLineInterface& cmd)
 	bool applyToSF  = false;
 	bool gaussian   = false;
 	ccPointCloud::RgbFilterOptions(filterParams);
-	filterParams.commandLine = true;
 	while (!cmd.arguments().empty())
 	{
 		QString argument = cmd.arguments().front();
@@ -6633,11 +6795,11 @@ bool CommandFilter::process(ccCommandLineInterface& cmd)
 	}
 	if (applyToSF)
 	{
-		return ccEntityAction::sfGaussianFilter(selectedEntities, filterParams, cmd.widgetParent());
+		return ccEntityAction::sfGaussianFilter(selectedEntities, filterParams, cmd.widgetParent(), true);
 	}
 	else if (applyToRGB)
 	{
-		return ccEntityAction::rgbGaussianFilter(selectedEntities, filterParams, cmd.widgetParent());
+		return ccEntityAction::rgbGaussianFilter(selectedEntities, filterParams, cmd.widgetParent(), true);
 	}
 
 	return true;
@@ -6657,9 +6819,9 @@ bool CommandRenameEntities::process(ccCommandLineInterface& cmd)
 
 	QString newBaseName = cmd.arguments().takeFirst();
 	// Validate if the given name contains any breaking characters for NTFS filesystem at least
-	QRegExp          rx("[^:/\\\\*?\"|<>]*");
-	QRegExpValidator v(rx, 0);
-	int              pos = 0;
+	QRegularExpression          rx("[^:/\\\\*?\"|<>]*");
+	QRegularExpressionValidator v(rx, 0);
+	int                         pos = 0;
 	if (!v.validate(newBaseName, pos))
 	{
 		assert(false);
@@ -6770,6 +6932,7 @@ bool CommandSFRename::process(ccCommandLineInterface& cmd)
 	{
 		bool          isLocked = false;
 		ccPointCloud* cloud    = ccHObjectCaster::ToPointCloud(desc.mesh, &isLocked);
+
 		if (cloud && !isLocked)
 		{
 			int thisSFIndex = GetScalarFieldIndex(cloud, sfIndex, sfName, true);
@@ -6880,7 +7043,7 @@ bool CommandSFAddId::process(ccCommandLineInterface& cmd)
 		QString argument = cmd.arguments().front();
 		if (ccCommandLineInterface::IsCommand(argument, COMMAND_SF_ADD_ID_AS_INT))
 		{
-			cmd.print(QObject::tr("[AS_INT]"));
+			cmd.print(QObject::tr("[%1] Option detected").arg(COMMAND_SF_ADD_ID_AS_INT));
 			// local option confirmed, we can move on
 			cmd.arguments().pop_front();
 			addIdAsInt = true;
@@ -6923,100 +7086,55 @@ bool CommandICP::process(ccCommandLineInterface& cmd)
 	bool                                              useC2MDistances       = false;
 	bool                                              robustC2MDistances    = true;
 	CCCoreLib::ICPRegistrationTools::NORMALS_MATCHING normalsMatching       = CCCoreLib::ICPRegistrationTools::NO_NORMAL;
+	QString                                           outputMatrixFile;
 
-	while (!cmd.arguments().empty())
+	ccArgumentParser parser(cmd.arguments());
+
+	while (!parser.isEmpty())
 	{
-		QString argument = cmd.arguments().front();
-		if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_REFERENCE_IS_FIRST))
+		if (parser.tryConsumeOption(COMMAND_ICP_REFERENCE_IS_FIRST))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
 			referenceIsFirst = true;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_ADJUST_SCALE))
+		else if (parser.tryConsumeOption(COMMAND_ICP_ADJUST_SCALE))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
 			adjustScale = true;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_ENABLE_FARTHEST_REMOVAL))
+		else if (parser.tryConsumeOption(COMMAND_ICP_ENABLE_FARTHEST_REMOVAL))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
 			enableFarthestPointRemoval = true;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_MIN_ERROR_DIIF))
+		else if (parser.tryConsumeOption(COMMAND_ICP_MIN_ERROR_DIIF))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: min error difference after '%1'").arg(COMMAND_ICP_MIN_ERROR_DIIF));
-			}
-			bool ok;
-			minErrorDiff = cmd.arguments().takeFirst().toDouble(&ok);
-			if (!ok || minErrorDiff <= 0)
-			{
-				return cmd.error(QObject::tr("Invalid value for min. error difference! (after %1)").arg(COMMAND_ICP_MIN_ERROR_DIIF));
-			}
+			// Note that min is actually the minimum positive value a double can represent
+			const auto maybeErrorDiff = parser.takeDouble(QObject::tr("min error difference"), std::numeric_limits<double>::min());
+			if (!maybeErrorDiff)
+				return false;
+			minErrorDiff = *maybeErrorDiff;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_ITERATION_COUNT))
+		else if (parser.tryConsumeOption(COMMAND_ICP_ITERATION_COUNT))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: number of iterations after '%1'").arg(COMMAND_ICP_ITERATION_COUNT));
-			}
-			bool    ok;
-			QString arg    = cmd.arguments().takeFirst();
-			iterationCount = arg.toUInt(&ok);
-			if (!ok || iterationCount == 0)
-				return cmd.error(QObject::tr("Invalid number of iterations! (%1)").arg(arg));
+			const auto maybeIterCount = parser.takeUInt(QObject::tr("number of iterations"), 1);
+			if (!maybeIterCount)
+				return false;
+			iterationCount = *maybeIterCount;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_OVERLAP))
+		else if (parser.tryConsumeOption(COMMAND_ICP_OVERLAP))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: overlap percentage after '%1'").arg(COMMAND_ICP_OVERLAP));
-			}
-			bool    ok;
-			QString arg = cmd.arguments().takeFirst();
-			overlap     = arg.toUInt(&ok);
-			if (!ok || overlap < 10 || overlap > 100)
-			{
-				return cmd.error(QObject::tr("Invalid overlap value! (%1 --> should be between 10 and 100)").arg(arg));
-			}
+			const auto maybeOverlap = parser.takeUInt(QObject::tr("overlap"), 10, 100);
+			if (!maybeOverlap)
+				return false;
+			overlap = *maybeOverlap;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_RANDOM_SAMPLING_LIMIT))
+		else if (parser.tryConsumeOption(COMMAND_ICP_RANDOM_SAMPLING_LIMIT))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: random sampling limit value after '%1'").arg(COMMAND_ICP_RANDOM_SAMPLING_LIMIT));
-			}
-			bool ok;
-			randomSamplingLimit = cmd.arguments().takeFirst().toUInt(&ok);
-			if (!ok || randomSamplingLimit < 3)
-			{
-				return cmd.error(QObject::tr("Invalid random sampling limit! (after %1)").arg(COMMAND_ICP_RANDOM_SAMPLING_LIMIT));
-			}
+			const auto maybeRandomSamplingLimit = parser.takeUInt(QObject::tr("random sampling limit"), 3);
+			if (!maybeRandomSamplingLimit)
+				return false;
+			randomSamplingLimit = *maybeRandomSamplingLimit;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_USE_MODEL_SF_AS_WEIGHT))
+		else if (parser.tryConsumeOption(COMMAND_ICP_USE_MODEL_SF_AS_WEIGHT))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
 			if (cmd.arguments().empty())
 			{
 				return cmd.error(QObject::tr("Missing parameter: SF index after '%1'").arg(COMMAND_ICP_USE_MODEL_SF_AS_WEIGHT));
@@ -7028,11 +7146,8 @@ bool CommandICP::process(ccCommandLineInterface& cmd)
 				return false;
 			}
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_USE_DATA_SF_AS_WEIGHT))
+		else if (parser.tryConsumeOption(COMMAND_ICP_USE_DATA_SF_AS_WEIGHT))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
 			if (cmd.arguments().empty())
 			{
 				return cmd.error(QObject::tr("Missing parameter: SF index after '%1'").arg(COMMAND_ICP_USE_DATA_SF_AS_WEIGHT));
@@ -7044,116 +7159,97 @@ bool CommandICP::process(ccCommandLineInterface& cmd)
 				return false;
 			}
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_MAX_THREAD_COUNT))
+		else if (parser.tryConsumeOption(COMMAND_MAX_THREAD_COUNT))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (cmd.arguments().empty())
-			{
-				return cmd.error(QObject::tr("Missing parameter: max thread count after '%1'").arg(COMMAND_MAX_THREAD_COUNT));
-			}
-
-			bool ok;
-			maxThreadCount = cmd.arguments().takeFirst().toInt(&ok);
-			if (!ok || maxThreadCount < 0)
-			{
-				return cmd.error(QObject::tr("Invalid thread count! (after %1)").arg(COMMAND_MAX_THREAD_COUNT));
-			}
+			const auto maybemaxThreadCount = parser.takeUInt(QObject::tr("max thread count"), 1);
+			if (!maybemaxThreadCount)
+				return false;
+			maxThreadCount = *maybemaxThreadCount;
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_ROT))
+		else if (parser.tryConsumeOption(COMMAND_ICP_OUTPUT_MATRIX_FILE))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (!cmd.arguments().empty())
+			if (parser.isEmpty())
 			{
-				QString rotation = cmd.arguments().takeFirst().toUpper();
-
-				// invalidate all previous rotations in case -ROT used twice
-				cmd.print(QObject::tr("[ICP] Reset rotation constraints if any. Only one -%1 argument allowed").arg(COMMAND_ICP_ROT));
-				transformationFilters &= (~CCCoreLib::RegistrationTools::SKIP_ROTATION);
-
-				if (rotation == "XYZ")
-				{
-					cmd.print(QObject::tr("[ICP] Use all rotations"));
-				}
-				else if (rotation == "X")
-				{
-					transformationFilters |= CCCoreLib::RegistrationTools::SKIP_RYZ;
-					cmd.print(QObject::tr("[ICP] Skip RYZ"));
-				}
-				else if (rotation == "Y")
-				{
-					transformationFilters |= CCCoreLib::RegistrationTools::SKIP_RXZ;
-					cmd.print(QObject::tr("[ICP] Skip RXZ"));
-				}
-				else if (rotation == "Z")
-				{
-					transformationFilters |= CCCoreLib::RegistrationTools::SKIP_RXY;
-					cmd.print(QObject::tr("[ICP] Skip RXY"));
-				}
-				else if (rotation == "NONE")
-				{
-					transformationFilters |= CCCoreLib::RegistrationTools::SKIP_ROTATION;
-					cmd.print(QObject::tr("[ICP] Skip rotation"));
-				}
-				else
-				{
-					return cmd.error(QObject::tr("Invalid parameter: unknown rotation filter \"%1\"").arg(rotation));
-				}
+				return cmd.error(QObject::tr("Missing parameter: filename after \"-%1\"").arg(COMMAND_ICP_OUTPUT_MATRIX_FILE));
 			}
-			else
+
+			outputMatrixFile = parser.takeNext();
+			cmd.print(QObject::tr("[ICP] Registration matrix file: %1").arg(outputMatrixFile));
+		}
+		else if (parser.tryConsumeOption(COMMAND_ICP_ROT))
+		{
+			if (parser.isEmpty())
 			{
 				return cmd.error(QObject::tr("Missing parameter: rotation filter after \"-%1\" (XYZ/X/Y/Z/NONE)").arg(COMMAND_ICP_ROT));
 			}
+
+			// invalidate all previous rotations in case -ROT used twice
+			cmd.print(QObject::tr("[ICP] Reset rotation constraints if any. Only one -%1 argument allowed").arg(COMMAND_ICP_ROT));
+			transformationFilters &= (~CCCoreLib::RegistrationTools::SKIP_ROTATION);
+
+			QString rotation = parser.takeNext().toUpper();
+			if (rotation == "XYZ")
+			{
+				cmd.print(QObject::tr("[ICP] Use all rotations"));
+			}
+			else if (rotation == "X")
+			{
+				transformationFilters |= CCCoreLib::RegistrationTools::SKIP_RYZ;
+				cmd.print(QObject::tr("[ICP] Skip RYZ"));
+			}
+			else if (rotation == "Y")
+			{
+				transformationFilters |= CCCoreLib::RegistrationTools::SKIP_RXZ;
+				cmd.print(QObject::tr("[ICP] Skip RXZ"));
+			}
+			else if (rotation == "Z")
+			{
+				transformationFilters |= CCCoreLib::RegistrationTools::SKIP_RXY;
+				cmd.print(QObject::tr("[ICP] Skip RXY"));
+			}
+			else if (rotation == "NONE")
+			{
+				transformationFilters |= CCCoreLib::RegistrationTools::SKIP_ROTATION;
+				cmd.print(QObject::tr("[ICP] Skip rotation"));
+			}
+			else
+			{
+				return cmd.error(QObject::tr("Invalid parameter: unknown rotation filter \"%1\"").arg(rotation));
+			}
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_SKIP_TX))
+		else if (parser.tryConsumeOption(COMMAND_ICP_SKIP_TX))
 		{
 			transformationFilters |= CCCoreLib::RegistrationTools::SKIP_TX;
 			cmd.print(QObject::tr("[ICP] Skip TX"));
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_SKIP_TY))
+		else if (parser.tryConsumeOption(COMMAND_ICP_SKIP_TY))
 		{
 			transformationFilters |= CCCoreLib::RegistrationTools::SKIP_TY;
 			cmd.print(QObject::tr("[ICP] Skip TY"));
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_SKIP_TZ))
+		else if (parser.tryConsumeOption(COMMAND_ICP_SKIP_TZ))
 		{
 			transformationFilters |= CCCoreLib::RegistrationTools::SKIP_TZ;
 			cmd.print(QObject::tr("[ICP] Skip TZ"));
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_ICP_C2M_DIST))
+		else if (parser.tryConsumeOption(COMMAND_ICP_C2M_DIST))
 		{
 			useC2MDistances = true;
 			cmd.print(QObject::tr("[ICP] Use C2M distances"));
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_C2M_DIST_NON_ROBUST))
+		else if (parser.tryConsumeOption(COMMAND_C2M_DIST_NON_ROBUST))
 		{
 			robustC2MDistances = false;
 			cmd.warning(QObject::tr("[ICP] Use non-robust C2M distances"));
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
 		}
-		else if (ccCommandLineInterface::IsCommand(argument, COMMAND_C2M_NORMAL_MATCHING))
+		else if (parser.tryConsumeOption(COMMAND_C2M_NORMAL_MATCHING))
 		{
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
-
-			if (cmd.arguments().empty())
+			if (parser.isEmpty())
 			{
 				return cmd.error(QObject::tr("Missing parameter: normals matching mode after '%1'").arg(COMMAND_C2M_NORMAL_MATCHING));
 			}
 
-			QString normalsMatchingOption = cmd.arguments().takeFirst().toUpper();
+			QString normalsMatchingOption = parser.takeNext().toUpper();
 
 			if (normalsMatchingOption == "OPPOSITE")
 			{
@@ -7174,9 +7270,6 @@ bool CommandICP::process(ccCommandLineInterface& cmd)
 			{
 				return cmd.error(QObject::tr("Unknown normal matching mode: ") + normalsMatchingOption);
 			}
-
-			// local option confirmed, we can move on
-			cmd.arguments().pop_front();
 		}
 		else
 		{
@@ -7288,18 +7381,23 @@ bool CommandICP::process(ccCommandLineInterface& cmd)
 
 		// save matrix in a separate text file
 		{
-			QString txtFilename = QObject::tr("%1/%2_REGISTRATION_MATRIX").arg(dataAndModel[0]->path, dataAndModel[0]->basename);
-			if (cmd.addTimestamp())
+			// the user can force the output path, in which case it is used as is
+			QString txtFilename = outputMatrixFile;
+			if (txtFilename.isEmpty())
 			{
-				QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_hh'h'mm_ss_zzz");
-				txtFilename += QString("_%1").arg(timestamp);
+				txtFilename = QObject::tr("%1/%2_REGISTRATION_MATRIX").arg(dataAndModel[0]->path, dataAndModel[0]->basename);
+				if (cmd.addTimestamp())
+				{
+					QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd_hh'h'mm_ss_zzz");
+					txtFilename += QString("_%1").arg(timestamp);
+				}
+				txtFilename += ".txt";
 			}
-			txtFilename += ".txt";
 			QFile txtFile(txtFilename);
 			if (txtFile.open(QIODevice::WriteOnly | QIODevice::Text))
 			{
 				QTextStream txtStream(&txtFile);
-				txtStream << transMat.toString(cmd.numericalPrecision(), ' ') << endl;
+				txtStream << transMat.toString(cmd.numericalPrecision(), ' ') << Qt::endl;
 				txtFile.close();
 			}
 			else
@@ -7360,6 +7458,19 @@ bool CommandChangePLYExportFormat::process(ccCommandLineInterface& cmd)
 	{
 		return cmd.error(QObject::tr("Invalid PLY format! ('%1')").arg(plyFormat));
 	}
+
+	return true;
+}
+
+CommandPLYNoSFPrefix::CommandPLYNoSFPrefix()
+    : ccCommandLineInterface::Command(QObject::tr("Don't add the 'scalar_' prefix to PLY scalar fields"), COMMAND_PLY_NO_SF_PREFIX)
+{
+}
+
+bool CommandPLYNoSFPrefix::process(ccCommandLineInterface& cmd)
+{
+	PlyFilter::SetAddSFPrefix(false);
+	cmd.print(QObject::tr("[PLY] Scalar field names will be saved without the 'scalar_' prefix"));
 
 	return true;
 }
@@ -7908,18 +8019,12 @@ CommandMoment::CommandMoment()
 
 bool CommandMoment::process(ccCommandLineInterface& cmd)
 {
-	if (cmd.arguments().empty())
-	{
-		return cmd.error(QObject::tr("Missing parameter: kernel size after %1").arg(COMMAND_MOMENT));
-	}
+	ccArgumentParser parser(cmd.arguments());
 
-	bool                paramOk    = false;
-	QString             kernelStr  = cmd.arguments().takeFirst();
-	PointCoordinateType kernelSize = static_cast<PointCoordinateType>(kernelStr.toDouble(&paramOk));
-	if (!paramOk)
-	{
-		return cmd.error(QObject::tr("Failed to read a numerical parameter: kernel size. Got '%1' instead.").arg(kernelStr));
-	}
+	const auto maybeKernelSize = parser.takeDouble(QObject::tr("kernel size"));
+	if (!maybeKernelSize)
+		return false;
+	PointCoordinateType kernelSize = static_cast<PointCoordinateType>(*maybeKernelSize);
 	cmd.print(QObject::tr("\tKernel size: %1").arg(kernelSize));
 
 	if (cmd.clouds().empty())
@@ -8017,6 +8122,14 @@ bool CommandFeature::process(ccCommandLineInterface& cmd)
 	{
 		featureType = CCCoreLib::Neighbourhood::EigenValue3;
 	}
+	else if (featureTypeStr == "DEGREE_OF_PLANARITY")
+	{
+		featureType = CCCoreLib::Neighbourhood::DegreeOfPlanarity;
+	}
+	else if (featureTypeStr == "DEGREE_OF_LINEARITY")
+	{
+		featureType = CCCoreLib::Neighbourhood::DegreeOfLinearity;
+	}
 	else
 	{
 		return cmd.error(QObject::tr("Invalid feature type after \"-%1\". Got '%2' instead of:\n\
@@ -8033,7 +8146,9 @@ bool CommandFeature::process(ccCommandLineInterface& cmd)
 - VERTICALITY\n\
 - EIGENVALUE1\n\
 - EIGENVALUE2\n\
-- EIGENVALUE3")
+- EIGENVALUE3\n\
+- DEGREE_OF_PLANARITY\n\
+- DEGREE_OF_LINEARITY")
 		                     .arg(COMMAND_FEATURE, featureTypeStr));
 	}
 
@@ -8178,37 +8293,18 @@ bool CommandComputeDistancesFromSensor::process(ccCommandLineInterface& cmd)
 		}
 	}
 
-	// Call MainWindow generic method
-	ccHObject::Container entities;
-	entities.resize(cmd.clouds().size());
-	for (size_t i = 0; i < cmd.clouds().size(); ++i)
+	for (const auto& cl : cmd.clouds())
 	{
-		entities[i] = cmd.clouds()[i].pc;
-	}
-
-	for (ccHObject* entity : entities)
-	{
-		unsigned  childrenNumber = entity->getChildrenNumber();
 		ccSensor* sensor{nullptr};
-		for (unsigned childPos = 0; childPos < childrenNumber; childPos++)
+		for (unsigned childPos = 0; childPos < cl.pc->getChildrenNumber(); childPos++)
 		{
-			sensor = ccHObjectCaster::ToSensor(entity->getChild(childPos));
+			sensor = ccHObjectCaster::ToSensor(cl.pc->getChild(childPos));
 			if (sensor)
 				break; // once a sensor is found, break the loop
 		}
 
 		if (!sensor)
 			continue;
-
-		assert(sensor); // at this step we should have a sensor associated to the cloud
-
-		// get associated cloud
-		ccPointCloud* cloud = ccHObjectCaster::ToPointCloud(entity);
-		if (!cloud)
-		{
-			cmd.error(QObject::tr("Do not manage to associate the sensor with a cloud"));
-			return false;
-		}
 
 		// sensor center
 		CCVector3 sensorCenter;
@@ -8220,22 +8316,22 @@ bool CommandComputeDistancesFromSensor::process(ccCommandLineInterface& cmd)
 
 		// set up a new scalar field
 		const char* defaultRangesSFname = squared ? CC_DEFAULT_SQUARED_RANGES_SF_NAME : CC_DEFAULT_RANGES_SF_NAME;
-		int         sfIdx               = cloud->getScalarFieldIndexByName(defaultRangesSFname);
+		int         sfIdx               = cl.pc->getScalarFieldIndexByName(defaultRangesSFname);
 		if (sfIdx < 0)
 		{
-			sfIdx = cloud->addScalarField(defaultRangesSFname);
+			sfIdx = cl.pc->addScalarField(defaultRangesSFname);
 			if (sfIdx < 0)
 			{
 				cmd.error(QObject::tr("Not enough memory!"));
 				return false;
 			}
 		}
-		CCCoreLib::ScalarField* distances = cloud->getScalarField(sfIdx);
+		CCCoreLib::ScalarField* distances = cl.pc->getScalarField(sfIdx);
 
 		// perform computation
-		for (unsigned i = 0; i < cloud->size(); ++i)
+		for (unsigned i = 0; i < cl.pc->size(); ++i)
 		{
-			const CCVector3* P = cloud->getPoint(i);
+			const CCVector3* P = cl.pc->getPoint(i);
 			ScalarType       s = static_cast<ScalarType>(squared ? (*P - sensorCenter).norm2() : (*P - sensorCenter).norm());
 			distances->setValue(i, s);
 		}
@@ -8274,21 +8370,13 @@ bool CommandComputeScatteringAngles::process(ccCommandLineInterface& cmd)
 		}
 	}
 
-	// Call MainWindow generic method
-	ccHObject::Container entities;
-	entities.resize(cmd.clouds().size());
-	for (size_t i = 0; i < cmd.clouds().size(); ++i)
+	for (const auto& cl : cmd.clouds())
 	{
-		entities[i] = cmd.clouds()[i].pc;
-	}
-
-	for (ccHObject* entity : entities)
-	{
-		unsigned  childrenNumber = entity->getChildrenNumber();
+		unsigned  childrenNumber = cl.pc->getChildrenNumber();
 		ccSensor* sensor{nullptr};
 		for (unsigned childPos = 0; childPos < childrenNumber; childPos++)
 		{
-			sensor = ccHObjectCaster::ToSensor(entity->getChild(childPos));
+			sensor = ccHObjectCaster::ToSensor(cl.pc->getChild(childPos));
 			if (sensor)
 				break; // once a sensor is found, break the loop
 		}
@@ -8298,17 +8386,9 @@ bool CommandComputeScatteringAngles::process(ccCommandLineInterface& cmd)
 
 		assert(sensor); // at this step we should have a sensor associated to the cloud
 
-		// get associated cloud
-		ccPointCloud* cloud = ccHObjectCaster::ToPointCloud(entity);
-		if (!cloud)
+		if (!cl.pc->hasNormals())
 		{
-			cmd.error(QObject::tr("Do not manage to associate the sensor with a cloud"));
-			return false;
-		}
-
-		if (!cloud->hasNormals())
-		{
-			cmd.print(QObject::tr(("The cloud must have normals for scattering angles calculations, skip calculation for cloud " + cloud->getName()).toLatin1()));
+			cmd.print(QObject::tr(("The cloud must have normals for scattering angles calculations, skip calculation for cloud " + cl.pc->getName()).toLatin1()));
 			continue;
 		}
 
@@ -8322,30 +8402,30 @@ bool CommandComputeScatteringAngles::process(ccCommandLineInterface& cmd)
 
 		// set up a new scalar field
 		const char* defaultScatAnglesSFname = toDegreeFlag ? CC_DEFAULT_DEG_SCATTERING_ANGLES_SF_NAME : CC_DEFAULT_RAD_SCATTERING_ANGLES_SF_NAME;
-		int         sfIdx                   = cloud->getScalarFieldIndexByName(defaultScatAnglesSFname);
+		int         sfIdx                   = cl.pc->getScalarFieldIndexByName(defaultScatAnglesSFname);
 		if (sfIdx < 0)
 		{
-			sfIdx = cloud->addScalarField(defaultScatAnglesSFname);
+			sfIdx = cl.pc->addScalarField(defaultScatAnglesSFname);
 			if (sfIdx < 0)
 			{
 				cmd.error(QObject::tr("Not enough memory!"));
 				return false;
 			}
 		}
-		CCCoreLib::ScalarField* angles = cloud->getScalarField(sfIdx);
+		CCCoreLib::ScalarField* angles = cl.pc->getScalarField(sfIdx);
 
 		// perform computation
-		for (unsigned i = 0; i < cloud->size(); ++i)
+		for (unsigned i = 0; i < cl.pc->size(); ++i)
 		{
 			// the point position
-			const CCVector3* P = cloud->getPoint(i);
+			const CCVector3* P = cl.pc->getPoint(i);
 
 			// build the ray
 			CCVector3 ray = *P - sensorCenter;
 			ray.normalize();
 
 			// get the current normal
-			CCVector3 normal(cloud->getPointNormal(i));
+			CCVector3 normal(cl.pc->getPointNormal(i));
 			// normal.normalize(); //should already be the case!
 
 			// compute the angle

@@ -16,10 +16,11 @@
 // #                                                                        #
 // ##########################################################################
 
+// Local
 #include "CCFbo.h"
 
 // Qt
-#include <QOpenGLExtensions>
+#include <QOpenGLExtraFunctions>
 #include <QOpenGLFunctions_2_1>
 
 //! F.B.O. encapsulation
@@ -117,7 +118,9 @@ class CCFBO_LIB_API ccFrameBufferObject
 	//! ID
 	GLuint m_fboId;
 
-	// For portability, we need to use 2.1 + extensions to get FBOs
-	QOpenGLFunctions_2_1                    m_glFunc;
-	QOpenGLExtension_ARB_framebuffer_object m_glExtFunc;
+	// For portability, we need to use 2.1...
+	QOpenGLFunctions_2_1 m_glFunc;
+
+	//... and QOpenGLExtraFunctions
+	QOpenGLExtraFunctions m_glExtFunc;
 };

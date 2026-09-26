@@ -15,22 +15,21 @@
 // #                                                                        #
 // ##########################################################################
 
-#include "ccSubMesh.h"
+#include "../include/ccSubMesh.h"
 
 // Local
-#include "ccGenericPointCloud.h"
-#include "ccMaterialSet.h"
-#include "ccMesh.h"
-
-// Qt
-#include <QString>
+#include "../include/ccGenericPointCloud.h"
+#include "../include/ccMaterialSet.h"
+#include "../include/ccMesh.h"
 
 // CCCoreLib
 #include <ManualSegmentationTools.h>
 
-// system
+// Qt
+#include <QString>
+
+// System
 #include <cassert>
-#include <cstring>
 
 ccSubMesh::ccSubMesh(ccMesh* parentMesh)
     : ccGenericMesh("Sub-mesh")
@@ -62,18 +61,6 @@ void ccSubMesh::onUpdateOf(ccHObject* obj)
 {
 	if (obj == m_associatedMesh)
 		m_bBox.setValidity(false);
-}
-
-void ccSubMesh::forEach(genericTriangleAction action)
-{
-	if (!m_associatedMesh)
-		return;
-
-	for (unsigned int index : m_triIndexes)
-	{
-		CCCoreLib::GenericTriangle* tri = m_associatedMesh->_getTriangle(index);
-		action(*tri);
-	}
 }
 
 ccGenericPointCloud* ccSubMesh::getAssociatedCloud() const
