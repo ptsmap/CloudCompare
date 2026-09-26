@@ -58,6 +58,14 @@ target_link_libraries( ${PROJECT_NAME}
 		Qt6::OpenGL
 )
 
+if( CC_RENDER_VSG )
+	target_link_libraries( ${PROJECT_NAME}
+		PRIVATE
+			QCC_VSG_LIB
+	)
+	target_compile_definitions( ${PROJECT_NAME} PRIVATE CC_RENDER_VSG_ENABLED )
+endif()
+
 if( CCCORELIB_USE_QT_CONCURRENT )
 	# We want *deployqt to handle this dependency, so instead of just copying the file
 	# link to the target.

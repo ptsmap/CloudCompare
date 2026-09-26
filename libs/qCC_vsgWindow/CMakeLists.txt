@@ -1,38 +1,19 @@
-cmake_minimum_required(VERSION 3.5)
+project( QCC_VSG_LIB )
 
-project(qCC_vsgWindow)
+add_library( ${PROJECT_NAME} SHARED )
 
-# 查找VSG依赖
-find_package(vsg REQUIRED)
+add_subdirectory( include )
+add_subdirectory( src )
 
-# 包含目录
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${VSG_INCLUDE_DIRS}
+target_compile_definitions( ${PROJECT_NAME} PRIVATE CCVSGWINDOW_LIB_BUILD )
+
+target_link_libraries( ${PROJECT_NAME}
+    PUBLIC
+        QCC_RENDER_CORE_LIB
+        QCC_DB_LIB
+        Qt6::Widgets
+        vsg::vsg
+        vsgQt::vsgQt
 )
 
-# 源文件
-set(SRC
-    src/ccVSGWindow.cpp
-    src/ccVSGWindowStereo.cpp
-    src/ccVSGUtils.cpp
-)
-
-# 头文件
-set(HEADERS
-    include/ccVSGWindow.h
-    include/ccVSGWindowStereo.h
-    include/ccVSGUtils.h
-)
-
-# 创建库
-add_library(qCC_vsgWindow ${SRC} ${HEADERS})
-
-target_link_libraries(qCC_vsgWindow
-    PRIVATE
-    vsg::vsg
-)
-
-# 安装规则
-install(TARGETS qCC_vsgWindow DESTINATION lib)
-install(DIRECTORY include/ DESTINATION include)
+InstallSharedLibrary( TARGET ${PROJECT_NAME} )

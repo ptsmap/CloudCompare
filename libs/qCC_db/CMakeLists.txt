@@ -10,6 +10,7 @@ add_subdirectory( extern/CCCoreLib EXCLUDE_FROM_ALL )
 target_link_libraries( ${PROJECT_NAME}
 	PUBLIC
     	CCCoreLib
+		QCC_RENDER_CORE_LIB
 		Qt6::Widgets
 		Qt6::OpenGL
 		CC_FBO_LIB

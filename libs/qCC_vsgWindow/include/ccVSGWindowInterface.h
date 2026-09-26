@@ -1,186 +1,200 @@
 #pragma once
+// ##########################################################################
+// #                                                                        #
+// #                            CLOUDCOMPARE                                #
+// #                                                                        #
+// #  This program is free software; you can redistribute it and/or modify  #
+// #  it under the terms of the GNU General Public License as published by  #
+// #  the Free Software Foundation; version 2 or later of the License.      #
+// #                                                                        #
+// #  This program is distributed in the hope that it will be useful,       #
+// #  but WITHOUT ANY WARRANTY; without even the implied warranty of        #
+// #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
+// #  GNU General Public License for more details.                          #
+// #                                                                        #
+// #          COPYRIGHT: CloudCompare project                               #
+// #                                                                        #
+// ##########################################################################
 
-//Local
+// Local
 #include "qCC_vsgWindow.h"
 
-//qCC_db
-#include <ccGenericGLDisplay.h>
-#include <ccGLUtils.h>
-#include <ccBBox.h>
+// qCC_renderCore
+#include <ccViewInterface.h>
 
-//Qt
-#include <QElapsedTimer>
-#include <QTimer>
+// qCC_db
+#include <ccViewportParameters.h>
 
-//VSG
-#include <vsg/core/Object.h>
+// VSG
+#include <vsg/app/Camera.h>
+#include <vsg/app/ProjectionMatrix.h>
+#include <vsg/app/ViewMatrix.h>
+#include <vsg/core/ref_ptr.h>
+#include <vsg/nodes/Group.h>
 
-//system
-#include <list>
+// vsgQt
+#include <vsgQt/Viewer.h>
 
-class QMouseEvent;
-class QWheelEvent;
-class QEvent;
+// Qt
+#include <QSize>
+#include <QString>
 
+class ccDrawableObject;
 class ccHObject;
-class ccPolyline;
-class ccShader;
-class ccGlFilter;
-class ccInteractor;
 
-//! VSG 3D view interface
-class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public vsg::Object, public ccGenericGLDisplay
+namespace vsgQt
 {
-public:
-    //! Picking mode
-    enum PICKING_MODE { NO_PICKING,
-                        ENTITY_PICKING,
-                        ENTITY_RECT_PICKING,
-                        FAST_PICKING,
-                        POINT_PICKING,
-                        TRIANGLE_PICKING,
-                        POINT_OR_TRIANGLE_PICKING,
-                        POINT_OR_TRIANGLE_OR_LABEL_PICKING,
-                        LABEL_PICKING,
-                        DEFAULT_PICKING,
-    };
+	class Window;
+}
 
-    //! Interaction flags (mostly with the mouse)
-    enum INTERACTION_FLAG
-    {
-        //no interaction
-        INTERACT_NONE = 0,
+//! VulkanSceneGraph 3D view interface
+/** Backend agnostic logic of a 3D view rendered with VulkanSceneGraph.
+	It derives from ccViewInterface (like ccGenericGLDisplay does for the
+	OpenGL backend) so that both backends share a single root.
 
-        //camera interactions
-        INTERACT_ROTATE          =  1,
-        INTERACT_PAN             =  2,
-        INTERACT_CTRL_PAN        =  4,
-        INTERACT_ZOOM_CAMERA     =  8,
-        INTERACT_2D_ITEMS        = 16, //labels, etc.
-        INTERACT_CLICKABLE_ITEMS = 32, //hot zone
+	The Qt specific part (widget creation, event forwarding) lives in
+	ccVSGWindow.
 
-        //options / modifiers
-        INTERACT_TRANSFORM_ENTITIES = 64,
+	See doc/VSG_Rendering_Migration_Plan.md
+**/
+class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
+{
+  public:
+	//! Default constructor
+	ccVSGWindowInterface();
 
-        //signals
-        INTERACT_SIG_RB_CLICKED      =  128, //right button clicked
-        INTERACT_SIG_LB_CLICKED      =  256, //left button clicked
-        INTERACT_SIG_MOUSE_MOVED     =  512, //mouse moved (only if a button is clicked)
-        INTERACT_SIG_BUTTON_RELEASED = 1024, //mouse button released
-        INTERACT_SIG_MB_CLICKED      = 2048, //middle button clicked
-        INTERACT_SEND_ALL_SIGNALS    = INTERACT_SIG_RB_CLICKED | INTERACT_SIG_LB_CLICKED | INTERACT_SIG_MB_CLICKED | INTERACT_SIG_MOUSE_MOVED | INTERACT_SIG_BUTTON_RELEASED,
+	//! Destructor
+	~ccVSGWindowInterface() override;
 
-        // default modes
-        MODE_PAN_ONLY = INTERACT_PAN | INTERACT_ZOOM_CAMERA | INTERACT_2D_ITEMS | INTERACT_CLICKABLE_ITEMS,
-        MODE_TRANSFORM_CAMERA = INTERACT_ROTATE | MODE_PAN_ONLY,
-        MODE_TRANSFORM_ENTITIES = INTERACT_ROTATE | INTERACT_PAN | INTERACT_ZOOM_CAMERA | INTERACT_TRANSFORM_ENTITIES | INTERACT_CLICKABLE_ITEMS,
-    };
+	// ----------------------------------------------------------------------
+	// Initialization
+	// ----------------------------------------------------------------------
 
-    Q_DECLARE_FLAGS(INTERACTION_FLAGS, INTERACTION_FLAG)
+	//! Initializes the VSG viewer / render graph for an already created window
+	/** \param viewer    the (Qt driven) VSG viewer
+	    \param vsgWindow the Qt window wrapping the vsg::Window
+	    \return success
+	**/
+	bool initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, vsgQt::Window* vsgWindow);
 
-    //! Default message positions on screen
-    enum MessagePosition {  LOWER_LEFT_MESSAGE,
-                            UPPER_CENTER_MESSAGE,
-                            SCREEN_CENTER_MESSAGE,
-    };
+	//! Returns whether the VSG viewer has been successfully initialized
+	bool isInitialized() const
+	{
+		return m_initialized;
+	}
 
-    //! Message type
-    enum MessageType {  CUSTOM_MESSAGE = 0,
-                        SCREEN_SIZE_MESSAGE,
-                        PERSPECTIVE_STATE_MESSAGE,
-                        SUN_LIGHT_STATE_MESSAGE,
-                        CUSTOM_LIGHT_STATE_MESSAGE,
-                        MANUAL_TRANSFORMATION_MESSAGE,
-                        MANUAL_SEGMENTATION_MESSAGE,
-                        ROTAION_LOCK_MESSAGE,
-                        FULL_SCREEN_MESSAGE,
-    };
+	// ----------------------------------------------------------------------
+	// ccViewInterface
+	// ----------------------------------------------------------------------
 
-    //! Pivot symbol visibility
-    enum PivotVisibility {  PIVOT_HIDE,
-                            PIVOT_SHOW_ON_MOVE,
-                            PIVOT_ALWAYS_SHOW,
-    };
+	QString backendName() const override
+	{
+		return QStringLiteral("VSG");
+	}
 
-    //! Default constructor
-    ccVSGWindowInterface();
+	const ccRenderCapabilities& renderCapabilities() const override
+	{
+		return m_renderCapabilities;
+	}
 
-    //! Destructor
-    virtual ~ccVSGWindowInterface() = default;
-    
-    //! 渲染控制接口
-    virtual void redraw(bool only2D = false) = 0;
-    virtual void refresh(bool only2D = false) = 0;
-    
-    //! 视口设置
-    virtual void setGlViewport(int x, int y, int width, int height) = 0;
-    
-    //! Sets 'scene graph' root
-    virtual void setSceneDB(ccHObject* root) = 0;
+	void        setSceneDB(ccHObject* root) override;
+	ccHObject*  getSceneDB() override
+	{
+		return m_globalDBRoot;
+	}
+	ccHObject*  getOwnDB() override
+	{
+		return m_winDBRoot;
+	}
 
-    //! Returns current 'scene graph' root
-    virtual ccHObject* getSceneDB() = 0;
+	void         setPickingMode(PICKING_MODE mode = DEFAULT_PICKING, Qt::CursorShape defaultCursorShape = Qt::ArrowCursor) override;
+	PICKING_MODE getPickingMode() const override
+	{
+		return m_pickingMode;
+	}
 
-    //! Sets current interaction flags
-    virtual void setInteractionMode(INTERACTION_FLAGS flags) = 0;
+	void              setInteractionMode(INTERACTION_FLAGS flags) override;
+	INTERACTION_FLAGS getInteractionMode() const override
+	{
+		return m_interactionFlags;
+	}
 
-    //! Returns the current interaction flags
-    virtual INTERACTION_FLAGS getInteractionMode() const = 0;
+	const ccViewportParameters& getViewportParameters() const override
+	{
+		return m_viewportParams;
+	}
+	void setViewportParameters(const ccViewportParameters& params) override;
 
-    //! Sets current picking mode
-    virtual void setPickingMode(PICKING_MODE mode = DEFAULT_PICKING) = 0;
+	// ----------------------------------------------------------------------
+	// View control (same vocabulary as ccGenericGLDisplay)
+	// ----------------------------------------------------------------------
 
-    //! Returns current picking mode
-    virtual PICKING_MODE getPickingMode() const = 0;
+	//! Returns the screen size
+	virtual QSize getScreenSize() const = 0;
 
-    //! Sets pivot visibility
-    virtual void setPivotVisibility(PivotVisibility vis) = 0;
+	//! Redraws display immediately
+	virtual void redraw(bool only2D = false, bool resetLOD = true) = 0;
 
-    //! Returns pivot visibility
-    virtual PivotVisibility getPivotVisibility() const = 0;
+	//! Flags display as 'to be refreshed'
+	virtual void toBeRefreshed() = 0;
 
-    //! Shows or hide the pivot symbol
-    virtual void showPivotSymbol(bool state) = 0;
+	//! Redraws display only if flagged as 'to be refreshed'
+	virtual void refresh(bool only2D = false) = 0;
 
-    //! Sets pivot point
-    virtual void setPivotPoint(const CCVector3d& P, bool autoUpdateCameraPos = false, bool verbose = false) = 0;
+	//! Invalidates current viewport setup
+	virtual void invalidateViewport() = 0;
 
-    //! Sets camera position
-    virtual void setCameraPos(const CCVector3d& P) = 0;
+	//! Invalidates the 3D layer
+	virtual void deprecate3DLayer() = 0;
 
-    //! Displaces camera
-    virtual void moveCamera(CCVector3d& v) = 0;
+	//! Warns the display that the entity is about to be removed
+	virtual void aboutToBeRemoved(ccDrawableObject* obj);
 
-    //! Set perspective state/mode
-    virtual void setPerspectiveState(bool state, bool objectCenteredView) = 0;
+	// ----------------------------------------------------------------------
+	// VSG specifics
+	// ----------------------------------------------------------------------
 
-    //! Returns perspective mode
-    virtual bool getPerspectiveState(bool& objectCentered) const = 0;
+	vsg::ref_ptr<vsgQt::Viewer> viewer() const
+	{
+		return m_viewer;
+	}
 
-    //! Center and zoom on a given bounding box
-    virtual void updateConstellationCenterAndZoom(const ccBBox* boundingBox = nullptr) = 0;
+	vsg::ref_ptr<vsg::Camera> camera() const
+	{
+		return m_camera;
+	}
 
-    //! Sets camera to a predefined view
-    virtual void setView(CC_VIEW_ORIENTATION orientation, bool redraw = true) = 0;
+	vsg::ref_ptr<vsg::Group> sceneRoot() const
+	{
+		return m_sceneRoot;
+	}
 
-    //! Sets point size
-    virtual void setPointSize(float size, bool silent = false) = 0;
+  protected:
+	//! Updates the VSG camera from the (backend agnostic) viewport parameters
+	/** TODO(M2): full ccViewportParameters -> vsg::Camera mapping
+	    (pivot point, object/viewer centered view, focal distance, near/far).
+	 **/
+	void updateCamera();
 
-    //! Sets line width
-    virtual void setLineWidth(float width, bool silent = false) = 0;
+	// VSG objects
+	vsg::ref_ptr<vsgQt::Viewer>    m_viewer;
+	vsgQt::Window*                 m_window = nullptr; // owned by Qt (QWindow)
+	vsg::ref_ptr<vsg::Camera>      m_camera;
+	vsg::ref_ptr<vsg::LookAt>      m_lookAt;
+	vsg::ref_ptr<vsg::Perspective> m_perspective;
+	vsg::ref_ptr<vsg::Group>       m_sceneRoot;
+	bool                           m_initialized = false;
 
-    //! Returns window own DB
-    virtual ccHObject* getOwnDB() = 0;
+	// scene
+	ccHObject* m_globalDBRoot = nullptr;
+	ccHObject* m_winDBRoot    = nullptr;
 
-    //! Adds an entity to window own DB
-    virtual void addToOwnDB(ccHObject* obj, bool noDependency = true) = 0;
+	// view state
+	ccViewportParameters m_viewportParams;
+	ccRenderCapabilities m_renderCapabilities;
 
-    //! Removes an entity from window own DB
-    virtual void removeFromOwnDB(ccHObject* obj) = 0;
-
-    //! Sets viewport parameters
-    virtual void setViewportParameters(const ccViewportParameters& params) = 0;
-
-    //! Returns current parameters for this display
-    virtual const ccViewportParameters& getViewportParameters() const = 0;
+	PICKING_MODE      m_pickingMode      = NO_PICKING;
+	bool              m_pickingModeLocked = false;
+	INTERACTION_FLAGS m_interactionFlags   = MODE_TRANSFORM_CAMERA;
+	bool              m_shouldBeRefreshed  = false;
 };

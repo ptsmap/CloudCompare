@@ -58,14 +58,35 @@ endif()
 include( CMakeInclude )
 include( Install )
 
+# ##############################################################################
+# Render backends
+#
+#   OpenGL : only build the (legacy) OpenGL backend
+#   VSG    : only build the new VulkanSceneGraph backend
+#   Both   : build both backends, the active one is selected at runtime
+#
+# See doc/VSG_Rendering_Migration_Plan.md
+# ##############################################################################
+set( CC_RENDER_BACKEND "Both" CACHE STRING "Render backend(s) to build: OpenGL | VSG | Both" )
+set_property( CACHE CC_RENDER_BACKEND PROPERTY STRINGS OpenGL VSG Both )
+
+if( CC_RENDER_BACKEND STREQUAL "OpenGL" )
+	set( CC_RENDER_OPENGL TRUE )
+	set( CC_RENDER_VSG    FALSE )
+elseif( CC_RENDER_BACKEND STREQUAL "VSG" )
+	set( CC_RENDER_OPENGL FALSE )
+	set( CC_RENDER_VSG    TRUE )
+elseif( CC_RENDER_BACKEND STREQUAL "Both" )
+	set( CC_RENDER_OPENGL TRUE )
+	set( CC_RENDER_VSG    TRUE )
+else()
+	message( FATAL_ERROR "Invalid CC_RENDER_BACKEND value '${CC_RENDER_BACKEND}' (expected OpenGL, VSG or Both)" )
+endif()
+
+message( STATUS "Render backends: OpenGL=${CC_RENDER_OPENGL} VSG=${CC_RENDER_VSG}" )
+
 # Add external libraries
 include( CMakeExternalLibs )
-
-# Add VSG library
-set(VSG_DIR "/Users/gsl/work/pointsMap/CloudCompareVSG/VulkanSceneGraph")
-find_package(VSG REQUIRED)
-include_directories(${VSG_INCLUDE_DIRS})
-link_directories(${VSG_LIBRARY_DIRS})
 
 # Internal libs used by both CloudCompare & ccViewer
 add_subdirectory( libs )

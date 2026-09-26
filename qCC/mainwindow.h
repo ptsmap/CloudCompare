@@ -151,6 +151,13 @@ class MainWindow : public QMainWindow
 	void                        createGLWindow(ccGLWindowInterface*& window, QWidget*& widget) const override;
 	void                        destroyGLWindow(ccGLWindowInterface*) const override;
 	ccUniqueIDGenerator::Shared getUniqueIDGenerator() override;
+
+#ifdef CC_RENDER_VSG_ENABLED
+	//! Creates a 3D view backed by the VulkanSceneGraph backend (debug entry)
+	/** See doc/VSG_Rendering_Migration_Plan.md (milestone M1)
+	 **/
+	void createVSGViewDebug();
+#endif
 	ccColorScalesManager*       getColorScalesManager() override;
 	void                        spawnHistogramDialog(const std::vector<unsigned>& histoValues,
 	                                                 double                       minVal,

@@ -61,89 +61,46 @@ struct HotZone;
 class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 {
   public:
-	//! Picking mode
-	enum PICKING_MODE
-	{
-		NO_PICKING,
-		ENTITY_PICKING,
-		ENTITY_RECT_PICKING,
-		FAST_PICKING,
-		POINT_PICKING,
-		TRIANGLE_PICKING,
-		POINT_OR_TRIANGLE_PICKING,
-		POINT_OR_TRIANGLE_OR_LABEL_PICKING,
-		LABEL_PICKING,
-		DEFAULT_PICKING,
-	};
-
-	//! Interaction flags (mostly with the mouse)
-	enum INTERACTION_FLAG
-	{
-		// no interaction
-		INTERACT_NONE = 0,
-
-		// camera interactions
-		INTERACT_ROTATE          = 1,
-		INTERACT_PAN             = 2,
-		INTERACT_CTRL_PAN        = 4,
-		INTERACT_ZOOM_CAMERA     = 8,
-		INTERACT_2D_ITEMS        = 16, // labels, etc.
-		INTERACT_CLICKABLE_ITEMS = 32, // hot zone
-
-		// options / modifiers
-		INTERACT_TRANSFORM_ENTITIES = 64,
-
-		// signals
-		INTERACT_SIG_RB_CLICKED      = 128,  // right button clicked
-		INTERACT_SIG_LB_CLICKED      = 256,  // left button clicked
-		INTERACT_SIG_MOUSE_MOVED     = 512,  // mouse moved (only if a button is clicked)
-		INTERACT_SIG_BUTTON_RELEASED = 1024, // mouse button released
-		INTERACT_SIG_MB_CLICKED      = 2048, // middle button clicked
-		INTERACT_SEND_ALL_SIGNALS    = INTERACT_SIG_RB_CLICKED | INTERACT_SIG_LB_CLICKED | INTERACT_SIG_MB_CLICKED | INTERACT_SIG_MOUSE_MOVED | INTERACT_SIG_BUTTON_RELEASED,
-
-		// default modes
-		MODE_PAN_ONLY           = INTERACT_PAN | INTERACT_ZOOM_CAMERA | INTERACT_2D_ITEMS | INTERACT_CLICKABLE_ITEMS,
-		MODE_TRANSFORM_CAMERA   = INTERACT_ROTATE | MODE_PAN_ONLY,
-		MODE_TRANSFORM_ENTITIES = INTERACT_ROTATE | INTERACT_PAN | INTERACT_ZOOM_CAMERA | INTERACT_TRANSFORM_ENTITIES | INTERACT_CLICKABLE_ITEMS,
-	};
-
-	Q_DECLARE_FLAGS(INTERACTION_FLAGS, INTERACTION_FLAG)
-
-	//! Default message positions on screen
-	enum MessagePosition
-	{
-		LOWER_LEFT_MESSAGE,
-		UPPER_CENTER_MESSAGE,
-		SCREEN_CENTER_MESSAGE,
-	};
-
-	//! Message type
-	enum MessageType
-	{
-		CUSTOM_MESSAGE = 0,
-		SCREEN_SIZE_MESSAGE,
-		PERSPECTIVE_STATE_MESSAGE,
-		SUN_LIGHT_STATE_MESSAGE,
-		CUSTOM_LIGHT_STATE_MESSAGE,
-		MANUAL_TRANSFORMATION_MESSAGE,
-		MANUAL_SEGMENTATION_MESSAGE,
-		ROTAION_LOCK_MESSAGE,
-		FULL_SCREEN_MESSAGE,
-	};
-
-	//! Pivot symbol visibility
-	enum PivotVisibility
-	{
-		PIVOT_HIDE,
-		PIVOT_SHOW_ON_MOVE,
-		PIVOT_ALWAYS_SHOW,
-	};
+	// Note: the PICKING_MODE / INTERACTION_FLAG / MessagePosition / MessageType
+	// and PivotVisibility enums are now declared once for all backends in
+	// ccViewInterface (qCC_renderCore). They are inherited from there.
 
 	//! Default constructor
 	ccGLWindowInterface(QObject* parent = nullptr, bool silentInitialization = false);
 
 	//! Destructor
-	virtual ~ccGLWindowInterface();
+	~ccGLWindowInterface() override;
+
+	// ----------------------------------------------------------------------
+	// ccViewInterface
+	// ----------------------------------------------------------------------
+
+	//! Returns the name of the render backend actually used by this view
+	QString backendName() const override
+	{
+		return QStringLiteral("OpenGL");
+	}
+
+	//! Returns the capabilities of the underlying render backend
+	const ccRenderCapabilities& renderCapabilities() const override
+	{
+		// Static description of the OpenGL backend capabilities.
+		// (the VSG backend provides its own, device dependent, description)
+		static const ccRenderCapabilities s_capabilities = []()
+		{
+			ccRenderCapabilities caps;
+			caps.backendName              = QStringLiteral("OpenGL");
+			caps.pointSizeSupported       = true;
+			caps.maxPointSize             = 64.0f;
+			caps.wideLinesSupported       = true;
+			caps.maxLineWidth             = 16.0f;
+			caps.integerPickingSupported  = false; // historical 24 bits RGB picking
+			caps.msaaSupported            = true;
+			return caps;
+		}();
+
+		return s_capabilities;
+	}
 
 	//! Returns whether this window is a stereo display or not
 	virtual bool isStereo() const = 0;
@@ -1593,4 +1550,5 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	CCVector2d m_displayScale;
 };
 
-Q_DECLARE_OPERATORS_FOR_FLAGS(ccGLWindowInterface::INTERACTION_FLAGS);
+// Note: Q_DECLARE_OPERATORS_FOR_FLAGS is now done once for all backends in
+// ccViewInterface.h (qCC_renderCore).

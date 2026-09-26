@@ -63,6 +63,10 @@
 #include <ccGLWindowInterface.h>
 #include <ccRenderingTools.h>
 
+#ifdef CC_RENDER_VSG_ENABLED
+#include <ccVSGWindow.h>
+#endif
+
 // CCPluginAPI
 #include <ccBackgroundTask.h>
 #include <ccQtHelpers.h>
@@ -417,6 +421,15 @@ void MainWindow::initPlugins()
 	// Set up dynamic menus
 	m_UI->menubar->insertMenu(m_UI->menu3DViews->menuAction(), m_pluginUIManager->pluginMenu());
 	m_UI->menuDisplay->insertMenu(m_UI->menuActiveScalarField->menuAction(), m_pluginUIManager->shaderAndFilterMenu());
+
+#ifdef CC_RENDER_VSG_ENABLED
+	// Debug entry: create a 3D view backed by the VulkanSceneGraph backend
+	{
+		QAction* newVSGViewAction = new QAction(tr("New VSG 3D view (debug)"), this);
+		connect(newVSGViewAction, &QAction::triggered, this, &MainWindow::createVSGViewDebug);
+		m_UI->menu3DViews->addAction(newVSGViewAction);
+	}
+#endif
 
 	m_UI->menuToolbars->addAction(m_pluginUIManager->actionShowMainPluginToolbar());
 	m_UI->menuToolbars->addAction(m_pluginUIManager->actionShowGLFilterToolbar());
@@ -12135,6 +12148,27 @@ void MainWindow::createGLWindow(ccGLWindowInterface*& window, QWidget*& widget) 
 	ccGLWindowInterface::Create(window, widget, stereoMode);
 	assert(window && widget);
 }
+
+#ifdef CC_RENDER_VSG_ENABLED
+void MainWindow::createVSGViewDebug()
+{
+	auto* vsgWindow = new ccVSGWindow(this);
+
+	QMdiSubWindow* subWindow = m_mdiArea->addSubWindow(vsgWindow);
+	if (!subWindow)
+	{
+		delete vsgWindow;
+		ccLog::Error(tr("Failed to create the VSG 3D view"));
+		return;
+	}
+
+	subWindow->setWindowTitle(tr("VSG 3D view"));
+	vsgWindow->setSceneDB(dbRootObject());
+	vsgWindow->show();
+
+	ccLog::Print(tr("VSG 3D view created (backend: %1)").arg(vsgWindow->backendName()));
+}
+#endif
 
 void MainWindow::destroyGLWindow(ccGLWindowInterface* view3D) const
 {

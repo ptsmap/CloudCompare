@@ -1,167 +1,146 @@
+// ##########################################################################
+// #                                                                        #
+// #                            CLOUDCOMPARE                                #
+// #                                                                        #
+// #  This program is free software; you can redistribute it and/or modify  #
+// #  it under the terms of the GNU General Public License as published by  #
+// #  the Free Software Foundation; version 2 or later of the License.      #
+// #                                                                        #
+// #  This program is distributed in the hope that it will be useful,       #
+// #  but WITHOUT ANY WARRANTY; without even the implied warranty of        #
+// #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
+// #  GNU General Public License for more details.                          #
+// #                                                                        #
+// #          COPYRIGHT: CloudCompare project                               #
+// #                                                                        #
+// ##########################################################################
+
+// Local
 #include "ccVSGWindowInterface.h"
 
-//qCC_db
+// qCC_db
 #include <ccDrawableObject.h>
+#include <ccHObject.h>
 
-//Qt
-#include <QWidget>
+// VSG
+#include <vsg/all.h>
+
+// vsgQt
+#include <vsgQt/Window.h>
 
 ccVSGWindowInterface::ccVSGWindowInterface()
-    : vsg::Object()
-    , ccGenericGLDisplay()
 {
-    // 初始化基本参数
+	// Conservative defaults: they are refined once the Vulkan device is known
+	// (see M0/M3 - point size and wide lines are the two critical features).
+	m_renderCapabilities.backendName             = QStringLiteral("VSG");
+	m_renderCapabilities.pointSizeSupported      = false;
+	m_renderCapabilities.maxPointSize            = 1.0f;
+	m_renderCapabilities.wideLinesSupported      = false;
+	m_renderCapabilities.maxLineWidth            = 1.0f;
+	m_renderCapabilities.integerPickingSupported = true;
+	m_renderCapabilities.msaaSupported           = true;
 }
 
-// 实现ccGenericGLDisplay的虚函数
-void ccVSGWindowInterface::toBeRefreshed()
+ccVSGWindowInterface::~ccVSGWindowInterface() = default;
+
+bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, vsgQt::Window* vsgWindow)
 {
-    // 标记需要刷新
-    // 在VSG中，这个函数由子类实现具体的刷新逻辑
-    // 基类只提供接口定义
+	if (m_initialized || !viewer || !vsgWindow || !vsgWindow->windowAdapter)
+	{
+		return false;
+	}
+
+	m_viewer = viewer;
+	m_window = vsgWindow;
+
+	vsg::ref_ptr<vsg::Window> window = vsgWindow->windowAdapter;
+	m_viewer->addWindow(window);
+
+	const VkExtent2D& extent = window->extent2D();
+	const double      aspect = (extent.height > 0) ? static_cast<double>(extent.width) / static_cast<double>(extent.height) : 1.0;
+
+	m_perspective = vsg::Perspective::create(30.0, aspect, 0.1, 1000.0);
+	m_lookAt      = vsg::LookAt::create(vsg::dvec3(0.0, -5.0, 2.0), vsg::dvec3(0.0, 0.0, 0.0), vsg::dvec3(0.0, 0.0, 1.0));
+	m_camera      = vsg::Camera::create(m_perspective,
+                                        m_lookAt,
+                                        vsg::ViewportState::create(0, 0, extent.width, extent.height));
+
+	// Root of the VSG scene graph. It is kept in sync with the ccHObject tree
+	// by ccVSGSceneBuilder (see M3).
+	m_sceneRoot = vsg::Group::create();
+
+	vsg::ref_ptr<vsg::CommandGraph> commandGraph = vsg::createCommandGraphForView(window, m_camera, m_sceneRoot);
+	m_viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
+
+	// TODO(M2): replace by ccVSGCameraManipulator which implements the
+	// CloudCompare camera semantics (pivot point, object centered view, ...)
+	m_viewer->addEventHandler(vsg::Trackball::create(m_camera));
+
+	m_viewer->compile();
+
+	// Render continuously (a QTimer drives the frames)
+	m_viewer->continuousUpdate = true;
+	m_viewer->setInterval(16);
+
+	m_initialized = true;
+
+	return true;
 }
 
-void ccVSGWindowInterface::refresh(bool only2D)
+void ccVSGWindowInterface::updateCamera()
 {
-    // 由子类实现具体的刷新逻辑
-    // 基类只提供接口定义
+	if (!m_camera)
+	{
+		return;
+	}
+
+	// TODO(M2): map ccViewportParameters (pivot, object/viewer centered view,
+	// focal distance, near/far, fov, perspective/ortho) onto m_lookAt and
+	// m_perspective. Beware: Vulkan NDC z is in [0,1] and not in [-1,1].
 }
 
-void ccVSGWindowInterface::redraw(bool only2D, bool resetLOD)
+void ccVSGWindowInterface::setSceneDB(ccHObject* root)
 {
-    // 由子类实现具体的重绘逻辑
-    // 基类只提供接口定义
+	if (m_globalDBRoot == root)
+	{
+		return;
+	}
+
+	m_globalDBRoot = root;
+
+	// TODO(M3): synchronize the ccHObject tree with the VSG scene graph
+	//           (ccVSGSceneBuilder)
+	redraw();
 }
 
-QSize ccVSGWindowInterface::getScreenSize() const
+void ccVSGWindowInterface::setViewportParameters(const ccViewportParameters& params)
 {
-    // 返回屏幕大小，由子类实现具体逻辑
-    return QSize(0, 0);
+	m_viewportParams = params;
+
+	updateCamera();
+
+	redraw();
 }
 
-void ccVSGWindowInterface::display3DLabel(const QString& str, const CCVector3& pos3D, const ccColor::Rgba* color, const QFont& font)
+void ccVSGWindowInterface::setPickingMode(PICKING_MODE mode, Qt::CursorShape defaultCursorShape)
 {
-    // 在3D空间中显示标签
-    // 需要在VSG中实现对应功能
-    // 基类只提供接口定义，由子类实现具体逻辑
+	Q_UNUSED(defaultCursorShape);
+
+	if (m_pickingModeLocked)
+	{
+		return;
+	}
+
+	m_pickingMode = mode;
 }
 
-void ccVSGWindowInterface::displayText(QString text, int x, int y, unsigned char align, float bkgAlpha, const ccColor::Rgba* color, const QFont* font)
+void ccVSGWindowInterface::setInteractionMode(INTERACTION_FLAGS flags)
 {
-    // 在2D屏幕上显示文本
-    // 需要在VSG中实现对应功能
-    // 基类只提供接口定义，由子类实现具体逻辑
+	m_interactionFlags = flags;
 }
 
-QFont ccVSGWindowInterface::getTextDisplayFont() const
+void ccVSGWindowInterface::aboutToBeRemoved(ccDrawableObject* obj)
 {
-    // 返回文本显示字体
-    // 基类提供默认实现，子类可以重写
-    return QFont();
-}
-
-QFont ccVSGWindowInterface::getLabelDisplayFont() const
-{
-    // 返回标签显示字体
-    // 基类提供默认实现，子类可以重写
-    return QFont();
-}
-
-QPointF ccVSGWindowInterface::toCenteredGLCoordinates(int x, int y) const
-{
-    // 将屏幕坐标转换为以窗口中心为原点的OpenGL坐标
-    // 在VSG中需要适配不同的坐标系统
-    // 基类只提供接口定义，由子类实现具体逻辑
-    return QPointF(0, 0);
-}
-
-QPointF ccVSGWindowInterface::toCornerGLCoordinates(int x, int y) const
-{
-    // 将屏幕坐标转换为以窗口左下角为原点的OpenGL坐标
-    // 在VSG中需要适配不同的坐标系统
-    // 基类只提供接口定义，由子类实现具体逻辑
-    return QPointF(0, 0);
-}
-
-void ccVSGWindowInterface::setupProjectiveViewport(const ccGLMatrixd& cameraMatrix, float fov_deg, bool viewerBasedPerspective, bool bubbleViewMode)
-{
-    // 设置投影视口
-    // 在VSG中需要适配不同的相机模型
-    // 基类只提供接口定义，由子类实现具体逻辑
-}
-
-void ccVSGWindowInterface::aboutToBeRemoved(ccDrawableObject* entity)
-{
-    // 处理即将被移除的对象
-    // 基类只提供接口定义，由子类实现具体逻辑
-}
-
-void ccVSGWindowInterface::getGLCameraParameters(ccGLCameraParameters& params)
-{
-    // 获取相机参数
-    // 在VSG中需要从VSG相机中提取参数
-    // 基类只提供接口定义，由子类实现具体逻辑
-}
-
-void ccVSGWindowInterface::invalidateViewport()
-{
-    // 使视口无效，需要重新计算
-    // 基类只提供接口定义，由子类实现具体逻辑
-}
-
-void ccVSGWindowInterface::deprecate3DLayer()
-{
-    // 标记3D层需要更新
-    // 基类只提供接口定义，由子类实现具体逻辑
-}
-
-ccHObject* ccVSGWindowInterface::getSceneDB()
-{
-    // 返回当前场景图根节点
-    // 基类只提供接口定义，由子类实现具体逻辑
-    return nullptr;
-}
-
-ccVSGWindowInterface::INTERACTION_FLAGS ccVSGWindowInterface::getInteractionMode() const
-{
-    // 返回当前交互模式
-    // 基类只提供接口定义，由子类实现具体逻辑
-    return INTERACT_NONE;
-}
-
-ccVSGWindowInterface::PICKING_MODE ccVSGWindowInterface::getPickingMode() const
-{
-    // 返回当前拾取模式
-    // 基类只提供接口定义，由子类实现具体逻辑
-    return NO_PICKING;
-}
-
-ccVSGWindowInterface::PivotVisibility ccVSGWindowInterface::getPivotVisibility() const
-{
-    // 返回枢轴点可见性
-    // 基类只提供接口定义，由子类实现具体逻辑
-    return PIVOT_HIDE;
-}
-
-bool ccVSGWindowInterface::getPerspectiveState(bool& objectCentered) const
-{
-    // 返回透视模式状态
-    // 基类只提供接口定义，由子类实现具体逻辑
-    objectCentered = false;
-    return false;
-}
-
-ccHObject* ccVSGWindowInterface::getOwnDB()
-{
-    // 返回窗口自己的数据库
-    // 基类只提供接口定义，由子类实现具体逻辑
-    return nullptr;
-}
-
-const ccViewportParameters& ccVSGWindowInterface::getViewportParameters() const
-{
-    // 返回视口参数
-    // 基类只提供接口定义，由子类实现具体逻辑
-    static ccViewportParameters params;
-    return params;
+	Q_UNUSED(obj);
+	// TODO(M3): drop the corresponding VSG nodes when an entity is removed
 }

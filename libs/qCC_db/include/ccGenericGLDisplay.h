@@ -22,6 +22,9 @@
 #include "ccIncludeGL.h"
 #include "ccViewportParameters.h"
 
+// qCC_renderCore
+#include "ccViewInterface.h"
+
 // Qt
 #include <QFont>
 #include <QPointF>
@@ -115,10 +118,13 @@ struct ccGLCameraParameters
 };
 
 //! Generic interface for GL displays
-class ccGenericGLDisplay
+/** Derives from the backend agnostic ccViewInterface so that the OpenGL and
+	the VSG backends share a single root (and a single set of enums).
+**/
+class ccGenericGLDisplay : public ccViewInterface
 {
   public:
-	virtual ~ccGenericGLDisplay() = default;
+	~ccGenericGLDisplay() override = default;
 
 	//! Returns the screen size
 	virtual QSize getScreenSize() const = 0;
