@@ -186,15 +186,23 @@ int main(int argc, char** argv)
 #endif
 
 		// command line override: --render-backend=OpenGL|VSG (matches the
-		// CC_RENDER_BACKEND environment variable handled inside the registry)
-		for (const QString& arg : argumentsLocal8Bit)
+		// CC_RENDER_BACKEND environment variable handled inside the registry).
+		// The flag must be STRIPPED from the argument list, otherwise
+		// ccCommandLineParser rejects it as an "Unknown or misplaced command"
+		// (and in GUI mode it would be mistaken for a cloud file to open).
+		for (int i = argumentsLocal8Bit.size() - 1; i >= 0; --i)
 		{
+			const QString& arg = argumentsLocal8Bit.at(i);
 			if (arg.startsWith(QStringLiteral("--render-backend=")))
 			{
 				const QString value = arg.mid(QStringLiteral("--render-backend=").length());
 				registry.setSelectedBackendName(value);
+				argumentsLocal8Bit.removeAt(i);
 			}
 		}
+
+		// if the sole remaining argument was our flag, fall back to GUI mode
+		commandLine = (argumentsLocal8Bit.size() > 1);
 	}
 
 	if (!commandLine)
