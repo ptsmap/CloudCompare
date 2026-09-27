@@ -18,9 +18,13 @@
 
 // Local
 #include <qCC_vsgWindow.h>
+#include <vsg/ccVSGBuiltNodes.h>
 
 // qCC_db
 #include <ccColorTypes.h>
+
+// system
+#include <cstdint>
 
 // VSG
 #include <vsg/core/ref_ptr.h>
@@ -59,20 +63,25 @@ class ccVSGMeshBuilder
   public:
 	ccVSGMeshBuilder();
 
-	//! Builds the VSG node of a mesh (TRIANGLE_LIST, or LINE_LIST when wired)
+	//! Builds the VSG nodes of a mesh (TRIANGLE_LIST, or LINE_LIST when wired)
 	/** \param transparent optional output: set to true when the entity needs
-	                        alpha blending **/
-	vsg::ref_ptr<vsg::Node> buildMesh(ccGenericMesh* mesh, const ccColor::Rgba& defaultColor, bool* transparent = nullptr);
+	                        alpha blending
+	    \param entityId     ID written by the picking pass (M6.1) **/
+	ccVSGBuiltNodes buildMesh(ccGenericMesh* mesh, const ccColor::Rgba& defaultColor, uint32_t entityId, bool* transparent = nullptr);
 
-	//! Builds the VSG node of a polyline
+	//! Builds the VSG nodes of a polyline
 	/** Lines wider than 1 pixel are expanded into quads (see the warning). **/
-	vsg::ref_ptr<vsg::Node> buildPolyline(ccPolyline* poly, const ccColor::Rgba& defaultColor, bool* transparent = nullptr);
+	ccVSGBuiltNodes buildPolyline(ccPolyline* poly, const ccColor::Rgba& defaultColor, uint32_t entityId, bool* transparent = nullptr);
 
-	//! Builds the VSG node of a sensor
+	//! Builds the VSG nodes of a sensor
 	/** GBL sensors are drawn as a head box + legs + axes, camera sensors as a
 	    frustum (near plane, side lines, base, arrow and axes) - mirroring
-	    ccGBLSensor::drawMeOnly() and ccCameraSensor::drawMeOnly(). **/
-	vsg::ref_ptr<vsg::Node> buildSensor(ccSensor* sensor);
+	    ccGBLSensor::drawMeOnly() and ccCameraSensor::drawMeOnly().
+
+	    \warning The sensor is currently **not pickable** (the returned `ids`
+	    node is null): its wire geometry is a group of small sub geometries
+	    that would each need an ID counterpart - see the TODO in the .cpp. **/
+	ccVSGBuiltNodes buildSensor(ccSensor* sensor, uint32_t entityId);
 
   private:
 	//! Lit shader set: solid triangles with per vertex normals
@@ -83,4 +92,11 @@ class ccVSGMeshBuilder
 	vsg::ref_ptr<vsg::ShaderSet>     m_flatLineStripShaderSet;
 	vsg::ref_ptr<vsg::ShaderSet>     m_pointShaderSet;
 	vsg::ref_ptr<vsg::SharedObjects> m_sharedObjects;
+
+	// ----------------------------------------------------------------------
+	// Entity picking (M6.1): one R32_UINT shader set per topology
+	// ----------------------------------------------------------------------
+	vsg::ref_ptr<vsg::ShaderSet> m_triangleIdShaderSet;
+	vsg::ref_ptr<vsg::ShaderSet> m_lineListIdShaderSet;
+	vsg::ref_ptr<vsg::ShaderSet> m_lineStripIdShaderSet;
 };

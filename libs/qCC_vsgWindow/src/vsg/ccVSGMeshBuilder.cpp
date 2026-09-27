@@ -188,6 +188,61 @@ namespace
 		return stateGroup;
 	}
 
+	//! Builds the **picking** counterpart of buildGeometry() (M6.1)
+	/** Same vertices (shared with the display node), but the fragment stage
+	    writes the entity ID into the R32_UINT attachment instead of a color.
+
+	    \warning Blending must stay disabled: Vulkan forbids it on an integer
+	    attachment. Back face culling is disabled as well, so that lines and
+	    two sided quads remain pickable from both sides.
+	 **/
+	vsg::ref_ptr<vsg::Node> buildIdGeometry(vsg::ref_ptr<vsg::ShaderSet>     idShaderSet,
+	                                        vsg::ref_ptr<vsg::SharedObjects> sharedObjects,
+	                                        vsg::ref_ptr<vsg::vec3Array>     vertices,
+	                                        uint32_t                         entityId)
+	{
+		if (!idShaderSet || !vertices || vertices->empty())
+		{
+			return {};
+		}
+
+		// the ID is constant over the whole entity but Vulkan has no "constant
+		// vertex attribute": one uint32 per vertex it is (4 extra bytes per
+		// vertex, nothing else is duplicated)
+		auto ids = vsg::uintArray::create(vertices->size());
+		std::fill(ids->begin(), ids->end(), entityId);
+
+		auto config = vsg::GraphicsPipelineConfigurator::create(idShaderSet);
+		config->enableArray("vsg_Vertex", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(vsg::vec3), VK_FORMAT_R32G32B32_SFLOAT);
+		config->enableArray("cc_EntityId", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(uint32_t), VK_FORMAT_R32_UINT);
+
+		for (auto& state : config->pipelineStates)
+		{
+			if (auto* rs = dynamic_cast<vsg::RasterizationState*>(state.get()))
+			{
+				rs->cullMode = VK_CULL_MODE_NONE;
+			}
+		}
+
+		config->init();
+
+		vsg::DataList arrays;
+		arrays.push_back(vertices); // shared with the display node
+		arrays.push_back(ids);
+
+		auto stateGroup = vsg::StateGroup::create();
+		config->copyTo(stateGroup, sharedObjects);
+
+		auto draw = vsg::VertexDraw::create();
+		draw->assignArrays(arrays);
+		draw->vertexCount   = static_cast<uint32_t>(vertices->size());
+		draw->instanceCount = 1;
+
+		stateGroup->addChild(draw);
+
+		return stateGroup;
+	}
+
 	//! Builds a LINE_LIST from vertex pairs ('pts' contains 2 points per segment)
 	vsg::ref_ptr<vsg::Node> buildSegments(vsg::ref_ptr<vsg::ShaderSet>     lineSet,
 	                                      vsg::ref_ptr<vsg::SharedObjects> sharedObjects,
@@ -346,10 +401,13 @@ ccVSGMeshBuilder::ccVSGMeshBuilder()
     , m_flatLineStripShaderSet(ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_LINE_STRIP))
     , m_pointShaderSet(ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_POINT_LIST))
     , m_sharedObjects(vsg::SharedObjects::create())
+    , m_triangleIdShaderSet(ccVSGShaders::createFlatIdShaderSet(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+    , m_lineListIdShaderSet(ccVSGShaders::createFlatIdShaderSet(VK_PRIMITIVE_TOPOLOGY_LINE_LIST))
+    , m_lineStripIdShaderSet(ccVSGShaders::createFlatIdShaderSet(VK_PRIMITIVE_TOPOLOGY_LINE_STRIP))
 {
 }
 
-vsg::ref_ptr<vsg::Node> ccVSGMeshBuilder::buildMesh(ccGenericMesh* mesh, const ccColor::Rgba& defaultColor, bool* transparent)
+ccVSGBuiltNodes ccVSGMeshBuilder::buildMesh(ccGenericMesh* mesh, const ccColor::Rgba& defaultColor, uint32_t entityId, bool* transparent)
 {
 	if (transparent)
 	{
@@ -501,7 +559,8 @@ vsg::ref_ptr<vsg::Node> ccVSGMeshBuilder::buildMesh(ccGenericMesh* mesh, const c
 			(*colors)[i] = wireCols[i];
 		}
 
-		return buildGeometry(m_flatLineListShaderSet, m_sharedObjects, verts, {}, colors, anyTransparent, true);
+		return {buildGeometry(m_flatLineListShaderSet, m_sharedObjects, verts, {}, colors, anyTransparent, true),
+		        buildIdGeometry(m_lineListIdShaderSet, m_sharedObjects, verts, entityId)};
 	}
 
 	// ---------------------------------------------------------------------
@@ -519,6 +578,9 @@ vsg::ref_ptr<vsg::Node> ccVSGMeshBuilder::buildMesh(ccGenericMesh* mesh, const c
 	}
 
 	vsg::ref_ptr<vsg::Node> highRes = buildGeometry(m_meshShaderSet, m_sharedObjects, verts, norms, colors, anyTransparent, false);
+	// picking counterpart (M6.1): the LOD is not reproduced - the picking pass
+	// always uses the full resolution geometry
+	vsg::ref_ptr<vsg::Node> highResIds = buildIdGeometry(m_triangleIdShaderSet, m_sharedObjects, verts, entityId);
 
 	// ---------------------------------------------------------------------
 	// LOD: a decimated point cloud as the low resolution child
@@ -564,14 +626,14 @@ vsg::ref_ptr<vsg::Node> ccVSGMeshBuilder::buildMesh(ccGenericMesh* mesh, const c
 			// height test and for the view frustum culling
 			lod->bound = computeBound(tv);
 
-			return lod;
+			return {lod, highResIds};
 		}
 	}
 
-	return highRes;
+	return {highRes, highResIds};
 }
 
-vsg::ref_ptr<vsg::Node> ccVSGMeshBuilder::buildPolyline(ccPolyline* poly, const ccColor::Rgba& defaultColor, bool* transparent)
+ccVSGBuiltNodes ccVSGMeshBuilder::buildPolyline(ccPolyline* poly, const ccColor::Rgba& defaultColor, uint32_t entityId, bool* transparent)
 {
 	const bool anyTransparent = (defaultColor.a < 255);
 
@@ -614,7 +676,8 @@ vsg::ref_ptr<vsg::Node> ccVSGMeshBuilder::buildPolyline(ccPolyline* poly, const 
 			(*colors)[i]      = c;
 		}
 
-		return buildGeometry(m_flatLineStripShaderSet, m_sharedObjects, verts, {}, colors, anyTransparent, true);
+		return {buildGeometry(m_flatLineStripShaderSet, m_sharedObjects, verts, {}, colors, anyTransparent, true),
+		        buildIdGeometry(m_lineStripIdShaderSet, m_sharedObjects, verts, entityId)};
 	}
 
 	// -------------------------------------------------------------------------
@@ -686,10 +749,11 @@ vsg::ref_ptr<vsg::Node> ccVSGMeshBuilder::buildPolyline(ccPolyline* poly, const 
 		(*colors)[i] = c;
 	}
 
-	return buildGeometry(m_flatTriangleShaderSet, m_sharedObjects, verts, {}, colors, anyTransparent, true);
+	return {buildGeometry(m_flatTriangleShaderSet, m_sharedObjects, verts, {}, colors, anyTransparent, true),
+	        buildIdGeometry(m_triangleIdShaderSet, m_sharedObjects, verts, entityId)};
 }
 
-vsg::ref_ptr<vsg::Node> ccVSGMeshBuilder::buildSensor(ccSensor* sensor)
+ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityId)
 {
 	if (!sensor)
 	{
@@ -932,5 +996,10 @@ vsg::ref_ptr<vsg::Node> ccVSGMeshBuilder::buildSensor(ccSensor* sensor)
 	transform->matrix = toVSG(sensorPos);
 	transform->addChild(group);
 
-	return transform;
+	// TODO(M6): give the sensors a picking counterpart. Their wire geometry is
+	// a group of small sub geometries (lines, quads, triangles), each of which
+	// would need an ID node built alongside the displayed one.
+	(void)entityId;
+
+	return {transform, {}};
 }

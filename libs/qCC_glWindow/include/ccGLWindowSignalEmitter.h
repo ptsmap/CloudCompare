@@ -53,18 +53,9 @@ class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public ccViewSignalEmitter
 
   Q_SIGNALS:
 
-	//! Signal emitted when an entity is selected in the 3D view
-	void entitySelectionChanged(ccHObject* entity);
-	//! Signal emitted when multiple entities are selected in the 3D view
-	void entitiesSelectionChanged(std::unordered_set<int> entIDs);
-
-	//! Signal emitted when an item is picked (FAST_PICKING mode only)
-	/** \param entity entity
-	    \param subEntityID point or triangle index in entity
-	    \param x mouse cursor x position
-	    \param y mouse cursor y position
-	**/
-	void itemPickedFast(ccHObject* entity, int subEntityID, int x, int y);
+	// NOTE: entitySelectionChanged() / entitiesSelectionChanged() /
+	// itemPickedFast() now live in ccViewSignalEmitter (the backend agnostic
+	// base class) so that a VSG view can emit them too - see M6.1.
 
 	//! Signal emitted when fast picking is finished (FAST_PICKING mode only)
 	void fastPickingFinished();

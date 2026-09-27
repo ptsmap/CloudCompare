@@ -226,6 +226,75 @@ void main()
     outColor = vec4(vertexColor.rgb * light, vertexColor.a);
 }
 )";
+
+	// ----------------------------------------------------------------------
+	// Entity picking (M6.1)
+	// ----------------------------------------------------------------------
+
+	//! Billboard quad vertex shader of the picking pass: same geometry as
+	//! s_pointSpriteVertexSource (so that what you see is what you pick) but
+	//! the point color is replaced by the ID of the entity.
+	const char* s_pointSpriteIdVertexSource = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(push_constant) uniform PushConstants {
+    mat4 projection;
+    mat4 modelView;
+} pc;
+
+layout(location = 0) in vec3 vsg_Vertex;
+layout(location = 1) in vec3 cc_PointPosition;
+layout(location = 2) in uint cc_EntityId;
+
+layout(location = 0) flat out uint entityId;
+
+void main()
+{
+    vec4 clip = (pc.projection * pc.modelView) * vec4(cc_PointPosition, 1.0);
+    clip.xy   += vsg_Vertex.xy * clip.w;
+    gl_Position = clip;
+    entityId = cc_EntityId;
+}
+)";
+
+	//! Non instanced counterpart (meshes, polylines, sensors)
+	const char* s_flatIdVertexSource = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(push_constant) uniform PushConstants {
+    mat4 projection;
+    mat4 modelView;
+} pc;
+
+layout(location = 0) in vec3 vsg_Vertex;
+layout(location = 2) in uint cc_EntityId;
+
+layout(location = 0) flat out uint entityId;
+
+void main()
+{
+    gl_Position = (pc.projection * pc.modelView) * vec4(vsg_Vertex, 1.0);
+    entityId = cc_EntityId;
+}
+)";
+
+	//! Fragment shader of the picking pass: writes the entity ID into the
+	//! R32_UINT attachment (0 = nothing / background).
+	const char* s_idFragmentSource = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) flat in uint entityId;
+
+layout(location = 0) out uint outId;
+
+void main()
+{
+    outId = entityId;
+}
+)";
 	// clang-format on
 } // namespace
 
@@ -362,6 +431,55 @@ vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createFlatShaderSet(VkPrimitiveTopolo
 
 	shaderSet->addAttributeBinding("vsg_Vertex", "", 0, VK_FORMAT_R32G32B32_SFLOAT, {});
 	shaderSet->addAttributeBinding("vsg_Color", "", 6, VK_FORMAT_R8G8B8A8_UNORM, {});
+
+	shaderSet->addPushConstantRange("pc", "", VK_SHADER_STAGE_VERTEX_BIT, 0, 128);
+
+	shaderSet->defaultGraphicsPipelineStates = {
+	    vsg::InputAssemblyState::create(topology),
+	    vsg::RasterizationState::create(),
+	    vsg::MultisampleState::create(),
+	    vsg::ColorBlendState::create(),
+	    vsg::DepthStencilState::create()};
+
+	return shaderSet;
+}
+
+vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createPointSpriteIdShaderSet()
+{
+	vsg::ShaderStages stages{
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_VERTEX_BIT, "main", s_pointSpriteIdVertexSource),
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_FRAGMENT_BIT, "main", s_idFragmentSource)};
+
+	auto shaderSet = vsg::ShaderSet::create(stages);
+
+	// same layout as createPointSpriteShaderSet(), but the per instance color
+	// is replaced by the entity ID (location 2, one uint32 per instance)
+	shaderSet->addAttributeBinding("vsg_Vertex", "", 0, VK_FORMAT_R32G32B32_SFLOAT, {});
+	shaderSet->addAttributeBinding("cc_PointPosition", "", 1, VK_FORMAT_R32G32B32_SFLOAT, {});
+	shaderSet->addAttributeBinding("cc_EntityId", "", 2, VK_FORMAT_R32_UINT, {});
+
+	shaderSet->addPushConstantRange("pc", "", VK_SHADER_STAGE_VERTEX_BIT, 0, 128);
+
+	shaderSet->defaultGraphicsPipelineStates = {
+	    vsg::InputAssemblyState::create(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP),
+	    vsg::RasterizationState::create(),
+	    vsg::MultisampleState::create(),
+	    vsg::ColorBlendState::create(),
+	    vsg::DepthStencilState::create()};
+
+	return shaderSet;
+}
+
+vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createFlatIdShaderSet(VkPrimitiveTopology topology)
+{
+	vsg::ShaderStages stages{
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_VERTEX_BIT, "main", s_flatIdVertexSource),
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_FRAGMENT_BIT, "main", s_idFragmentSource)};
+
+	auto shaderSet = vsg::ShaderSet::create(stages);
+
+	shaderSet->addAttributeBinding("vsg_Vertex", "", 0, VK_FORMAT_R32G32B32_SFLOAT, {});
+	shaderSet->addAttributeBinding("cc_EntityId", "", 2, VK_FORMAT_R32_UINT, {});
 
 	shaderSet->addPushConstantRange("pc", "", VK_SHADER_STAGE_VERTEX_BIT, 0, 128);
 

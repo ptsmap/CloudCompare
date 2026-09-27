@@ -4,7 +4,7 @@
 |---|---|
 | 文档版本 | v1.1（含 2026-09-27 进度快照与 Metal 实测修正） |
 | 编写日期 | 2026-09-26 |
-| 最近更新 | 2026-09-27（M0–M3 完成、M4/M6/M8 部分完成；**R1 PointSize 结论已推翻并修正**） |
+| 最近更新 | 2026-09-27（M0–M3 完成、M4/M6/M8 部分完成；**R1 PointSize 结论已推翻并修正**；M6.1/M6.2 实体拾取 ID pass 已落地，见 D.15） |
 | 目标仓库 | `CloudCompareVSG/CloudCompare` |
 | 渲染引擎 | `CloudCompareVSG/VulkanSceneGraph` (VSG **1.1.14**, SOVERSION 16, C++17) |
 | 目标 | 以 VSG(Vulkan) 渲染后端替换/并存于现有 OpenGL 渲染子系统 |
@@ -839,7 +839,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10）；点大小 billboard quad 已补齐（见 D.14） | 3~4 | 14 |
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
 | M5 | 2D 覆盖层 | 🟡 子项全部落地：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.3 2D 标签、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加（视觉验证待 GUI）；细节完善见 D.13.10 | 3 | 21 |
-| M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
+| M6 | 拾取与离屏 | 🟡 大部分完成：`renderToImage()`、点/三角 CPU 拾取、**实体/框选拾取（离屏 R32_UINT ID pass，见 D.15）** 已实现；深度反投影（M6.4）与 `ccPickingHub` 端到端验证未做 | 3 | 24 |
 | M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
 | **合计** | | | **26~32 PW** | ≈ **6~8 人月** |
@@ -1124,12 +1124,13 @@ commandGraph->addChild(overlayGraph);
 - [ ] `ccImage`
 
 **M6**
-- [ ] 实体拾取（R32_UINT + CopyImageToBuffer）
-- [ ] 矩形框选
-- [ ] 点/三角拾取（复用 CPU 八叉树）
-- [ ] 深度反投影
-- [ ] `renderToImage()` / 高清截图
+- [x] 实体拾取（R32_UINT + CopyImageToBuffer）—— 见 D.15
+- [x] 矩形框选（复用同一 ID pass）
+- [x] 点/三角拾取（复用 CPU 八叉树）
+- [ ] 深度反投影（双击设 pivot，M6.4）
+- [x] `renderToImage()` / 高清截图
 - [ ] `ccPickingHub` / `ccOverlayDialog` 对接与交互工具端到端验证
+- [ ] sensor 的拾取节点（`buildSensor()` 目前返回空 `ids`）
 
 **M7**
 - [ ] 后处理框架
@@ -1802,3 +1803,59 @@ Metal/MoltenVK **忽略 `gl_PointSize`**（`POINT_LIST` 恒为 1px），且把�
 - 点是**方形**（与 OpenGL 后端 `glPointSize` 的方形点一致）；圆形点需在片元着色器里 discard 掉角上的片元，未做。
 - 实例化使顶点着色器调用数 ×4；`ChunkSize` 仍为 2^16（每 draw 65536 个实例）。
 - 包围球 margin 仍是世界单位 `+1.0`，点很大时视口边缘的点可能被裁剪（像素级 margin 需结合 `pixelSize` 换算，未做）。
+
+---
+
+## 附录 D.15 — M6.1/M6.2 实体拾取：离屏 R32_UINT ID pass
+
+OpenGL 后端的实体拾取是 **color based**（`ccGLWindowInterface::startOpenGLPicking()`）：给每个实体分配一个唯一颜色，离屏重绘一遍，再 `glReadPixels` 回读光标周围的像素并反查实体。VSG 版沿用同样的"重绘一遍再回读"思路，但用 **整数附件**替代颜色。
+
+### D.15.1 为什么需要第二棵场景树
+
+VSG 的 `vsg::View::overridePipelineStates` 只能改光栅化/混合/深度等**固定管线状态**，换不了 shader —— 而拾取 pass 的片元着色器完全不同（输出 ID 而非颜色）。所以拾取必须有自己的 `BindGraphicsPipeline`，即自己的树。
+
+于是引入 **`ccVSGBuiltNodes`**（`libs/qCC_vsgWindow/include/vsg/ccVSGBuiltNodes.h`）：每个 builder 的 `build*()` 现在同时返回
+
+- `display`：屏幕上画的那棵树
+- `ids`：拾取树，**复用同一批顶点数组**（`positions`、`quadCorners` 等），只额外生成一份 per-instance / per-vertex 的 `cc_EntityId`（`VK_FORMAT_R32_UINT`）
+
+`ccVSGSceneBuilder` 让两棵树**同构**（同样的 Group / MatrixTransform 层级、同样的变换），并维护 `m_idToEntity`（ID → `ccHObject*`），由 `entityForId()` 反查。
+
+### D.15.2 为什么 ID 走顶点属性而不是 push constant
+
+VSG 自己占用 push constant 的 `0..128` 字节（`mat4 projection` + `mat4 modelView`，由 `addPushConstantRange("pc", ..., 0, 128)` 声明并在 record 时推送）。在 `offset=128` 再加一个 `uint` range 会让顶点/片元两个 stage 的 `PushConstants` block 声明不一致，容易触发校验层报错。
+
+改成 per-instance（点云）/ per-vertex（网格）的 `uint` 属性后：不新增 push constant range，且"每个实体一个 ID"天然就是属性语义。代价是每顶点/实例 4 字节，对点云而言远小于已有的 `positions` + `colors`。
+
+### D.15.3 回读与判定规则
+
+`ccVSGWindowInterface::renderIdPass()`（仿照已落地的 `renderToImage()`，M6.5）：
+
+1. 离屏附件：`VK_FORMAT_R32_UINT`（color + transfer src）+ 窗口深度格式；`samples = 1`。
+2. `clearColor` 必须写 union 的 **`uint32`** 成员（写 `float32` 会读到垃圾值）；0 表示"没有实体"。
+3. 用**同一台相机**（`m_projectionMatrix` / `m_viewMatrix`）+ 离屏 viewport 渲染 `m_sceneBuilder.idSceneRoot()`。
+4. `vsg::CopyImageToBuffer` 回读到 `HOST_VISIBLE | HOST_COHERENT` 缓冲，按 `uint32` 读出（行 0 = 屏幕顶部）。
+5. 结束后 `assignRecordAndSubmitTaskAndPresentation({m_commandGraph})` 恢复屏幕渲染。
+
+判定沿用 OpenGL 语义（`ccGLWindowInterface::startOpenGLPicking()`）：
+
+| 模式 | 规则 | 信号 |
+|---|---|---|
+| `ENTITY_PICKING` | 光标周围 5×5 像素里**距光标最近**的命中 | `entitySelectionChanged(entity)` |
+| `ENTITY_RECT_PICKING` | 矩形内**所有**命中的 ID（去重） | `entitiesSelectionChanged(set<int>)` |
+| `FAST_PICKING` | 同 `ENTITY_PICKING` | `itemPickedFast(entity, -1, x, y)` |
+
+### D.15.4 两处必要的配套修正
+
+- **信号提升到后端无关基类**：`entitySelectionChanged` / `entitiesSelectionChanged` / `itemPickedFast` 原先只声明在 `ccGLWindowSignalEmitter` 里，VSG 视图根本无法发出（mainwindow 正是连的它）。现统一提升到 **`ccViewSignalEmitter`**（`qCC_db`），GL 侧删掉重复声明后仍通过继承可见，其既有 `connect` 无需改动。
+- **`DEFAULT_PICKING` 的语义**：`ccGLWindowInterface::setPickingMode()` 会把 `DEFAULT_PICKING` 映射成 `ENTITY_PICKING`，VSG 侧漏了这一步 —— 不修的话调试视图永远是 `DEFAULT_PICKING`，走不到 ID pass。已对齐。
+
+### D.15.5 验证状态与已知限制
+
+- 全量构建通过（`QCC_VSG_LIB` + `CloudCompare` + `ccViewer`）。
+- **运行时验证待 GUI**：Metal 是否接受 `R32_UINT` 颜色附件需在 VSG 视图里点选实体确认。
+- 未覆盖：
+  - **sensor 不可拾取**（`buildSensor()` 返回空 `ids`）：它的线框是多个小子几何拼的，需逐个配对 ID 节点。
+  - `LABEL_PICKING` 仍需 CPU 射线求交。
+  - **M6.4 深度反投影**（双击设 pivot）未开始。
+  - 每顶点/实例 4 字节的 ID 冗余可用 `vkCmdBindVertexBuffers` + instanced 常量属性或 descriptor 优化。

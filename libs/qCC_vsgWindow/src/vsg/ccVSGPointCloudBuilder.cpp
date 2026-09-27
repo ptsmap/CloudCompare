@@ -32,6 +32,7 @@
 
 ccVSGPointCloudBuilder::ccVSGPointCloudBuilder()
     : m_shaderSet(ccVSGShaders::createPointSpriteShaderSet())
+    , m_idShaderSet(ccVSGShaders::createPointSpriteIdShaderSet())
     , m_sharedObjects(vsg::SharedObjects::create())
     , m_quadCorners(vsg::vec3Array::create(4))
 {
@@ -94,9 +95,9 @@ void ccVSGPointCloudBuilder::updateQuadCorners()
 	m_quadCorners->dirty();
 }
 
-vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const ccColor::Rgba& defaultColor)
+ccVSGBuiltNodes ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const ccColor::Rgba& defaultColor, uint32_t entityId)
 {
-	if (!cloud || cloud->size() == 0 || !m_shaderSet)
+	if (!cloud || cloud->size() == 0 || !m_shaderSet || !m_idShaderSet)
 	{
 		return {};
 	}
@@ -114,6 +115,9 @@ vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const
 	const bool     useColors = !useScalarField && cloud->hasColors();
 
 	auto root = vsg::Group::create();
+	// parallel tree used by the entity picking pass (M6.1): same geometry,
+	// but the fragment stage writes the entity ID (R32_UINT attachment)
+	auto idsRoot = vsg::Group::create();
 
 	for (unsigned first = 0; first < count; first += static_cast<unsigned>(ChunkSize))
 	{
@@ -216,7 +220,44 @@ vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const
 		cullNode->child = stateGroup;
 
 		root->addChild(cullNode);
+
+		// ---- picking pass (M6.1) ------------------------------------------
+		// Same instanced billboard quads (so that what you see is what you
+		// pick), but the fragment stage writes the entity ID. The quad corners
+		// and the point positions are shared with the display draw: only the
+		// ID array (one uint32 per instance) is new.
+		auto ids = vsg::uintArray::create(chunkCount);
+		std::fill(ids->begin(), ids->end(), entityId);
+
+		auto idConfig = vsg::GraphicsPipelineConfigurator::create(m_idShaderSet);
+		idConfig->enableArray("vsg_Vertex", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(vsg::vec3), VK_FORMAT_R32G32B32_SFLOAT);
+		idConfig->enableArray("cc_PointPosition", VK_VERTEX_INPUT_RATE_INSTANCE, sizeof(vsg::vec3), VK_FORMAT_R32G32B32_SFLOAT);
+		idConfig->enableArray("cc_EntityId", VK_VERTEX_INPUT_RATE_INSTANCE, sizeof(uint32_t), VK_FORMAT_R32_UINT);
+		idConfig->init();
+
+		vsg::DataList idArrays;
+		idArrays.push_back(m_quadCorners); // shared by every chunk and cloud
+		idArrays.push_back(vertices);      // shared with the display draw
+		idArrays.push_back(ids);
+
+		auto idStateGroup = vsg::StateGroup::create();
+		idConfig->copyTo(idStateGroup, m_sharedObjects);
+
+		auto idDraw = vsg::VertexDraw::create();
+		idDraw->assignArrays(idArrays);
+		idDraw->firstVertex   = 0;
+		idDraw->vertexCount   = 4;
+		idDraw->firstInstance = 0;
+		idDraw->instanceCount = static_cast<uint32_t>(chunkCount);
+
+		idStateGroup->addChild(idDraw);
+
+		auto idCullNode = vsg::CullNode::create();
+		idCullNode->bound.set(center.x, center.y, center.z, radius + 1.0);
+		idCullNode->child = idStateGroup;
+
+		idsRoot->addChild(idCullNode);
 	}
 
-	return root;
+	return {root, idsRoot};
 }

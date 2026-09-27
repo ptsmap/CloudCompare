@@ -26,6 +26,7 @@
 #include <vsg/nodes/Group.h>
 
 // system
+#include <cstdint>
 #include <set>
 #include <unordered_map>
 
@@ -86,6 +87,19 @@ class ccVSGSceneBuilder
 		return m_sceneRoot;
 	}
 
+	//! Returns the root of the **picking** scene graph (M6.1)
+	/** It mirrors the display one (same hierarchy, same transformations) but
+	    every entity writes its ID into an R32_UINT attachment instead of a
+	    color. It is rendered by the offscreen picking pass only. **/
+	vsg::ref_ptr<vsg::Group> idSceneRoot() const
+	{
+		return m_idSceneRoot;
+	}
+
+	//! Returns the entity that renders the given ID, or nullptr (M6.1)
+	/** \param id the value read back from the R32_UINT attachment **/
+	ccHObject* entityForId(uint32_t id) const;
+
 	//! Returns the point cloud builder (to control the point size, etc.)
 	ccVSGPointCloudBuilder& pointCloudBuilder()
 	{
@@ -99,13 +113,18 @@ class ccVSGSceneBuilder
 		//! Sub tree root: a vsg::Group, or a vsg::MatrixTransform when the
 		//! entity has a temporary transformation
 		vsg::ref_ptr<vsg::Node> node;
+		//! Mirror sub tree root of the picking scene graph (M6.1)
+		vsg::ref_ptr<vsg::Node> idNode;
 		//! Fingerprint of the entity at the time 'node' was built
 		quint64 signature = 0;
 	};
 
 	void rebuild();
 	bool syncIncremental();
-	bool syncChildren(ccHObject* parent, vsg::ref_ptr<vsg::Group> parentGroup, std::set<ccHObject*>& visited);
+	bool syncChildren(ccHObject*                 parent,
+	                  vsg::ref_ptr<vsg::Group>   parentGroup,
+	                  vsg::ref_ptr<vsg::Group>   parentIdGroup,
+	                  std::set<ccHObject*>&      visited);
 	bool syncEntity(ccHObject* obj, Entry& entry);
 
 	static quint64 computeSignature(ccHObject* obj);
@@ -116,7 +135,13 @@ class ccVSGSceneBuilder
 	//! can keep referencing the very same node.
 	vsg::ref_ptr<vsg::Group> m_sceneRoot = vsg::Group::create();
 
+	//! Stable root of the picking scene graph (M6.1) - same contract
+	vsg::ref_ptr<vsg::Group> m_idSceneRoot = vsg::Group::create();
+
 	std::unordered_map<ccHObject*, Entry> m_entries;
+
+	//! Entity ID (as written into the picking attachment) -> entity (M6.1)
+	std::unordered_map<uint32_t, ccHObject*> m_idToEntity;
 
 	bool m_dirty = false;
 

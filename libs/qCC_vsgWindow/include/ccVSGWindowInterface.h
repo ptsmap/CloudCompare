@@ -49,6 +49,10 @@
 #include <QSize>
 #include <QString>
 
+// system
+#include <cstdint>
+#include <vector>
+
 class ccDrawableObject;
 class ccHObject;
 
@@ -275,6 +279,32 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
         is a Vulkan (reverse depth, Y flipped) matrix.
    **/
   void updateCamera();
+
+  // ----------------------------------------------------------------------
+  // Entity picking (M6.1 / M6.2)
+  // ----------------------------------------------------------------------
+
+  //! Renders the entity IDs of the whole view into an offscreen R32_UINT
+  //! attachment and reads them back on the CPU
+  /** The scene is rendered a second time (see renderToImage(), which does the
+      same thing for the colors) using the **picking** scene graph built by
+      ccVSGSceneBuilder: every entity writes its CloudCompare unique ID, so
+      'ids' can be handed to the picking hub as-is.
+
+      \param ids    output: one ID per pixel (0 = nothing), row 0 = top
+      \param width  output: width of the returned image
+      \param height output: height of the returned image
+      \return false when the pass could not be run
+   **/
+  bool renderIdPass(std::vector<uint32_t>& ids, uint32_t& width, uint32_t& height);
+
+  //! Answers the entity based picking modes (ENTITY_PICKING, ENTITY_RECT_PICKING
+  //! and FAST_PICKING) by rendering the ID pass and emitting the same signals
+  //! as the OpenGL backend
+  /** \param x horizontal position (window coordinates, origin = top left)
+      \param y vertical position (window coordinates, origin = top left)
+   **/
+  void doEntityPicking(int x, int y);
 
   // VSG objects
   vsg::ref_ptr<vsgQt::Viewer>          m_viewer;

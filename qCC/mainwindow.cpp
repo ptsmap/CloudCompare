@@ -12285,6 +12285,20 @@ void MainWindow::createVSGViewDebug()
 	vsgWindow->setSceneDB(dbRootObject());
 	vsgWindow->show();
 
+	// entity picking (M6.1): the very same wiring as the OpenGL views, so that
+	// clicking an entity in a VSG view selects it in the DB tree
+	connect(vsgWindow->signalEmitter(),
+	        &ccViewSignalEmitter::entitySelectionChanged,
+	        this,
+	        [=](ccHObject* entity)
+	        { m_ccRoot->selectEntity(entity); });
+
+	connect(vsgWindow->signalEmitter(),
+	        &ccViewSignalEmitter::entitiesSelectionChanged,
+	        this,
+	        [=](std::unordered_set<int> entities)
+	        { m_ccRoot->selectEntities(entities); });
+
 	ccLog::Print(tr("VSG 3D view created (backend: %1)").arg(vsgWindow->backendName()));
 }
 #endif

@@ -43,8 +43,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <limits>
+#include <unordered_set>
 #include <vector>
 
 namespace
@@ -599,6 +601,13 @@ void ccVSGWindowInterface::setPickingMode(PICKING_MODE mode, Qt::CursorShape def
 		return;
 	}
 
+	// same convention as the OpenGL backend: DEFAULT_PICKING *is* the entity
+	// picking mode (see ccGLWindowInterface::setPickingMode)
+	if (mode == DEFAULT_PICKING)
+	{
+		mode = ENTITY_PICKING;
+	}
+
 	m_pickingMode = mode;
 }
 
@@ -885,6 +894,17 @@ void ccVSGWindowInterface::doPicking(int x, int y)
 		return;
 	}
 
+	// M6.1 / M6.2: the entity based modes are answered by an offscreen pass
+	// that renders the entity IDs (see renderIdPass()). The point / triangle
+	// modes keep using the historical CPU routines below.
+	if (m_pickingMode == ENTITY_PICKING
+	    || m_pickingMode == ENTITY_RECT_PICKING
+	    || m_pickingMode == FAST_PICKING)
+	{
+		doEntityPicking(x, y);
+		return;
+	}
+
 	const QSize screenSize = getScreenSize();
 	const int   height     = screenSize.height();
 	if (height <= 0)
@@ -1026,13 +1046,269 @@ void ccVSGWindowInterface::doPicking(int x, int y)
 		                                   nearestPointBC);
 		break;
 
-	case ENTITY_PICKING:
-	case ENTITY_RECT_PICKING:
-	case FAST_PICKING:
 	case LABEL_PICKING:
 	default:
-		// TODO(M6): these modes rely on a color based (GPU) picking pass in the
-		// OpenGL backend. They need a CPU ray/entity intersection here.
+		// TODO(M6): LABEL_PICKING still needs a CPU ray/entity intersection.
+		//
+		// NOTE: the entity based modes (ENTITY_PICKING / ENTITY_RECT_PICKING /
+		// FAST_PICKING) are answered by doEntityPicking() and never reach this
+		// switch.
+		break;
+	}
+}
+
+bool ccVSGWindowInterface::renderIdPass(std::vector<uint32_t>& ids, uint32_t& width, uint32_t& height)
+{
+	ids.clear();
+	width  = 0;
+	height = 0;
+
+	if (!m_viewer || !m_window || !m_window->windowAdapter || !m_camera || !m_sceneBuilder.idSceneRoot())
+	{
+		ccLog::Warning("[VSG] renderIdPass: the viewer is not initialized");
+		return false;
+	}
+
+	vsg::ref_ptr<vsg::Window> window = m_window->windowAdapter;
+	vsg::ref_ptr<vsg::Device> device = window->getOrCreateDevice();
+	if (!device)
+	{
+		ccLog::Warning("[VSG] renderIdPass: no Vulkan device");
+		return false;
+	}
+
+	const QSize    screenSize = getScreenSize();
+	const uint32_t w          = static_cast<uint32_t>(std::max(1, screenSize.width()));
+	const uint32_t h          = static_cast<uint32_t>(std::max(1, screenSize.height()));
+
+	// The IDs are written as unsigned integers: Vulkan (and Metal) accept
+	// R32_UINT as a color attachment and, unlike the RGBA "unique color" of the
+	// OpenGL backend, an integer cannot be mangled by blending.
+	constexpr VkFormat idFormat    = VK_FORMAT_R32_UINT;
+	const VkFormat     depthFormat = window->depthFormat();
+
+	auto makeAttachment = [&device, w, h](VkFormat format, VkImageUsageFlags usage) -> vsg::ref_ptr<vsg::Image>
+	{
+		vsg::ref_ptr<vsg::Image> image = vsg::Image::create();
+		image->imageType     = VK_IMAGE_TYPE_2D;
+		image->format        = format;
+		image->extent        = VkExtent3D{w, h, 1};
+		image->mipLevels     = 1;
+		image->arrayLayers   = 1;
+		image->samples       = VK_SAMPLE_COUNT_1_BIT;
+		image->tiling        = VK_IMAGE_TILING_OPTIMAL;
+		image->usage         = usage;
+		image->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+		if (image->compile(device) != VK_SUCCESS)
+		{
+			return {};
+		}
+
+		return image;
+	};
+
+	vsg::ref_ptr<vsg::Image> idImage    = makeAttachment(idFormat,
+	                                                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+	vsg::ref_ptr<vsg::Image> depthImage = makeAttachment(depthFormat,
+	                                                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+
+	if (!idImage || !depthImage)
+	{
+		ccLog::Warning("[VSG] renderIdPass: failed to allocate the offscreen attachments");
+		return false;
+	}
+
+	vsg::ref_ptr<vsg::ImageView> idImageView    = vsg::createImageView(device, idImage, VK_IMAGE_ASPECT_COLOR_BIT);
+	vsg::ref_ptr<vsg::ImageView> depthImageView = vsg::createImageView(device, depthImage, vsg::computeAspectFlagsForFormat(depthFormat));
+
+	vsg::ref_ptr<vsg::RenderPass>  renderPass  = vsg::createRenderPass(device, idFormat, depthFormat);
+	vsg::ref_ptr<vsg::Framebuffer> framebuffer = vsg::Framebuffer::create(renderPass,
+	                                                                     vsg::ImageViews{idImageView, depthImageView},
+	                                                                     w,
+	                                                                     h,
+	                                                                     1);
+
+	// the very same camera, but with the offscreen viewport
+	vsg::ref_ptr<vsg::ViewportState> viewportState = vsg::ViewportState::create(0, 0, w, h);
+	vsg::ref_ptr<vsg::Camera>        camera        = vsg::Camera::create(m_projectionMatrix, m_viewMatrix, viewportState);
+	vsg::ref_ptr<vsg::View>          view          = vsg::View::create(camera, m_sceneBuilder.idSceneRoot());
+
+	vsg::ref_ptr<vsg::RenderGraph> renderGraph = vsg::RenderGraph::create();
+	renderGraph->framebuffer = framebuffer;
+	renderGraph->renderArea  = VkRect2D{{0, 0}, {w, h}};
+
+	// 0 means 'no entity' - the *uint32* member of the union has to be set,
+	// otherwise the clear value would be read back as garbage
+	VkClearValue clearColor{};
+	clearColor.color.uint32[0] = 0;
+	clearColor.color.uint32[1] = 0;
+	clearColor.color.uint32[2] = 0;
+	clearColor.color.uint32[3] = 0;
+	renderGraph->setClearValues(clearColor.color, VkClearDepthStencilValue{0.0f, 0});
+	renderGraph->addChild(view);
+
+	// ----------------------------------------------------------------------
+	// copy the IDs back to a CPU visible buffer
+	// ----------------------------------------------------------------------
+	const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(w) * h * 4;
+
+	vsg::ref_ptr<vsg::Buffer> buffer = vsg::createBufferAndMemory(device,
+	                                                             bufferSize,
+	                                                             VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	                                                             VK_SHARING_MODE_EXCLUSIVE,
+	                                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	vsg::ref_ptr<vsg::CopyImageToBuffer> copyImage = vsg::CopyImageToBuffer::create();
+	copyImage->srcImage       = idImage;
+	copyImage->srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	copyImage->dstBuffer      = buffer;
+
+	VkBufferImageCopy region{};
+	region.bufferOffset                    = 0;
+	region.bufferRowLength                 = w;
+	region.bufferImageHeight               = h;
+	region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel       = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount     = 1;
+	region.imageOffset                     = VkOffset3D{0, 0, 0};
+	region.imageExtent                     = VkExtent3D{w, h, 1};
+	copyImage->regions                     = {region};
+
+	vsg::ref_ptr<vsg::CommandGraph> offscreenGraph = vsg::CommandGraph::create(window);
+	offscreenGraph->addChild(renderGraph);
+	offscreenGraph->addChild(copyImage);
+
+	m_viewer->assignRecordAndSubmitTaskAndPresentation({offscreenGraph});
+	m_viewer->compile();
+
+	// same order as vsgQt::Viewer::render() - advanceToNextFrame() is required,
+	// otherwise the frame fences are not ready and RecordAndSubmitTask crashes
+	m_viewer->advanceToNextFrame();
+	m_viewer->update();
+	m_viewer->recordAndSubmit();
+	m_viewer->deviceWaitIdle();
+
+	bool ok = false;
+
+	if (vsg::DeviceMemory* memory = buffer->getDeviceMemory(0))
+	{
+		void* data = nullptr;
+		if (memory->map(buffer->getMemoryOffset(0), bufferSize, 0, &data) == VK_SUCCESS && data)
+		{
+			const auto* src = static_cast<const uint32_t*>(data);
+
+			ids.assign(src, src + static_cast<std::size_t>(w) * h);
+			width  = w;
+			height = h;
+			ok     = true;
+
+			memory->unmap();
+		}
+		else
+		{
+			ccLog::Warning("[VSG] renderIdPass: failed to map the output buffer");
+		}
+	}
+
+	// restore the on screen rendering
+	if (m_commandGraph)
+	{
+		m_viewer->assignRecordAndSubmitTaskAndPresentation({m_commandGraph});
+		m_viewer->compile();
+	}
+
+	return ok;
+}
+
+void ccVSGWindowInterface::doEntityPicking(int x, int y)
+{
+	std::vector<uint32_t> ids;
+	uint32_t              imgWidth  = 0;
+	uint32_t              imgHeight = 0;
+
+	const bool ok = renderIdPass(ids, imgWidth, imgHeight);
+
+	ccHObject*              pickedEntity = nullptr;
+	std::unordered_set<int> selectedIDs;
+
+	if (ok && imgWidth > 0 && imgHeight > 0)
+	{
+		// same picking area as the OpenGL backend: a few pixels around the
+		// cursor, so that thin entities stay clickable
+		constexpr int pickWidth  = 5;
+		constexpr int pickHeight = 5;
+
+		const int xTop = std::max(0, x - pickWidth / 2);
+		const int yTop = std::max(0, y - pickHeight / 2);
+		const int xEnd = std::min(static_cast<int>(imgWidth), xTop + pickWidth);
+		const int yEnd = std::min(static_cast<int>(imgHeight), yTop + pickHeight);
+
+		int      minSquareDist = -1;
+		uint32_t nearestId     = 0;
+
+		for (int j = yTop; j < yEnd; ++j)
+		{
+			for (int i = xTop; i < xEnd; ++i)
+			{
+				const uint32_t id = ids[static_cast<std::size_t>(j) * imgWidth + i];
+
+				// 0 = background, i.e. nothing was drawn on this pixel
+				if (id == 0)
+				{
+					continue;
+				}
+
+				if (m_pickingMode == ENTITY_RECT_PICKING)
+				{
+					// the rectangular mode reports every entity of the area
+					selectedIDs.insert(static_cast<int>(id));
+				}
+				else
+				{
+					// ... while the standard mode keeps the hit that is the
+					// closest to the cursor (like the OpenGL backend does)
+					const int dX = i - x;
+					const int dY = j - y;
+					const int d2 = dX * dX + dY * dY;
+
+					if (minSquareDist < 0 || d2 < minSquareDist)
+					{
+						minSquareDist = d2;
+						nearestId     = id;
+					}
+				}
+			}
+		}
+
+		if (m_pickingMode != ENTITY_RECT_PICKING && nearestId != 0)
+		{
+			pickedEntity = m_sceneBuilder.entityForId(nearestId);
+
+			if (pickedEntity)
+			{
+				selectedIDs.insert(static_cast<int>(nearestId));
+			}
+		}
+	}
+
+	// the OpenGL backend always emits a signal, even when nothing was picked
+	switch (m_pickingMode)
+	{
+	case ENTITY_PICKING:
+		Q_EMIT m_signalEmitter->entitySelectionChanged(pickedEntity);
+		break;
+
+	case ENTITY_RECT_PICKING:
+		Q_EMIT m_signalEmitter->entitiesSelectionChanged(selectedIDs);
+		break;
+
+	case FAST_PICKING:
+		Q_EMIT m_signalEmitter->itemPickedFast(pickedEntity, -1, x, y);
+		break;
+
+	default:
 		break;
 	}
 }

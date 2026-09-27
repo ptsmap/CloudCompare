@@ -83,6 +83,31 @@ class ccVSGShaders
 	    whose alpha channel carries the global opacity of the overlay. **/
 	static vsg::ref_ptr<vsg::ShaderSet> createTexturedShaderSet();
 
+	// ----------------------------------------------------------------------
+	// Entity picking (M6.1)
+	// ----------------------------------------------------------------------
+
+	//! Returns the shader set of the **entity picking** pass for point clouds
+	/** The picking pass renders the scene a second time into an offscreen
+	    `VK_FORMAT_R32_UINT` attachment: every entity writes the unique ID of
+	    the `ccHObject` it stands for, and the CPU reads the attachment back to
+	    know which entity is under the cursor (see M6.1 of the migration plan).
+
+	    The geometry is exactly the same as the displayed one (billboard quads,
+	    same point size) so that what you see is what you pick: only the
+	    fragment output differs. The entity ID is a **per instance** attribute
+	    (`cc_EntityId`), which avoids adding a second push constant range on
+	    top of the `projection` / `modelView` one VSG owns (offset 0..128).
+
+	    \warning The ID must be sampled with `flat` interpolation (integers
+	    cannot be interpolated).
+	 **/
+	static vsg::ref_ptr<vsg::ShaderSet> createPointSpriteIdShaderSet();
+
+	//! Returns the shader set of the **entity picking** pass for the meshes,
+	//! polylines and sensors (the non instanced counterpart of the above)
+	static vsg::ref_ptr<vsg::ShaderSet> createFlatIdShaderSet(VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+
 	//! GLSL sources (exposed for tests / offline compilation)
 	static const char* pointCloudVertexSource();
 	static const char* pointCloudFragmentSource();

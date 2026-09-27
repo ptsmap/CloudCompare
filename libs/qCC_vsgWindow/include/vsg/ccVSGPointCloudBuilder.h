@@ -18,6 +18,7 @@
 
 // Local
 #include <qCC_vsgWindow.h>
+#include <vsg/ccVSGBuiltNodes.h>
 
 // qCC_db
 #include <ccColorTypes.h>
@@ -30,6 +31,7 @@
 #include <vsg/utils/ShaderSet.h>
 
 #include <cstddef>
+#include <cstdint>
 
 class ccPointCloud;
 
@@ -68,12 +70,16 @@ class ccVSGPointCloudBuilder
 	    they must be recomputed whenever the viewport is resized. **/
 	void setViewportSize(int width, int height);
 
-	//! Builds the VSG node for the given cloud
+	//! Builds the VSG nodes of the given cloud
 	/** \param cloud        the cloud to convert
 	    \param defaultColor color used when the cloud has no per point color
-	    \return a vsg::Group (one child per chunk), or nullptr on failure
+	    \param entityId     ID written by the picking pass (M6.1). The display
+	                        node does not depend on it, so 0 can be passed for
+	                        a non pickable entity.
+	    \return the display node (a vsg::Group, one child per chunk) and the
+	            matching picking node; both share the very same vertex arrays
 	 **/
-	vsg::ref_ptr<vsg::Node> build(ccPointCloud* cloud, const ccColor::Rgba& defaultColor);
+	ccVSGBuiltNodes build(ccPointCloud* cloud, const ccColor::Rgba& defaultColor, uint32_t entityId);
 
   private:
 	//! Recomputes the (shared) quad corners from the point size and the
@@ -81,6 +87,8 @@ class ccVSGPointCloudBuilder
 	void updateQuadCorners();
 
 	vsg::ref_ptr<vsg::ShaderSet>     m_shaderSet;
+	//! Shader set of the entity picking pass (R32_UINT output - M6.1)
+	vsg::ref_ptr<vsg::ShaderSet>     m_idShaderSet;
 	vsg::ref_ptr<vsg::SharedObjects> m_sharedObjects;
 
 	//! The 4 corners of the billboard quad, as NDC offsets
