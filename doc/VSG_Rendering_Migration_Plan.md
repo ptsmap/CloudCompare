@@ -837,15 +837,18 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M1 | 骨架与构建 | ✅ 已完成（`build-hbqt` 双后端可编译运行，调试入口可用） | 3~4 | 7 |
 | M2 | 相机与交互 | ✅ 已完成（CC 语义操控器 + reverse-depth NDC 适配） | 2~3 | 10 |
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10） | 3~4 | 14 |
-| M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ 传感器/粗线 quad/网格线框/LOD/半透明（见 D.11）；材质纹理（M4.3）与像素级线宽仍缺 | 3~4 | 18 |
+| M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
 | M5 | 2D 覆盖层 | ⬜ 未开始（标签/比例尺/方向轴/色标/文字全缺） | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
-| M7 | 后处理与 LOD | ⬜ 未开始 | 4 | 28 |
+| M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
 | **合计** | | | **26~32 PW** | ≈ **6~8 人月** |
 
 > 若不含后处理（M7.1/M7.2）与分页（M7.4），核心功能对齐约 **20~22 PW（5 人月）**。
-> 图例：✅ 完成 / 🟡 部分完成 / ⬜ 未开始。详细子项见 §7 各里程碑与附录 D.10。
+> 图例：✅ 完成 / 🟡 部分完成 / ⬜ 未开始。详细子项见 §7 各里程碑与附录 **D.10 / D.11 / D.12**。
+>
+> **最近两次提交**：`9becfcc8` M6 VSG 视图 resize 同步（强制容器几何 + `QMdiSubWindow` 重同步）；
+> `7e438499` M4 收尾（传感器 / 粗线 quad / 线框 / LOD / 半透明）。详见 D.12。
 
 ---
 
@@ -1097,19 +1100,20 @@ commandGraph->addChild(overlayGraph);
 
 **M3**
 - [ ] PointCloud ShaderSet（POINT_LIST + 点大小）
-- [ ] `ccVSGPointCloudBuilder`（chunk + SharedObjects）
-- [ ] RGB / SF(color ramp 纹理) / 单色 / 法线 LUT
-- [ ] `ccVSGSceneBuilder` 增量同步与 revision
-- [ ] billboard quad 回退路径（按 R1 结论）
+- [x] `ccVSGPointCloudBuilder`（chunk + SharedObjects）
+- [x] RGB / SF(color ramp 纹理) / 单色 / 法线 LUT
+- [x] `ccVSGSceneBuilder` 增量同步与 revision（指纹启发式，非真 revision）
+- [ ] billboard quad 回退路径（按 R1 结论）— **高优，见 D.10.3**
 - [ ] 大点云冒烟与内存预算
 
 **M4**
-- [ ] `ccVSGMeshBuilder`（VertexIndexDraw + 顶点/面法线）
-- [ ] 线框与混合模式
-- [ ] 材质/纹理（无 vsgXchange 时用 QImage 解码）
-- [ ] Polyline / Facet / Sensor
-- [ ] 半透明：`DepthSorted` + `Bin`
-- [ ] 双面光照 / 背面剔除
+- [x] `ccVSGMeshBuilder`（非索引 `VertexDraw` + 顶点/面法线）
+- [x] 线框（`LINE_LIST` 展开，`isShownAsWire()`）；❌ "点+面"混合模式
+- [ ] 材质/纹理（无 vsgXchange 时用 `QImage` 解码）— **M4.3 未做**
+- [x] Polyline（`LINE_STRIP`；`getWidth()>1` 走 CPU quad 扩展）与 Sensor（GBL / Camera）；❌ Facet
+- [x] 半透明：`DepthSorted` + `Bin`（`CC_VSG_TRANSPARENT_BIN`，`DESCENDING`）
+- [x] LOD → `vsg::LOD`（>10 万三角面，按屏幕占比切换；见 D.11.4）
+- [ ] 双面光照 / 背面剔除开关（M4.6；着色器用 `abs(dot)` 做廉价双面，但无可配置开关）
 
 **M5**
 - [ ] overlay RenderGraph + Orthographic
@@ -1340,9 +1344,11 @@ material      : （无 —— 顶点阶段 pointSize UBO 已移除；Metal 下�
 - 网格：三角形展开为非索引顶点缓冲（与 CC 的 VBO 做法一致），支持逐顶点法线 / 三角面法线 / 顶点色 / 标量场着色，带简单的双面 Lambert 光照
 - 折线：`LINE_STRIP`，闭合时补一个重复顶点
 
-**已知限制**：M0 实测 `wideLines` 不可用（`lineWidthRange=[1..1]`），所以折线目前只有 1 像素宽，未按 `ccPolyline::getWidth()` 加粗。要支持粗线必须做 quad 扩展（CPU 生成三角带），属 M4 后续工作。
+**已知限制（已由 `7e438499` 缓解）**：M0 实测 `wideLines` 不可用（`lineWidthRange=[1..1]`）。`ccPolyline::getWidth()>1` 现在走 **CPU quad 扩展**（每段 2 个三角形）；厚度是世界单位近似而非像素级、拐角 join 未做 —— 详见 D.11.2。
 
-**传感器（ccGBLSensor / ccCameraSensor）未实现**，仍为 TODO。
+**传感器（ccGBLSensor / ccCameraSensor）已实现**（`7e438499`）：几何建在传感器局部坐标系、外层包 `vsg::MatrixTransform`（`getActiveAbsoluteTransformation()`，对应 GL 的 `glMultMatrixf(sensorPos)`）；GBL = 坐标轴 + 头部线框盒 + 三条支腿，Camera = 近平面 + 侧线 + 底座 + 箭头 + 视锥 6 面 + 坐标轴。详见 D.11.1。
+
+**网格线框已实现**（`7e438499`）：`isShownAsWire()` 为真时把每三角形的 3 条边展开成 `LINE_LIST`。详见 D.11.3。
 
 **增量同步（已实现，指纹启发式）**
 
@@ -1355,7 +1361,8 @@ material      : （无 —— 顶点阶段 pointSize UBO 已移除；Metal 下�
 
 **已知限制**：指纹只覆盖结构，不覆盖具体数值。例如改了某个点的颜色值，指纹不变，不会重建 —— 这种情况需要显式调用 `invalidate()`。后续应引入真正的 per-entity revision 计数器替代。
 
-待办：传感器、粗线 quad 扩展、网格线框模式、每层 LOD、真正的 revision 机制。
+待办（更新至 `7e438499`）：材质纹理（M4.3）、像素级线宽与拐角 join、"移动时抽稀"的 LOD 语义、真正的 per-entity revision 机制（当前仍是指纹启发式）。
+传感器、粗线 quad 扩展、网格线框、LOD→`vsg::LOD`、半透明**均已完成**，见 D.11。
 
 **未做的验证（延后）**
 
@@ -1392,19 +1399,21 @@ material      : （无 —— 顶点阶段 pointSize UBO 已移除；Metal 下�
 | **M1** 骨架与构建 | CMake 开关、双后端构建、视图抽象基类、VSG 窗口重写、调试入口 | ✅ 已完成（`build-hbqt` 可编译运行） |
 | **M2** 相机与交互 | `ccViewportParameters`⇄`vsg::Camera` 同步、CC 语义操控器、reverse-depth NDC 适配 | ✅ 已完成 |
 | **M3** 点云渲染 | PointCloud ShaderSet、分块构建、`ccVSGSceneBuilder` 增量同步、RGB/SF/单色着色 | ✅ 已完成（Metal 出图已验证）；⚠️ **点大小仅 1px**（见 R1） |
-| **M4** 网格/折线 | 网格（顶点/面法线、顶点色/SF、双面 Lambert）、折线（LINE_STRIP） | 🟡 已实现；❌ 传感器（GBL/Camera）、粗线 quad 扩展、网格线框、每层 LOD、半透明未做 |
+| **M4** 网格/折线/传感器 | 网格（顶点/面法线、顶点色/SF、双面 Lambert）、折线、传感器（GBL/Camera）、粗线 quad 扩展、网格线框、LOD→`vsg::LOD`、半透明 `DepthSorted`+`Bin` | ✅ 已实现（`0ec5e855` + **`7e438499`**，见 D.11）；❌ 材质纹理（M4.3）、像素级线宽与拐角 join（受 R1 阻塞）、"移动时抽稀"语义 |
 | **M6** 拾取与离屏 | `ccPickingHub` 后端无关化、`ccViewInterface`/`getActiveViewWindow`、VSG 侧 CPU 拾取、`zoomGlobal()` | ✅ 抽象层与相机 fit 已完成；❌ 实体/框选的**渲染期**拾取（R32_UINT + `CopyImageToBuffer`）、深度反投影、通用 `renderToImage()` 未做（仅冒烟截图钩子 `CC_VSG_SCREENSHOT` 可用） |
 | **M8** 插件收尾 | 视图抽象、枚举统一 | ✅ 部分；❌ 插件 `requiresBackends` metadata、GL-only 插件跳过、自定义 GL drawable→`ccRenderCommandSink`、`CCPluginAPI` 解耦、立体降级未做 |
 | **M5** 2D 覆盖层 | overlay RenderGraph、`vsg::Text`、标签/比例尺/方向轴/色标/图片 | ⬜ 未开始 |
-| **M7** 后处理/LOD | 后处理框架、SSAO、LOD→`vsg::LOD`、PagedLOD 分页、性能调优 | ⬜ 未开始 |
+| **M7** 后处理/LOD | 后处理框架、SSAO、LOD→`vsg::LOD`、PagedLOD 分页、性能调优 | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，按屏幕占比切换）；❌ 后处理、SSAO、PagedLOD 分页、性能调优未开始 |
 
 ### D.10.3 下一步优先级建议
 
-1. **点大小（R1，高优）**：实现 billboard quad（instanced 扩展 quad）替代 `gl_PointSize`；同时覆盖 M4 的粗线 quad 扩展（R2 已确认 `wideLines` 不可用）。
-2. **M6 拾取闭环**：R32_UINT 离屏拾取 + `CopyImageToBuffer` 回读；深度反投影（依赖 D.10.1 的 reverse-depth）；通用 `renderToImage()`。
-3. **M4 收尾**：`ccGBLSensor`/`ccCameraSensor` 视锥与坐标轴；网格线框；半透明 `DepthSorted`+`Bin`。
-4. **M5 2D 覆盖层**：标签/比例尺/方向轴/色标 + `vsg::Text`（中文字体走 freetype→`vsg::Font`，见 R3/R15）。
-5. **M7/M8**：后处理、LOD/分页、插件解耦。
+1. **点大小（R1，最高优）**：billboard quad（instanced 扩展 quad）替代 `gl_PointSize`；**同时解锁 M4 的像素级线宽** —— 粗线 quad 目前是世界单位近似、拐角 join 未做，都受同一个 R1 限制（`wideLines` 不可用见 R2）。
+2. **M6 拾取闭环**：R32_UINT 离屏拾取 + `CopyImageToBuffer` 回读；深度反投影（依赖 D.10.1 的 reverse-depth）；通用 `renderToImage()`。这是分割 / 裁剪 / 配准等交互工具能否端到端可用的前提。
+3. **M5 2D 覆盖层**：标签 / 比例尺 / 方向轴 / 色标 + `vsg::Text`（中文字体走 freetype→`vsg::Font`，见 R3/R15）。
+4. **M4 剩余**：材质纹理（M4.3：`ccMaterial`→`vsg::DescriptorImage`+`Sampler`，需 `QImage` 解码填 `vsg::Data`，见 R12）；"移动时抽稀"的 LOD 语义（`decimateMeshOnMove`）。
+5. **M7/M8**：后处理 / SSAO、PagedLOD 分页、性能调优；插件 `requiresBackends` metadata 与 GL-only 插件跳过、立体降级。
+
+> **另有一个未解决的窗口层缺陷**（见 D.12.3）：MDI 子窗口连续 Maximize / Restore 后 VSG 渲染画面不铺满。
 
 > 注：`libs/qCC_db/extern/CCCoreLib` 子模块当前有本地修改（未提交到子模块），与 VSG 改造无关，单独处理。
 
@@ -1478,3 +1487,55 @@ lod->bound = computeBound(vertices);
 - 粗线的像素级线宽与拐角 join（依赖 R1 的 billboard 方案）
 - 移动时降细节的 LOD 语义（`decimateMeshOnMove`）
 - `ccFacet`、图像、标签等实体
+
+---
+
+## 附录 D.12 — 进度快照（2026-09-27）
+
+### D.12.1 本次新增提交（分支 `vsg`）
+
+| commit | 内容 | 规模 |
+|---|---|---|
+| `9becfcc8` | M6：VSG 视图 resize 同步（强制容器几何 + `QMdiSubWindow` 重同步） | 2 files，+111 / -1 |
+| `7e438499` | M4 收尾：传感器 / 粗线 quad 扩展 / 网格线框 / LOD / 半透明 | 11 files，+1082 / -84 |
+
+### D.12.2 当前里程碑状态
+
+| 里程碑 | 状态 |
+|---|---|
+| M0 Spike | ✅ 已完成 |
+| M1 骨架与构建 | ✅ 已完成 |
+| M2 相机与交互 | ✅ 已完成 |
+| M3 点云渲染 | ✅ 已完成（点大小仅 1px，见 R1） |
+| M4 网格/折线/传感器 | 🟡 基本完成（见 D.11）；缺材质纹理、像素级线宽、"移动时抽稀" |
+| M5 2D 覆盖层 | ⬜ 未开始 |
+| M6 拾取与离屏 | 🟡 抽象层 + `zoomGlobal()` 已做；渲染期实体/框选拾取未做 |
+| M7 后处理/LOD | 🟡 LOD→`vsg::LOD` 已随 M4 落地；后处理 / SSAO / 分页未开始 |
+| M8 插件与收尾 | 🟡 视图抽象已做；插件 metadata、GL-only 跳过、立体降级未做 |
+
+### D.12.3 已知待验证 / 未解决问题
+
+1. **MDI Maximize / Restore 后渲染画面不铺满（未解决，暂搁置）**
+   拖动 Db Tree 分隔条时 resize 正常、画面填满；但连续点 2 次 3D View 左上角 Maximize 按钮后画面变小，切换 App 或在工具栏选一次工具才恢复。
+   已尝试两轮修复（`9becfcc8`：`resizeEvent` 延迟同步 → 强制 `m_container->setGeometry(rect())` + `QMdiSubWindow::windowStateChanged` 兜底）**均未解决**。
+   下一步思路：① 关掉 MDI 子窗口动画再测（动画会持续派发中间尺寸）；② 在 `vsgQt::Window` 的 `exposeEvent` 里按容器尺寸强制重建 extent。
+2. **半透明 `DepthSorted` 的 bound 约定未实测**：目前用实体局部包围球，VSG 是否用累积矩阵变换它未确认（D.11.5）。
+3. **粗线厚度是世界单位近似**，非像素级；拐角 join 未做（D.11.2，受 R1 阻塞）。
+4. **GUI 视觉验证未做**：传感器 / 网格线框 / 半透明 / LOD 目前只验证了「编译通过 + 启动无 Metal validation abort」，尚无与 OpenGL 后端的截图对比。
+
+### D.12.4 构建与验证方式
+
+```bash
+# 构建
+cd /Users/gsl/work/pointsMap/CloudCompareVSG/CloudCompare
+cmake --build build-hbqt -j8
+
+# 打包后处理：macdeployqt 会清掉手动补的框架，每次完整构建后需重跑
+/Users/gsl/work/pointsMap/CloudCompareVSG/fix_cc_bundle.sh
+
+# 启动（.app 是目录，不能直接 ./ 执行）
+cd build-hbqt/qCC/deployqt && open CloudCompare.app
+```
+
+`fix_cc_bundle.sh` 负责：把 AGL stub（需重建 `Info.plist`，否则 codesign 拒收）与 `QtDBus.framework` 打进 bundle、
+用 `install_name_tool -delete_rpath` 去掉外部 homebrew RPATH（消除重复加载 Qt 的 ObjC 类警告）、重新 ad-hoc 签名。
