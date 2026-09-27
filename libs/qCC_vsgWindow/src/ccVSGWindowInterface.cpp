@@ -26,6 +26,8 @@
 #include <ccGenericPointCloud.h>
 #include <ccHObject.h>
 #include <ccLog.h>
+#include <ccPointCloud.h>
+#include <ccScalarField.h>
 
 // CCCoreLib
 #include <CCConst.h>
@@ -71,6 +73,33 @@ namespace
 		}
 
 		return {};
+	}
+
+	//! Returns the scalar field currently displayed by an entity (or one of its children)
+	ccScalarField* findDisplayedScalarField(ccHObject* obj)
+	{
+		if (!obj)
+		{
+			return nullptr;
+		}
+
+		if (auto* cloud = dynamic_cast<ccPointCloud*>(obj))
+		{
+			if (ccScalarField* sf = cloud->getCurrentDisplayedScalarField())
+			{
+				return sf;
+			}
+		}
+
+		for (unsigned i = 0; i < obj->getChildrenNumber(); ++i)
+		{
+			if (ccScalarField* sf = findDisplayedScalarField(obj->getChild(i)))
+			{
+				return sf;
+			}
+		}
+
+		return nullptr;
 	}
 
 	//! Finds the vsg::RenderGraph of a command graph (CommandGraph -> RenderGraph)
@@ -438,6 +467,19 @@ void ccVSGWindowInterface::updateCamera()
 	// the trihedron follows the camera orientation and the viewport size
 	// TODO(M5.4): wire the real 'showTrihedron' display parameter
 	m_overlayBuilder.update(width, height, m_viewMatrix->matrix, true);
+
+	// the scalar field color scale (M5.5)
+	ccScalarField* sf = findDisplayedScalarField(m_winDBRoot);
+	if (!sf)
+	{
+		sf = findDisplayedScalarField(m_globalDBRoot);
+	}
+
+	if (m_overlayBuilder.updateColorScale(sf, width, height))
+	{
+		// the new nodes have to be compiled before they can be rendered
+		m_overlayNeedsCompile = true;
+	}
 }
 
 void ccVSGWindowInterface::setSceneDB(ccHObject* root)

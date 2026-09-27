@@ -291,8 +291,11 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   vsg::ref_ptr<ccVSGViewMatrix>        m_overlayViewMatrix;
   vsg::ref_ptr<vsg::Orthographic>      m_overlayProjection;
 
-  //! Builds the 2D entities (trihedron, and later the scale bar, color ramp...)
+  //! Builds the 2D entities (trihedron, color scale, and later the scale bar...)
   ccVSGOverlayBuilder m_overlayBuilder;
+
+  //! Set when the overlay produced new nodes that have to be compiled
+  bool m_overlayNeedsCompile = false;
 
   //! Keeps the VSG scene graph in sync with the ccHObject tree
   ccVSGSceneBuilder m_sceneBuilder;

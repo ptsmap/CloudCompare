@@ -22,6 +22,7 @@
 
 // qCC_db
 #include <ccColorTypes.h>
+#include <ccScalarField.h>
 
 // VSG
 #include <vsg/all.h>
@@ -322,4 +323,156 @@ void ccVSGOverlayBuilder::update(int width, int height, const vsg::dmat4& viewMa
 			m_trihedronMounted = false;
 		}
 	}
+}
+
+bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, int height)
+{
+	// ------------------------------------------------------------------
+	// fingerprint: the group is only rebuilt when something visible changed
+	// ------------------------------------------------------------------
+	quint64 signature = 17;
+	auto    mix       = [&signature](quint64 v) { signature = signature * 1000003 + v; };
+
+	mix(static_cast<quint64>(reinterpret_cast<quintptr>(sf)));
+	mix(static_cast<quint64>(width));
+	mix(static_cast<quint64>(height));
+
+	if (sf)
+	{
+		mix(static_cast<quint64>(sf->displayRange().start() * 1.0e6));
+		mix(static_cast<quint64>(sf->displayRange().stop() * 1.0e6));
+		mix(static_cast<quint64>(sf->getName().size()));
+	}
+
+	if (signature == m_colorScaleSignature)
+	{
+		return false;
+	}
+	m_colorScaleSignature = signature;
+
+	// drop the previous color scale
+	if (m_colorScaleMounted)
+	{
+		unmount(m_root, m_colorScale);
+		m_colorScaleMounted = false;
+	}
+	m_colorScale = nullptr;
+
+	if (!sf || !sf->getColorScale() || !m_font)
+	{
+		return true;
+	}
+
+	constexpr int ScaleWidth  = 30;
+	constexpr int RightMargin = 20;
+	constexpr int Steps       = 32;
+
+	const int xEnd   = width - 1 - RightMargin;
+	const int xStart = xEnd - ScaleWidth;
+	const int yStart = 90;          // bottom, in GL pixel coordinates
+	const int yStop  = height - 60; // top
+
+	if (yStop - yStart < ScaleWidth)
+	{
+		// not enough room to display the color scale
+		return true;
+	}
+
+	// GL pixel coordinates (origin: bottom left) -> overlay coordinates
+	// (origin: centre of the viewport)
+	const double halfW = width * 0.5;
+	const double halfH = height * 0.5;
+	auto         ovX   = [halfW](double x) { return x - halfW; };
+	auto         ovY   = [halfH](double y) { return y - halfH; };
+
+	auto group = vsg::Group::create();
+
+	// ------------------------------------------------------------------
+	// the gradient: one quad per step, coloured with the scalar field ramp
+	// ------------------------------------------------------------------
+	{
+		const double vMin = static_cast<double>(sf->displayRange().start());
+		const double vMax = static_cast<double>(sf->displayRange().stop());
+
+		auto verts  = vsg::vec3Array::create(static_cast<std::size_t>(Steps) * 6);
+		auto colors = vsg::ubvec4Array::create(static_cast<std::size_t>(Steps) * 6);
+
+		std::size_t out = 0;
+		for (int i = 0; i < Steps; ++i)
+		{
+			const double t0 = static_cast<double>(i) / Steps;
+			const double t1 = static_cast<double>(i + 1) / Steps;
+
+			const ccColor::Rgb* c0   = sf->getColor(static_cast<ScalarType>(vMin + (vMax - vMin) * t0));
+			const ccColor::Rgb* c1   = sf->getColor(static_cast<ScalarType>(vMin + (vMax - vMin) * t1));
+			const ccColor::Rgb  rgb0 = c0 ? *c0 : ccColor::lightGreyRGB;
+			const ccColor::Rgb  rgb1 = c1 ? *c1 : ccColor::lightGreyRGB;
+			const ccColor::Rgba ca0(rgb0.r, rgb0.g, rgb0.b, 255);
+			const ccColor::Rgba ca1(rgb1.r, rgb1.g, rgb1.b, 255);
+
+			const float y0 = static_cast<float>(ovY(yStart + (yStop - yStart) * t0));
+			const float y1 = static_cast<float>(ovY(yStart + (yStop - yStart) * t1));
+			const float xa = static_cast<float>(ovX(xStart));
+			const float xb = static_cast<float>(ovX(xEnd));
+
+			const vsg::vec3     tri[6] = {vsg::vec3(xa, y0, 0.0f), vsg::vec3(xb, y0, 0.0f), vsg::vec3(xb, y1, 0.0f),
+			                              vsg::vec3(xa, y0, 0.0f), vsg::vec3(xb, y1, 0.0f), vsg::vec3(xa, y1, 0.0f)};
+			const ccColor::Rgba col[6] = {ca0, ca0, ca1, ca0, ca1, ca1};
+
+			for (unsigned k = 0; k < 6; ++k)
+			{
+				(*verts)[out]  = tri[k];
+				(*colors)[out] = toColor(col[k]);
+				++out;
+			}
+		}
+
+		if (auto node = buildGeometry(m_triangleShaderSet, m_sharedObjects, verts, colors))
+		{
+			group->addChild(node);
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// the scalar field name, above the ramp, and the extreme values
+	// ------------------------------------------------------------------
+	const ccColor::Rgba textColor(255, 255, 255, 255);
+	const std::string&  sfName = sf->getName();
+	const QString       title  = sfName.empty() ? QStringLiteral("Unnamed") : QString::fromStdString(sfName);
+
+	if (auto node = createLabel(title.toUtf8().constData(), textColor))
+	{
+		if (auto* transform = dynamic_cast<vsg::MatrixTransform*>(node.get()))
+		{
+			transform->matrix = vsg::translate(ovX(xStart + ScaleWidth * 0.5), ovY(yStop + 18), 0.0);
+		}
+		group->addChild(node);
+	}
+
+	const QString minStr = QString::number(static_cast<double>(sf->displayRange().start()), 'g', 4);
+	const QString maxStr = QString::number(static_cast<double>(sf->displayRange().stop()), 'g', 4);
+
+	if (auto node = createLabel(minStr.toUtf8().constData(), textColor))
+	{
+		if (auto* transform = dynamic_cast<vsg::MatrixTransform*>(node.get()))
+		{
+			transform->matrix = vsg::translate(ovX(xStart - 26), ovY(yStart), 0.0);
+		}
+		group->addChild(node);
+	}
+
+	if (auto node = createLabel(maxStr.toUtf8().constData(), textColor))
+	{
+		if (auto* transform = dynamic_cast<vsg::MatrixTransform*>(node.get()))
+		{
+			transform->matrix = vsg::translate(ovX(xStart - 26), ovY(yStop), 0.0);
+		}
+		group->addChild(node);
+	}
+
+	m_colorScale = group;
+	m_root->addChild(m_colorScale);
+	m_colorScaleMounted = true;
+
+	return true;
 }

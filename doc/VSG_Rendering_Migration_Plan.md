@@ -838,7 +838,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M2 | 相机与交互 | ✅ 已完成（CC 语义操控器 + reverse-depth NDC 适配） | 2~3 | 10 |
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10） | 3~4 | 14 |
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
-| M5 | 2D 覆盖层 | 🟡 起步：M5.1 覆盖层 View、M5.4 方向轴（截图验证）、M5.2 文字/SDF 字体（已实现，视觉验证待 GUI）；标签/比例尺/色标/图片未做 | 3 | 21 |
+| M5 | 2D 覆盖层 | 🟡 起步：M5.1 覆盖层 View、M5.4 方向轴、M5.2 文字/SDF 字体、M5.5 标量场色标已实现（视觉验证待 GUI）；标签/比例尺/图片未做 | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
 | M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
@@ -1599,10 +1599,34 @@ cd build-hbqt/qCC/deployqt && open CloudCompare.app
 - trihedron / 轴标注线宽 2px 未实现（R2）
 - X/Y/Z 标注的视觉验证尚未完成（受上述对话框阻塞）
 
-### D.13.5 M5 剩余
+### D.13.5 M5.5 标量场色标（已实现）
+
+`ccVSGOverlayBuilder::updateColorScale()`，复刻 `ccRenderingTools::DrawColorRamp()` 的布局：
+
+| 项 | 实现 |
+|---|---|
+| 位置 | 右侧竖条：`xEnd = W - 1 - rightMargin(20)`，`xStart = xEnd - scaleWidth(30)`；竖直范围 `yStart=90 .. yStop=H-60`（GL 像素坐标，原点左下）→ 转成覆盖层的**中心原点**坐标 |
+| 渐变 | **顶点色烘焙**（32 段 × 2 三角形，逐段取 `sf->getColor()`），不需要纹理 |
+| 文字 | 顶部显示标量场名称，底部/顶部分别显示 `displayRange().start()/stop()`（复用 M5.2 的文字） |
+| 重建策略 | 按指纹（SF 指针 + 显示范围 + 名称 + 视口尺寸）重建整组；罕见。重建后由 `ccVSGWindow::redraw()` 触发 `viewer->compile()`（`m_overlayNeedsCompile`） |
+| SF 查找 | `ccVSGWindowInterface` 递归扫描 `m_winDBRoot` / `m_globalDBRoot` 找第一个 `ccPointCloud` 的 `getCurrentDisplayedScalarField()` |
+
+**近似/未做**：未接 CC 的 `computeColorRampAreaLimits()`（竖直范围取固定值，未为 trihedron 等预留空间）、无直方图（`colorScaleShowHistogram`）、无对数轴与自定义标签。
+
+### D.13.6 M4 修正：mesh 的"法线显示"= 光照开关
+
+`ccMesh::drawMeOnly()` 里 `glParams.showNorms` 实际是**启用光照**（`glEnable(GL_LIGHTING)` + 法线属性），
+OpenGL 后端**从不画 mesh 的法线向量**（`ccMesh.cpp` 里唯一的 `GL_LINES` 是线框）。
+VSG 侧原先的 mesh shader 恒定带光照 → 切换无反应。现改为：
+
+- `useLighting = (hasTriNormals() && triNormsShown()) || (cloud->hasNormals() && normalsShown())`
+- 为真用带法线的光照 shader，为假用无光照 flat shader
+- `computeSignature()` 加入 `normalsShown()` / `triNormsShown()` / `isShownAsWire()`，切换才会重建
+
+### D.13.7 M5 剩余
 
 - M5.3 `cc2DLabel` / `cc2DViewportLabel`
 - M5.4 剩余：比例尺、透视/正交状态提示
-- M5.5 标量场色标（渐变条 + 刻度文字）
 - M5.6 `ccImage`
+- 色标：直方图、对数轴、自定义标签、按 `computeColorRampAreaLimits()` 布局
 - CJK 标签（需更大的 glyph atlas 或按需扩容）

@@ -127,6 +127,13 @@ void ccVSGWindow::redraw(bool only2D /*=false*/, bool resetLOD /*=true*/)
 		m_viewer->compile();
 	}
 
+	// the 2D overlay may have produced new nodes too (color scale, M5.5)
+	if (m_overlayNeedsCompile && m_viewer)
+	{
+		m_viewer->compile();
+		m_overlayNeedsCompile = false;
+	}
+
 	if (m_viewer)
 	{
 		m_viewer->request();

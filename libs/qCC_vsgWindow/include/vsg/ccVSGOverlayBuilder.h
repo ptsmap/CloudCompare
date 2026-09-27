@@ -30,6 +30,8 @@
 #include <vsg/text/Font.h>
 #include <vsg/utils/ShaderSet.h>
 
+class ccScalarField;
+
 namespace vsg
 {
 	class SharedObjects;
@@ -67,6 +69,20 @@ class ccVSGOverlayBuilder
 	 **/
 	void update(int width, int height, const vsg::dmat4& viewMatrix, bool showTrihedron = true);
 
+	//! Updates the scalar field color scale (M5.5)
+	/** Mirrors ccRenderingTools::DrawColorRamp(): a vertical gradient bar on
+	    the right hand side, with the scalar field name on top and the extreme
+	    values as labels. The gradient is baked into per-vertex colors, so no
+	    texture is needed.
+
+	    The whole group is rebuilt (and not merely moved) whenever the scalar
+	    field or the viewport changes, which happens rarely.
+
+	    \return true when the group has been rebuilt (the new nodes then have
+	            to be compiled by the caller)
+	 **/
+	bool updateColorScale(const ccScalarField* sf, int width, int height);
+
   private:
 	//! Creates the X/Y/Z direction axes (built once, then only its matrix changes)
 	void createTrihedron();
@@ -86,6 +102,11 @@ class ccVSGOverlayBuilder
 	vsg::ref_ptr<vsg::Font> m_font;
 	//! X / Y / Z axis labels, each movable through its own transform
 	vsg::ref_ptr<vsg::MatrixTransform> m_axisLabels[3];
+
+	//! Scalar field color scale (M5.5)
+	vsg::ref_ptr<vsg::Node> m_colorScale;
+	quint64                 m_colorScaleSignature = 0;
+	bool                    m_colorScaleMounted   = false;
 
 	vsg::ref_ptr<vsg::ShaderSet>     m_lineShaderSet;
 	vsg::ref_ptr<vsg::ShaderSet>     m_triangleShaderSet;
