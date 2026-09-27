@@ -1684,6 +1684,68 @@ VSG 侧原先的 mesh shader 恒定带光照 → 切换无反应。现改为：
 ### D.13.10 M5 剩余
 
 - `cc2DLabel` count==3 的三角面、count==2 的连线；`cc2DViewportLabel` 的视口状态校验与缩放补偿
+- cc2DLabel 的中间刻度**数值标签**（目前只有刻度线，无文字）
+- 色标：自定义标签、布局（直方图宽度等目前是常量）
+
+---
+
+## 附录 D.13.11 — M5 第二轮：三角面/连线、直方图/对数轴、ccGui::Parameters、CJK
+
+### D.13.11.1 cc2DLabel 的三角面与连线
+
+`cc2DLabel::drawMeOnly3D()` 的 case 3（半透明黄三角面 `(255,255,0,128)`）与 case 2（连线）此前未做，原因是它们的**屏幕形状随相机变化**。解决办法是**原地更新顶点**而不是重建几何：
+
+```cpp
+// 构建时分配一次
+auto verts = vsg::vec3Array::create(ptCount);
+buildGeometry(m_lineStripShaderSet, m_sharedObjects, verts, colors);
+// 每帧只改写数值并标记脏
+(*link.verts)[k].set(ox, oy, 0.0f);
+link.verts->dirty();     // vsg::Data::dirty() - 不触发 recompile
+```
+
+- 连线用**新建的 `LINE_STRIP` shader set**（`ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_LINE_STRIP)`），避免与既有 `m_lineShaderSet` 的拓扑冲突。
+- 三角面用 `m_triangleShaderSet`，alpha=128 → 覆盖层始终开启混合，自动得到半透明。
+- 顶点直接写**覆盖层坐标**（与 `projectToOverlay()` 输出一致），因此不需要额外的 `MatrixTransform`。
+
+> **待验证**：`vsg::Data::dirty()` 是否真的触发 VBO 重新上传尚未实测（VSG 的 dynamic data 路径）。若三角面/连线不随相机更新，需改为每帧重建（代价高）或改用 `vsg::TransferTask` 显式上传。
+
+### D.13.11.2 色标直方图与对数轴
+
+- **直方图**：`ccScalarField::getHistogram()`（`: std::vector<unsigned>` + `maxValue`），在色带**左侧** 40px 内画水平条，最长的 bin 占满宽度。开关接 `ccGui::Parameters().colorScaleShowHistogram`。
+- **对数轴**：`sf->logScale()` 为真时刻度按 **log10 间距**取值再换算回线性位置（`pow(10, lv)`），否则线性。目前只画**刻度线**（25/50/75%），**未画数值文本**。
+
+### D.13.11.3 接上 ccGui::Parameters()
+
+`qCC_vsgWindow` 现在链接 **`QCC_GL_LIB`**（仅为了 `ccGui::Parameters()`——持久显示参数；不使用其 OpenGL 渲染），并在 CMake 中显式加了 `../qCC_glWindow/include`（该 target 没有把 include 目录导出到 INTERFACE）。
+
+替换掉的硬编码常量：
+
+| 原常量 | 现在 |
+|---|---|
+| `ccColor::Rgba(255,255,255,255)`（标签文字） | `ccGui::Parameters().textDefaultCol` |
+| `ccColor::Rgba(255,255,0,255)`（marker 颜色） | `ccGui::Parameters().labelMarkerCol` |
+| `LabelMarkerRadiusPx = 5.0f` | `ccGui::Parameters().labelMarkerSize`（**单位是屏幕像素**，而 marker 就在屏幕空间绘制，可直接使用） |
+| 色标刻度颜色 | `ccGui::Parameters().textDefaultCol` |
+| 直方图开关 | `ccGui::Parameters().colorScaleShowHistogram` |
+
+> ⚠️ glWindow target 名是 **`QCC_GL_LIB`**（`project( QCC_GL_LIB )`），不是 `QCC_GL_WINDOW`。
+
+### D.13.11.4 CJK 标签
+
+问题：`ccVSGFontBuilder` 预烘的是**连续区间** 32..126（ASCII）；CJK 区间有几万字，无法预烘，且 CJK 码点与 ASCII 不连续。
+
+方案：**按实际用到的码点构建图集**。
+
+- 新增 `ccVSGFontBuilder::buildFontFromChars(fontFile, chars, pixelHeight)`：接受任意码点集合（内部排序去重），`charmap` 大小改为 `maxChar + 1`；`buildFont(firstChar,lastChar)` 变成它的一个包装。
+- `ccVSGOverlayBuilder::ensureLabelFont(needed)`：ASCII ∪ 标签实际码点（用 `QString::toUcs4()` 取），**仅在字符集变大时**重建图集（实践中只发生一次）；结果缓存在 `m_labelFont`。
+- `createLabel()` 优先用 `m_labelFont`（它是 `m_font` 的超集），其余文本（三向轴、比例尺、色标）不受影响。
+- 字体文件：`defaultFontFile()` 首选 `/System/Library/Fonts/Hiragino Sans GB.ttc`（**已确认存在**，同时覆盖 ASCII 与 CJK）。macOS 上 `PingFang.ttc` 不存在。
+
+### D.13.11.5 本轮验证
+
+- 全量构建通过；`project.bin`（用户已加入 cc2DLabel）冒烟截图成功，采样到约 9k 个黄色像素 → **3D marker 已渲染**。
+- 未做视觉细节核对（三角面/连线/直方图的实际观感）。
 - 色标：直方图、对数轴、自定义标签、按 `computeColorRampAreaLimits()` 预留空间
 - CJK 标签（需更大的 glyph atlas 或按需扩容）
 - 各类叠加元素接 `ccGui::Parameters()`（`textDefaultCol`、`labelMarkerSize` 等）

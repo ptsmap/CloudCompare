@@ -39,6 +39,7 @@
 // system
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace
 {
@@ -75,10 +76,39 @@ vsg::ref_ptr<vsg::Font> ccVSGFontBuilder::buildFont(const QString& fontFile,
                                                     uint32_t       lastChar,
                                                     uint32_t       pixelHeight)
 {
-	if (fontFile.isEmpty() || !QFileInfo::exists(fontFile) || lastChar < firstChar)
+	if (lastChar < firstChar)
 	{
 		return {};
 	}
+
+	std::vector<uint32_t> chars;
+	chars.reserve(lastChar - firstChar + 1);
+	for (uint32_t c = firstChar; c <= lastChar; ++c)
+	{
+		chars.push_back(c);
+	}
+
+	return buildFontFromChars(fontFile, chars, pixelHeight);
+}
+
+vsg::ref_ptr<vsg::Font> ccVSGFontBuilder::buildFontFromChars(const QString&               fontFile,
+                                                             const std::vector<uint32_t>& charsIn,
+                                                             uint32_t                     pixelHeight)
+{
+	// sort + dedup so that the atlas layout (and hence the font) is stable
+	std::vector<uint32_t> chars = charsIn;
+	std::sort(chars.begin(), chars.end());
+	chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
+
+	if (fontFile.isEmpty() || !QFileInfo::exists(fontFile) || chars.empty())
+	{
+		return {};
+	}
+
+	// 'charCount' / 'maxChar' replace the contiguous firstChar..lastChar range:
+	// the code points are arbitrary (ASCII + the CJK characters of the labels)
+	const uint32_t charCount = static_cast<uint32_t>(chars.size());
+	const uint32_t maxChar   = chars.back();
 
 	FT_Library library = nullptr;
 	if (FT_Init_FreeType(&library) != 0)
@@ -100,8 +130,6 @@ vsg::ref_ptr<vsg::Font> ccVSGFontBuilder::buildFont(const QString& fontFile,
 		return {};
 	}
 
-	const uint32_t charCount = lastChar - firstChar + 1;
-
 	// ------------------------------------------------------------------
 	// 1st pass: rasterize every glyph to find the atlas cell size
 	// ------------------------------------------------------------------
@@ -110,7 +138,7 @@ vsg::ref_ptr<vsg::Font> ccVSGFontBuilder::buildFont(const QString& fontFile,
 
 	for (uint32_t i = 0; i < charCount; ++i)
 	{
-		if (FT_Load_Char(face, firstChar + i, FT_LOAD_RENDER | FT_LOAD_TARGET_SDF) != 0)
+		if (FT_Load_Char(face, chars[i], FT_LOAD_RENDER | FT_LOAD_TARGET_SDF) != 0)
 		{
 			continue;
 		}
@@ -144,7 +172,7 @@ vsg::ref_ptr<vsg::Font> ccVSGFontBuilder::buildFont(const QString& fontFile,
 	}
 
 	auto glyphMetrics = vsg::GlyphMetricsArray::create(charCount);
-	auto charmap      = vsg::uintArray::create(lastChar + 1);
+	auto charmap      = vsg::uintArray::create(maxChar + 1);
 
 	// all metrics are normalized by the line height, so that vsg::Font::height
 	// ends up being 1.0 - the layout then scales the text with its 'horizontal'
@@ -159,7 +187,7 @@ vsg::ref_ptr<vsg::Font> ccVSGFontBuilder::buildFont(const QString& fontFile,
 	// ------------------------------------------------------------------
 	for (uint32_t i = 0; i < charCount; ++i)
 	{
-		const uint32_t charcode = firstChar + i;
+		const uint32_t charcode = chars[i];
 
 		if (FT_Load_Char(face, charcode, FT_LOAD_RENDER | FT_LOAD_TARGET_SDF) != 0)
 		{
@@ -251,6 +279,11 @@ QString ccVSGFontBuilder::defaultFontFile()
 }
 
 vsg::ref_ptr<vsg::Font> ccVSGFontBuilder::buildFont(const QString&, uint32_t, uint32_t, uint32_t)
+{
+	return {};
+}
+
+vsg::ref_ptr<vsg::Font> ccVSGFontBuilder::buildFontFromChars(const QString&, const std::vector<uint32_t>&, uint32_t)
 {
 	return {};
 }

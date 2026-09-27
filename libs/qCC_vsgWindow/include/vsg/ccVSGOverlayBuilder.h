@@ -23,6 +23,7 @@
 #include <ccColorTypes.h>
 
 // VSG
+#include <vsg/core/Array.h>
 #include <vsg/core/ref_ptr.h>
 #include <vsg/maths/mat4.h>
 #include <vsg/nodes/Group.h>
@@ -37,6 +38,7 @@ class ccImage;
 class ccScalarField;
 
 // system
+#include <cstdint>
 #include <vector>
 
 namespace vsg
@@ -141,6 +143,25 @@ class ccVSGOverlayBuilder
 	    enough to make it read as a sphere. **/
 	vsg::ref_ptr<vsg::Node> createLabelMarker(const ccColor::Rgba& color);
 
+	//! Returns the font used by the labels, (re)building it when needed
+	/** The label text may contain characters outside the pre-baked ASCII range
+	    (CJK, accents...). Such a font cannot be pre-baked - the CJK range alone
+	    holds tens of thousands of glyphs - so the atlas is built from the code
+	    points the labels actually use. The atlas is only rebuilt when the set
+	    of characters grows, which in practice happens once. **/
+	vsg::ref_ptr<vsg::Font> ensureLabelFont(const std::vector<uint32_t>& needed);
+
+	//! A polyline / triangle whose vertices are refreshed every frame
+	/** The vertex data is updated in place and marked dirty (vsg::Data::dirty()),
+	    which is far cheaper than rebuilding the geometry (that would trigger a
+	    full recompilation every frame). **/
+	struct LabelLink
+	{
+		const cc2DLabel*            label = nullptr;
+		vsg::ref_ptr<vsg::vec3Array> verts;
+		unsigned                    count = 0; //!< vertices actually drawn
+	};
+
 	//! Builds a text node, wrapped in a transform so that it can be moved cheaply
 	vsg::ref_ptr<vsg::Node> createLabel(const char* text, const ccColor::Rgba& color);
 
@@ -189,6 +210,15 @@ class ccVSGOverlayBuilder
 	//! Cached unit spheres (plain / selected) shared by all the markers
 	vsg::ref_ptr<vsg::Node> m_markerSphere;
 	vsg::ref_ptr<vsg::Node> m_markerSphereSelected;
+
+	//! Label font (ASCII + the code points used by the labels) and its charset
+	vsg::ref_ptr<vsg::Font> m_labelFont;
+	std::vector<uint32_t>   m_labelFontChars;
+
+	//! Segments / triangles whose vertices are refreshed every frame
+	std::vector<LabelLink> m_labelLinks;
+	//! LINE_STRIP shader set: the connecting line of a multi-point label
+	vsg::ref_ptr<vsg::ShaderSet> m_lineStripShaderSet;
 
 	//! Textured shader set, used by the image overlay
 	vsg::ref_ptr<vsg::ShaderSet> m_texturedShaderSet;

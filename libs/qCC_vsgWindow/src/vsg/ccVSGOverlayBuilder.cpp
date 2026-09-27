@@ -20,6 +20,12 @@
 #include <vsg/ccVSGOverlayBuilder.h>
 #include <vsg/ccVSGShaders.h>
 
+// qCC_glWindow (only for ccGui::Parameters(): the persistent display params)
+#include <ccGuiParameters.h>
+
+// system
+#include <algorithm>
+
 // qCC_db
 #include <cc2DLabel.h>
 #include <cc2DViewportLabel.h>
@@ -90,8 +96,13 @@ namespace
 	}
 
 	//! Radius (in pixels) of the 3D marker of a cc2DLabel
-	/** TODO(M5.3): read it from ccGui::Parameters().labelMarkerSize **/
-	constexpr float LabelMarkerRadiusPx = 5.0f;
+	/** ccGui::Parameters().labelMarkerSize is expressed in screen pixels, and
+	    the marker is drawn in screen space, so it can be used directly. **/
+	inline double labelMarkerRadiusPx()
+	{
+		const unsigned s = ccGui::Parameters().labelMarkerSize;
+		return (s > 0 ? static_cast<double>(s) : 5.0);
+	}
 
 	//! Appends a unit sphere (radius 1) as a flat triangle list
 	/** \param verts  output positions
@@ -278,13 +289,17 @@ ccVSGOverlayBuilder::ccVSGOverlayBuilder()
 
 vsg::ref_ptr<vsg::Node> ccVSGOverlayBuilder::createLabel(const char* str, const ccColor::Rgba& color)
 {
-	if (!m_font)
+	// m_labelFont is a superset of m_font (ASCII + the extra code points the
+	// labels use, e.g. CJK); it is preferred whenever it is available
+	vsg::ref_ptr<vsg::Font> font = (m_labelFont ? m_labelFont : m_font);
+
+	if (!font)
 	{
 		return {};
 	}
 
 	auto text = vsg::Text::create();
-	text->font      = m_font;
+	text->font      = font;
 	text->shaderSet = vsg::createTextShaderSet();
 	text->technique = vsg::CpuLayoutTechnique::create();
 	text->text      = vsg::stringValue::create(str);
@@ -555,6 +570,101 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 		}
 
 		if (auto node = buildGeometry(m_triangleShaderSet, m_sharedObjects, verts, colors))
+		{
+			group->addChild(node);
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// the histogram: one horizontal bar per bin, drawn on the left of the ramp
+	// (ccGui::Parameters().colorScaleShowHistogram)
+	// ------------------------------------------------------------------
+	{
+		const ccScalarField::Histogram& hist = sf->getHistogram();
+
+		if (ccGui::Parameters().colorScaleShowHistogram && hist.size() > 1 && hist.maxValue > 0)
+		{
+			constexpr int HistWidth = 40;
+
+			const std::size_t   bins  = hist.size();
+			const vsg::ubvec4   barCol = toColor(ccColor::Rgba(210, 210, 210, 170));
+			const float         xRight = static_cast<float>(ovX(xStart));
+			const float         xLeft  = static_cast<float>(ovX(xStart - HistWidth));
+
+			auto verts  = vsg::vec3Array::create(bins * 6);
+			auto colors = vsg::ubvec4Array::create(bins * 6);
+
+			std::size_t out = 0;
+			for (std::size_t i = 0; i < bins; ++i)
+			{
+				const double t0 = static_cast<double>(i) / static_cast<double>(bins);
+				const double t1 = static_cast<double>(i + 1) / static_cast<double>(bins);
+
+				const float y0 = static_cast<float>(ovY(yStart + (yStop - yStart) * t0));
+				const float y1 = static_cast<float>(ovY(yStart + (yStop - yStart) * t1));
+
+				// the tallest bin fills the whole width, the others start
+				// further to the left
+				const float w  = static_cast<float>(hist[i]) / static_cast<float>(hist.maxValue);
+				const float x0 = xLeft + (xRight - xLeft) * (1.0f - w);
+
+				const vsg::vec3 tri[6] = {vsg::vec3(x0, y0, 0.0f), vsg::vec3(xRight, y0, 0.0f), vsg::vec3(xRight, y1, 0.0f),
+				                          vsg::vec3(x0, y0, 0.0f), vsg::vec3(xRight, y1, 0.0f), vsg::vec3(x0, y1, 0.0f)};
+
+				for (unsigned k = 0; k < 6; ++k)
+				{
+					(*verts)[out]  = tri[k];
+					(*colors)[out] = barCol;
+					++out;
+				}
+			}
+
+			if (auto node = buildGeometry(m_triangleShaderSet, m_sharedObjects, verts, colors))
+			{
+				group->addChild(node);
+			}
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// intermediate ticks. With a logarithmic scalar field the ticks are
+	// log spaced (and not linearly), so that they match the ramp.
+	// ------------------------------------------------------------------
+	{
+		constexpr int NTicks = 3; // at 25%, 50% and 75%
+
+		const double vMin = static_cast<double>(sf->displayRange().start());
+		const double vMax = static_cast<double>(sf->displayRange().stop());
+
+		auto verts  = vsg::vec3Array::create(NTicks * 2);
+		auto colors = vsg::ubvec4Array::create(NTicks * 2);
+
+		const vsg::ubvec4 tickCol = toColor(ccGui::Parameters().textDefaultCol);
+
+		for (int i = 0; i < NTicks; ++i)
+		{
+			const double f = static_cast<double>(i + 1) / static_cast<double>(NTicks + 1);
+
+			double t = f;
+			if (sf->logScale() && vMin > 0.0 && vMax > vMin)
+			{
+				// the tick shows a value that is log spaced between vMin and
+				// vMax; its position on the (linear) ramp follows
+				const double lv = std::log10(vMin) + (std::log10(vMax) - std::log10(vMin)) * f;
+				t               = (std::pow(10.0, lv) - vMin) / (vMax - vMin);
+			}
+
+			const float y  = static_cast<float>(ovY(yStart + (yStop - yStart) * t));
+			const float xa = static_cast<float>(ovX(xEnd));
+			const float xb = static_cast<float>(ovX(xEnd + 6));
+
+			(*verts)[static_cast<std::size_t>(i) * 2].set(xa, y, 0.0f);
+			(*verts)[static_cast<std::size_t>(i) * 2 + 1].set(xb, y, 0.0f);
+			(*colors)[static_cast<std::size_t>(i) * 2]      = tickCol;
+			(*colors)[static_cast<std::size_t>(i) * 2 + 1]  = tickCol;
+		}
+
+		if (auto node = buildGeometry(m_lineShaderSet, m_sharedObjects, verts, colors))
 		{
 			group->addChild(node);
 		}
@@ -892,6 +1002,39 @@ vsg::ref_ptr<vsg::Node> ccVSGOverlayBuilder::createLabelMarker(const ccColor::Rg
 	return buildGeometry(m_triangleShaderSet, m_sharedObjects, v, c);
 }
 
+vsg::ref_ptr<vsg::Font> ccVSGOverlayBuilder::ensureLabelFont(const std::vector<uint32_t>& needed)
+{
+	// ASCII is always required: the trihedron, the scale bar and the color
+	// scale all use the very same font
+	std::vector<uint32_t> chars = needed;
+	for (uint32_t c = ccVSGFontBuilder::DefaultFirstChar; c <= ccVSGFontBuilder::DefaultLastChar; ++c)
+	{
+		chars.push_back(c);
+	}
+
+	std::sort(chars.begin(), chars.end());
+	chars.erase(std::unique(chars.begin(), chars.end()), chars.end());
+
+	// the atlas is only rebuilt when the character set grows, which in
+	// practice happens once, when the first CJK label shows up
+	if (m_labelFont && chars == m_labelFontChars)
+	{
+		return m_labelFont;
+	}
+
+	auto font = ccVSGFontBuilder::buildFontFromChars(ccVSGFontBuilder::defaultFontFile(), chars);
+	if (!font)
+	{
+		// keep the ASCII font (the CJK characters will simply be missing)
+		return m_labelFont;
+	}
+
+	m_labelFont      = font;
+	m_labelFontChars = chars;
+
+	return font;
+}
+
 bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
                                       const vsg::dmat4& viewMatrix,
                                       const vsg::dmat4& projectionMatrix,
@@ -937,14 +1080,25 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 		m_markerLabels.clear();
 		m_markerPointIndex.clear();
 		m_markerTransforms.clear();
+		m_labelLinks.clear();
 
 		auto group = vsg::Group::create();
 
-		// TODO(M5.3): use ccGui::Parameters().textDefaultCol
-		const ccColor::Rgba labelColor(255, 255, 255, 255);
+		// ---- the label text may contain CJK: extend the font atlas ----
+		{
+			std::vector<uint32_t> chars;
+			for (auto* label : labels2D)
+			{
+				for (uint c : label->getName().toUcs4())
+				{
+					chars.push_back(static_cast<uint32_t>(c));
+				}
+			}
+			ensureLabelFont(chars);
+		}
 
-		// TODO(M5.3): use ccGui::Parameters().labelDefaultMarkerCol
-		const ccColor::Rgba defaultMarkerColor(255, 255, 0, 255);
+		const ccColor::Rgba labelColor        = ccGui::Parameters().textDefaultCol;
+		const ccColor::Rgba defaultMarkerColor = ccGui::Parameters().labelMarkerCol;
 
 		// offset between the 3D anchor and its name
 		constexpr float LeaderDX = 10.0f;
@@ -1013,6 +1167,53 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 					m_markerLabels.push_back(label);
 					m_markerPointIndex.push_back(p);
 					m_markerTransforms.push_back(marker);
+				}
+			}
+
+			// ---- multi-point label: the connecting line, plus (3 points) the
+			// semi-transparent triangle of cc2DLabel::drawMeOnly3D(). Both are
+			// refreshed in place every frame (see the update loop below). ----
+			const unsigned ptCount = label->size();
+
+			if (ptCount >= 2)
+			{
+				if (!m_lineStripShaderSet)
+				{
+					m_lineStripShaderSet = ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_LINE_STRIP);
+				}
+
+				const vsg::ubvec4 linkColor = toColor(label->isSelected() ? ccColor::Rgba(255, 0, 0, 255) : labelColor);
+
+				auto verts  = vsg::vec3Array::create(ptCount);
+				auto colors = vsg::ubvec4Array::create(ptCount);
+				for (unsigned k = 0; k < ptCount; ++k)
+				{
+					(*colors)[k] = linkColor;
+				}
+
+				if (auto node = buildGeometry(m_lineStripShaderSet, m_sharedObjects, verts, colors))
+				{
+					group->addChild(node);
+					m_labelLinks.push_back(LabelLink{label, verts, ptCount});
+				}
+			}
+
+			if (ptCount == 3)
+			{
+				// CC: static ccColor::Rgba DefaultTriangleColor(255,255,0,128)
+				const vsg::ubvec4 triColor = toColor(ccColor::Rgba(255, 255, 0, 128));
+
+				auto verts  = vsg::vec3Array::create(3);
+				auto colors = vsg::ubvec4Array::create(3);
+				for (unsigned k = 0; k < 3; ++k)
+				{
+					(*colors)[k] = triColor;
+				}
+
+				if (auto node = buildGeometry(m_triangleShaderSet, m_sharedObjects, verts, colors))
+				{
+					group->addChild(node);
+					m_labelLinks.push_back(LabelLink{label, verts, 3});
 				}
 			}
 		}
@@ -1122,7 +1323,7 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 			ok = projectToOverlay(projectionMatrix, viewMatrix, vsg::dvec3(P.x, P.y, P.z), width, height, ox, oy);
 		}
 
-		const vsg::dmat4 markerScale = vsg::scale(static_cast<double>(LabelMarkerRadiusPx));
+		const vsg::dmat4 markerScale = vsg::scale(labelMarkerRadiusPx());
 
 		if (ok)
 		{
@@ -1132,6 +1333,40 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 		{
 			m_markerTransforms[i]->matrix = vsg::translate(1.0e6, 1.0e6, 0.0) * markerScale;
 		}
+	}
+
+	// ---- the connecting lines / triangles: the vertices are rewritten in
+	// place, then the array is marked dirty so that VSG uploads it again.
+	// This is much cheaper than rebuilding the geometry (no recompilation).
+	for (auto& link : m_labelLinks)
+	{
+		if (!link.verts || !link.label)
+		{
+			continue;
+		}
+
+		for (unsigned k = 0; k < link.count; ++k)
+		{
+			double ox = 1.0e6;
+			double oy = 1.0e6;
+
+			if (k < link.label->size())
+			{
+				const CCVector3 P = link.label->getPickedPoint(k).getPointPosition();
+
+				double px = 0.0;
+				double py = 0.0;
+				if (projectToOverlay(projectionMatrix, viewMatrix, vsg::dvec3(P.x, P.y, P.z), width, height, px, py))
+				{
+					ox = px;
+					oy = py;
+				}
+			}
+
+			(*link.verts)[k].set(static_cast<float>(ox), static_cast<float>(oy), 0.0f);
+		}
+
+		link.verts->dirty();
 	}
 
 	return rebuilt;

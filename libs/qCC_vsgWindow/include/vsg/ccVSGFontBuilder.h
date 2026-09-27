@@ -45,6 +45,10 @@
     default range is printable ASCII; CJK labels require a much larger atlas
     and are not covered yet (TODO(M5.2)).
 **/
+// system
+#include <cstdint>
+#include <vector>
+
 class ccVSGFontBuilder
 {
   public:
@@ -62,6 +66,22 @@ class ccVSGFontBuilder
 	                                         uint32_t       firstChar   = DefaultFirstChar,
 	                                         uint32_t       lastChar    = DefaultLastChar,
 	                                         uint32_t       pixelHeight = 32);
+
+	//! Builds a font containing exactly the given character set
+	/** This is what makes **CJK labels** possible: the CJK range is far too
+	    large to be pre-baked, so the atlas is built from the code points that
+	    the labels actually use (ASCII + the few CJK characters of the text).
+
+	    \param fontFile path of a .ttf / .otf / .ttc file (it must cover the
+	                    requested characters)
+	    \param chars    code points to rasterize (duplicates are allowed,
+	                    they are removed and the set is sorted)
+	    \param pixelHeight rasterization height, in pixels
+	    \return the font, or null on failure
+	 **/
+	static vsg::ref_ptr<vsg::Font> buildFontFromChars(const QString&             fontFile,
+	                                                  const std::vector<uint32_t>& chars,
+	                                                  uint32_t                     pixelHeight = 32);
 
 	//! Returns a sensible default font file for the current platform
 	/** Prefers a font that also covers CJK so that the range can be extended
