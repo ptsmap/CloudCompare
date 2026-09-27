@@ -104,6 +104,42 @@ namespace
 		return (s > 0 ? static_cast<double>(s) : 5.0);
 	}
 
+	//! Tolerance used when comparing two sets of viewport parameters
+	/** Stands for the CCCoreLib::GreaterThanEpsilon() test of
+	    cc2DViewportLabel::drawMeOnly(). **/
+	constexpr double ViewportTolerance = 1.0e-6;
+
+	//! Returns whether two viewport parameters describe the very same view
+	/** A cc2DViewportLabel is only meaningful for the view it was created with:
+	    cc2DViewportLabel::drawMeOnly() bails out as soon as one of these
+	    differs, and so do we (the ROI is then simply not displayed). **/
+	bool sameViewport(const ccViewportParameters& a, const ccViewportParameters& b)
+	{
+		if (a.perspectiveView != b.perspectiveView
+		    || a.objectCenteredView != b.objectCenteredView
+		    || a.fov_deg != b.fov_deg
+		    || a.cameraAspectRatio != b.cameraAspectRatio)
+		{
+			return false;
+		}
+
+		// the rotation and the translation of the base view matrix
+		for (unsigned i = 0; i < 12; ++i)
+		{
+			if (std::abs(a.viewMat.data()[i] - b.viewMat.data()[i]) > ViewportTolerance)
+			{
+				return false;
+			}
+		}
+
+		if ((a.getPivotPoint() - b.getPivotPoint()).norm() > ViewportTolerance)
+		{
+			return false;
+		}
+
+		return true;
+	}
+
 	//! Appends a unit sphere (radius 1) as a flat triangle list
 	/** \param verts  output positions
 	    \param norms  output normals (equal to the positions for a unit sphere) **/
@@ -484,6 +520,8 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 		mix(static_cast<quint64>(sf->displayRange().start() * 1.0e6));
 		mix(static_cast<quint64>(sf->displayRange().stop() * 1.0e6));
 		mix(static_cast<quint64>(sf->getName().size()));
+		// toggling the log scale changes the whole layout of the ramp
+		mix(sf->logScale() ? 11 : 12);
 	}
 
 	if (signature == m_colorScaleSignature)
@@ -527,15 +565,43 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 	auto         ovX   = [halfW](double x) { return x - halfW; };
 	auto         ovY   = [halfH](double y) { return y - halfH; };
 
+	const ccColor::Rgba textColor = ccGui::Parameters().textDefaultCol;
+
+	// ------------------------------------------------------------------
+	// logarithmic scale (see ccRenderingTools::DrawColorRamp())
+	// ------------------------------------------------------------------
+	// On a log scale the ramp is **uniform in log10 space**: the value shown
+	// at the height fraction t is 10^(log10(vMin) + t*(log10(vMax)-log10(vMin))),
+	// and not vMin + t*(vMax-vMin). The tick values below follow the same law,
+	// so that a tick always sits at the height of its own value.
+	const double vMin = static_cast<double>(sf->displayRange().start());
+	const double vMax = static_cast<double>(sf->displayRange().stop());
+
+	const bool useLog = (sf->logScale() && vMin > 0.0 && vMax > vMin);
+
+	// CC hides the histogram on a log scale: its bins are linearly spaced, and
+	// would therefore not line up with a logarithmic ramp
+	const bool showHistogram = (ccGui::Parameters().colorScaleShowHistogram
+	                            && !useLog
+	                            && sf->getHistogram().size() > 1
+	                            && sf->getHistogram().maxValue > 0);
+
+	//! Value displayed at a given height fraction of the ramp (0 = bottom)
+	auto valueAt = [vMin, vMax, useLog](double t)
+	{
+		if (!useLog)
+		{
+			return vMin + (vMax - vMin) * t;
+		}
+		return std::pow(10.0, std::log10(vMin) + (std::log10(vMax) - std::log10(vMin)) * t);
+	};
+
 	auto group = vsg::Group::create();
 
 	// ------------------------------------------------------------------
 	// the gradient: one quad per step, coloured with the scalar field ramp
 	// ------------------------------------------------------------------
 	{
-		const double vMin = static_cast<double>(sf->displayRange().start());
-		const double vMax = static_cast<double>(sf->displayRange().stop());
-
 		auto verts  = vsg::vec3Array::create(static_cast<std::size_t>(Steps) * 6);
 		auto colors = vsg::ubvec4Array::create(static_cast<std::size_t>(Steps) * 6);
 
@@ -545,8 +611,8 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 			const double t0 = static_cast<double>(i) / Steps;
 			const double t1 = static_cast<double>(i + 1) / Steps;
 
-			const ccColor::Rgb* c0   = sf->getColor(static_cast<ScalarType>(vMin + (vMax - vMin) * t0));
-			const ccColor::Rgb* c1   = sf->getColor(static_cast<ScalarType>(vMin + (vMax - vMin) * t1));
+			const ccColor::Rgb* c0   = sf->getColor(static_cast<ScalarType>(valueAt(t0)));
+			const ccColor::Rgb* c1   = sf->getColor(static_cast<ScalarType>(valueAt(t1)));
 			const ccColor::Rgb  rgb0 = c0 ? *c0 : ccColor::lightGreyRGB;
 			const ccColor::Rgb  rgb1 = c1 ? *c1 : ccColor::lightGreyRGB;
 			const ccColor::Rgba ca0(rgb0.r, rgb0.g, rgb0.b, 255);
@@ -582,7 +648,7 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 	{
 		const ccScalarField::Histogram& hist = sf->getHistogram();
 
-		if (ccGui::Parameters().colorScaleShowHistogram && hist.size() > 1 && hist.maxValue > 0)
+		if (showHistogram)
 		{
 			constexpr int HistWidth = 40;
 
@@ -627,41 +693,47 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 	}
 
 	// ------------------------------------------------------------------
-	// intermediate ticks. With a logarithmic scalar field the ticks are
-	// log spaced (and not linearly), so that they match the ramp.
+	// intermediate ticks, and the value each of them stands for
 	// ------------------------------------------------------------------
+	// The tick sits at the height fraction f and shows valueAt(f); the ramp
+	// below it was built with the very same law, so the two always agree -
+	// whatever the scale is (linear or logarithmic).
 	{
 		constexpr int NTicks = 3; // at 25%, 50% and 75%
-
-		const double vMin = static_cast<double>(sf->displayRange().start());
-		const double vMax = static_cast<double>(sf->displayRange().stop());
 
 		auto verts  = vsg::vec3Array::create(NTicks * 2);
 		auto colors = vsg::ubvec4Array::create(NTicks * 2);
 
-		const vsg::ubvec4 tickCol = toColor(ccGui::Parameters().textDefaultCol);
+		const vsg::ubvec4 tickCol = toColor(textColor);
 
 		for (int i = 0; i < NTicks; ++i)
 		{
-			const double f = static_cast<double>(i + 1) / static_cast<double>(NTicks + 1);
-
-			double t = f;
-			if (sf->logScale() && vMin > 0.0 && vMax > vMin)
-			{
-				// the tick shows a value that is log spaced between vMin and
-				// vMax; its position on the (linear) ramp follows
-				const double lv = std::log10(vMin) + (std::log10(vMax) - std::log10(vMin)) * f;
-				t               = (std::pow(10.0, lv) - vMin) / (vMax - vMin);
-			}
-
-			const float y  = static_cast<float>(ovY(yStart + (yStop - yStart) * t));
-			const float xa = static_cast<float>(ovX(xEnd));
-			const float xb = static_cast<float>(ovX(xEnd + 6));
+			const double f     = static_cast<double>(i + 1) / static_cast<double>(NTicks + 1);
+			const float  y     = static_cast<float>(ovY(yStart + (yStop - yStart) * f));
+			const float  xa    = static_cast<float>(ovX(xEnd));
+			const float  xb    = static_cast<float>(ovX(xEnd + 6));
 
 			(*verts)[static_cast<std::size_t>(i) * 2].set(xa, y, 0.0f);
 			(*verts)[static_cast<std::size_t>(i) * 2 + 1].set(xb, y, 0.0f);
-			(*colors)[static_cast<std::size_t>(i) * 2]      = tickCol;
-			(*colors)[static_cast<std::size_t>(i) * 2 + 1]  = tickCol;
+			(*colors)[static_cast<std::size_t>(i) * 2]     = tickCol;
+			(*colors)[static_cast<std::size_t>(i) * 2 + 1] = tickCol;
+
+			// the value, on the left of the ramp like the extreme values
+			// (CC: ccRenderingTools::DrawColorRamp(), 'E' format on a log
+			// scale so that several decades stay readable)
+			if (!showHistogram)
+			{
+				const QString str = QString::number(valueAt(f), (useLog ? 'E' : 'g'), 3);
+
+				if (auto node = createLabel(str.toUtf8().constData(), textColor))
+				{
+					if (auto* transform = dynamic_cast<vsg::MatrixTransform*>(node.get()))
+					{
+						transform->matrix = vsg::translate(ovX(xStart - 26), static_cast<double>(y), 0.0);
+					}
+					group->addChild(node);
+				}
+			}
 		}
 
 		if (auto node = buildGeometry(m_lineShaderSet, m_sharedObjects, verts, colors))
@@ -673,9 +745,13 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 	// ------------------------------------------------------------------
 	// the scalar field name, above the ramp, and the extreme values
 	// ------------------------------------------------------------------
-	const ccColor::Rgba textColor(255, 255, 255, 255);
-	const std::string&  sfName = sf->getName();
-	const QString       title  = sfName.empty() ? QStringLiteral("Unnamed") : QString::fromStdString(sfName);
+	const std::string& sfName = sf->getName();
+	QString            title  = sfName.empty() ? QStringLiteral("Unnamed") : QString::fromStdString(sfName);
+
+	if (sf->logScale())
+	{
+		title += QStringLiteral("[Log scale]");
+	}
 
 	if (auto node = createLabel(title.toUtf8().constData(), textColor))
 	{
@@ -686,8 +762,11 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 		group->addChild(node);
 	}
 
-	const QString minStr = QString::number(static_cast<double>(sf->displayRange().start()), 'g', 4);
-	const QString maxStr = QString::number(static_cast<double>(sf->displayRange().stop()), 'g', 4);
+	// CC formats the values with 'E' on a log scale (several decades do not
+	// fit in a plain 'g'/'f' representation)
+	const char   valFormat = (useLog ? 'E' : 'g');
+	const QString minStr   = QString::number(static_cast<double>(sf->displayRange().start()), valFormat, 4);
+	const QString maxStr   = QString::number(static_cast<double>(sf->displayRange().stop()), valFormat, 4);
 
 	if (auto node = createLabel(minStr.toUtf8().constData(), textColor))
 	{
@@ -1035,11 +1114,13 @@ vsg::ref_ptr<vsg::Font> ccVSGOverlayBuilder::ensureLabelFont(const std::vector<u
 	return font;
 }
 
-bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
-                                      const vsg::dmat4& viewMatrix,
-                                      const vsg::dmat4& projectionMatrix,
-                                      int               width,
-                                      int               height)
+bool ccVSGOverlayBuilder::updateLabels(ccHObject*                   root,
+                                      const vsg::dmat4&           viewMatrix,
+                                      const vsg::dmat4&           projectionMatrix,
+                                      const ccViewportParameters& viewportParams,
+                                      int                         width,
+                                      int                         height,
+                                      float                       renderZoom)
 {
 	std::vector<const cc2DLabel*>           labels2D;
 	std::vector<const cc2DViewportLabel*>   roiLabels;
@@ -1081,6 +1162,9 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 		m_markerPointIndex.clear();
 		m_markerTransforms.clear();
 		m_labelLinks.clear();
+		m_roiLabels.clear();
+		m_roiTransforms.clear();
+		m_roiTitleTransforms.clear();
 
 		auto group = vsg::Group::create();
 
@@ -1090,6 +1174,14 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 			for (auto* label : labels2D)
 			{
 				for (uint c : label->getName().toUcs4())
+				{
+					chars.push_back(static_cast<uint32_t>(c));
+				}
+			}
+			// the title of a ROI is drawn with the very same font
+			for (auto* roi : roiLabels)
+			{
+				for (uint c : roi->getName().toUcs4())
 				{
 					chars.push_back(static_cast<uint32_t>(c));
 				}
@@ -1219,6 +1311,9 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 		}
 
 		// ---- the ROI rectangles, drawn as dashed line loops ----
+		// The vertices are expressed in ROI coordinates; the zoom and camera
+		// shift compensations of cc2DViewportLabel::drawMeOnly() are applied
+		// through the transform of the node (see the update loop below).
 		for (auto* roi : roiLabels)
 		{
 			const auto& r = roi->roi();
@@ -1266,13 +1361,43 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 				(*colors)[i] = c;
 			}
 
+			auto rect = vsg::MatrixTransform::create();
+
 			if (auto node = buildGeometry(m_lineShaderSet, m_sharedObjects, verts, colors))
 			{
-				group->addChild(node);
+				rect->addChild(node);
 			}
-		}
 
-		m_labelsNode = group;
+			group->addChild(rect);
+			m_roiLabels.push_back(roi);
+			m_roiTransforms.push_back(rect);
+
+			// the title, above the topmost / leftmost corner of the ROI
+			const QString title = roi->getName();
+
+			vsg::ref_ptr<vsg::MatrixTransform> titleTransform;
+
+			if (!title.isEmpty())
+			{
+				const ccColor::Rgba titleColor = (roi->isSelected() ? ccColor::Rgba(255, 0, 0, 255) : labelColor);
+
+				if (auto node = createLabel(title.toUtf8().constData(), titleColor))
+				{
+					titleTransform = dynamic_cast<vsg::MatrixTransform*>(node.get());
+
+					if (titleTransform)
+					{
+						group->addChild(titleTransform);
+					}
+				}
+			}
+
+			// the two vectors are kept in sync: a ROI without a title holds a
+			// null entry, so that the indices always match
+			m_roiTitleTransforms.push_back(titleTransform);
+			}
+
+			m_labelsNode = group;
 		m_root->addChild(m_labelsNode);
 		m_labelsMounted = true;
 		rebuilt         = true;
@@ -1332,6 +1457,61 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 		else
 		{
 			m_markerTransforms[i]->matrix = vsg::translate(1.0e6, 1.0e6, 0.0) * markerScale;
+		}
+	}
+
+	// ---- the ROI rectangles: zoom and camera shift compensation ----
+	// (see cc2DViewportLabel::drawMeOnly(). The ROI is anchored to the 3D
+	// scene, so it has to follow the camera - and it is hidden as soon as the
+	// view no longer matches the one it was created with.)
+	for (std::size_t i = 0; i < m_roiLabels.size() && i < m_roiTransforms.size(); ++i)
+	{
+		vsg::ref_ptr<vsg::MatrixTransform> title = (i < m_roiTitleTransforms.size() ? m_roiTitleTransforms[i] : nullptr);
+
+		const cc2DViewportLabel* roi = m_roiLabels[i];
+
+		if (!roi || !sameViewport(roi->getParameters(), viewportParams))
+		{
+			// another view: the ROI is meaningless, park it out of sight
+			m_roiTransforms[i]->matrix = vsg::translate(1.0e6, 1.0e6, 0.0);
+
+			if (title)
+			{
+				title->matrix = vsg::translate(1.0e6, 1.0e6, 0.0);
+			}
+			continue;
+		}
+
+		const ccViewportParameters& roiParams   = roi->getParameters();
+		const double                widthAtFocal = roiParams.computeWidthAtFocalDist(width, height);
+		const double                focal        = viewportParams.getFocalDistance();
+
+		if (widthAtFocal <= 0.0 || focal <= 0.0)
+		{
+			continue;
+		}
+
+		// focal distance change + render zoom compensation
+		const double relativeZoom = (roiParams.getFocalDistance() / focal) * static_cast<double>(renderZoom);
+
+		// camera center shift compensation
+		const CCVector3d dC = (roiParams.getCameraCenter() - viewportParams.getCameraCenter())
+		                      * (relativeZoom * static_cast<double>(width) / widthAtFocal);
+
+		m_roiTransforms[i]->matrix = vsg::translate(dC.x, dC.y, 0.0) * vsg::scale(relativeZoom);
+
+		if (title)
+		{
+			const auto& r = roi->roi();
+
+			const double xMin = std::min(static_cast<double>(r[0]), static_cast<double>(r[2]));
+			const double yMin = std::min(static_cast<double>(r[1]), static_cast<double>(r[3]));
+
+			// the title is only translated (and not scaled): its size must
+			// stay constant, whatever the zoom compensation is
+			title->matrix = vsg::translate(dC.x + xMin * relativeZoom,
+			                               dC.y + yMin * relativeZoom - 5.0 - LabelHeightPx,
+			                               0.0);
 		}
 	}
 

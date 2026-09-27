@@ -534,7 +534,12 @@ void ccVSGWindowInterface::updateCamera()
 	{
 		ccHObject* labelRoot = m_winDBRoot ? m_winDBRoot : m_globalDBRoot;
 
-		if (m_overlayBuilder.updateLabels(labelRoot, m_viewMatrix->matrix, m_projectionMatrix->matrix, width, height))
+		if (m_overlayBuilder.updateLabels(labelRoot,
+		                                  m_viewMatrix->matrix,
+		                                  m_projectionMatrix->matrix,
+		                                  m_viewportParams,
+		                                  width,
+		                                  height))
 		{
 			m_overlayNeedsCompile = true;
 		}

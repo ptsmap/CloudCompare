@@ -1611,7 +1611,7 @@ cd build-hbqt/qCC/deployqt && open CloudCompare.app
 | 重建策略 | 按指纹（SF 指针 + 显示范围 + 名称 + 视口尺寸）重建整组；罕见。重建后由 `ccVSGWindow::redraw()` 触发 `viewer->compile()`（`m_overlayNeedsCompile`） |
 | SF 查找 | `ccVSGWindowInterface` 递归扫描 `m_winDBRoot` / `m_globalDBRoot` 找第一个 `ccPointCloud` 的 `getCurrentDisplayedScalarField()` |
 
-**近似/未做**：未接 CC 的 `computeColorRampAreaLimits()`（竖直范围取固定值，未为 trihedron 等预留空间）、无直方图（`colorScaleShowHistogram`）、无对数轴与自定义标签。
+**近似/未做**：未接 CC 的 `computeColorRampAreaLimits()`（竖直范围取固定值，未为 trihedron 等预留空间）、无自定义标签。直方图（`colorScaleShowHistogram`）与对数轴（`sf->logScale()`，含刻度数值文本）已补，见 D.13.11.2。
 
 ### D.13.6 M5.4 比例尺（已实现）
 
@@ -1658,11 +1658,13 @@ VSG 侧原先的 mesh shader 恒定带光照 → 切换无反应。现改为：
 | 类型 | 实现 |
 |---|---|
 | `cc2DLabel` | 每个标签一个 `MatrixTransform` 锚点：几何是**相对于锚点**的（一条从 (0,0) 到 (+10,+14) 的引线 + 位于引线末端的名称文字）。每帧只需用 `getPickedPoint(0).getPointPosition()` 投影出的屏幕坐标更新锚点矩阵 —— **无需重建、无需 `compile()`** |
-| `cc2DViewportLabel` | ROI 矩形（`ROI = std::array<float,4>`，相对视口中心的像素值）画成**虚线**矩形环：每条边切成 10 段、隔段跳过，模拟 GL 的 `glLineStipple(1, 0xAAAA)`；选中时画成红色 |
+| `cc2DViewportLabel` | ROI 矩形（`ROI = std::array<float,4>`，相对视口中心的像素值）画成**虚线**矩形环：每条边切成 10 段、隔段跳过，模拟 GL 的 `glLineStipple(1, 0xAAAA)`；选中时画成红色。矩形在**原始 ROI 坐标**里只构建一次，缩放/平移补偿由 `MatrixTransform` 逐帧完成；标题文字是独立节点（**只平移、不缩放**，字号不随补偿变化） |
 
 投影：`(P * V) * p` → 除以 w → **Vulkan 约定 ndc y = +1 是视口底部** → `y_from_top = (ndc.y+1)/2*H` → 再换成覆盖层的中心原点坐标。相机背后的点停放到视口外。
 
-**3D marker（已补，见 D.13.9.1）**：`drawMeOnly3D()` 里对每个 picked point 画一个球体 marker。**未做**：`count==3` 时的半透明黄色三角面（`DefaultTriangleColor(255,255,0,128)`）—— 它的屏幕形状随相机变化，逐帧重建几何会触发 `compile()`，代价过高；`cc2DViewportLabel` 的视口参数匹配与缩放/相机偏移补偿（`relativeZoom`、`dC`）。
+**3D marker（已补，见 D.13.9.1）**：`drawMeOnly3D()` 里对每个 picked point 画一个球体 marker；`count==3` 的半透明黄色三角面与 `count==2` 的连线也已补——顶点数组按帧**原地改写 + `vsg::Data::dirty()`**（不重建、不触发 `compile()`）。
+
+**`cc2DViewportLabel` 视口补偿（已补，见 D.13.9.2）**：`updateLabels()` 增加 `ccViewportParameters` 参数（调用方传 `m_viewportParams`）。
 
 #### D.13.9.1 cc2DLabel 的 3D marker
 
@@ -1671,8 +1673,8 @@ VSG 侧原先的 mesh shader 恒定带光照 → 切换无反应。现改为：
 | picked points | GL 行为 | VSG 实现 |
 |---|---|---|
 | 1 | 一个球体 marker | ✅ 球体（屏幕空间） |
-| 2 | 线段（已注注释，改在 2D 画） | ⬜ 未做 |
-| 3 | 半透明黄三角面 **+ 3 个球体** | ⬜ 三角面未做（球体已做） |
+| 2 | 线段（已注注释，改在 2D 画） | ✅ 连线 |
+| 3 | 半透明黄三角面 **+ 3 个球体** | ✅ 三角面 + 球体 |
 
 实现要点：
 
@@ -1681,11 +1683,19 @@ VSG 侧原先的 mesh shader 恒定带光照 → 切换无反应。现改为：
 - 普通色用黄 `(255,255,0)`、选中用红（与 CC 一致），两种球体各缓存一份并被所有 marker 共享，逐帧只更新 `MatrixTransform` 矩阵。
 - TODO：颜色应取 `ccGui::Parameters().labelDefaultMarkerCol`，半径应取 `labelMarkerSize * relMarkerScale * devicePixelRatio`。
 
+#### D.13.9.2 cc2DViewportLabel 的视口补偿
+
+`cc2DViewportLabel::drawMeOnly()` 的语义：ROI 是**锚定在 3D 场景**上的（截图框），只有当前视口与创建时完全一致才显示。VSG 侧 `updateLabels()` 增加了 `const ccViewportParameters&` 参数（`ccVSGWindowInterface` 传 `m_viewportParams`）：
+
+- **可见性判定**（`sameViewport()`，镜像 CC 的逐项比较，容差 1e-6）：`perspectiveView` / `objectCenteredView` / `fov_deg` / `cameraAspectRatio`、基视图矩阵前 12 个元素、`pivotPoint`。任一不同 → 整组停放到视口外（不显示）。
+- **缩放补偿**：`relativeZoom = (roiFocal / currentFocal) * renderZoom`。
+- **相机偏移补偿**：`dC = relativeZoom * glW * (roiCameraCenter - currentCameraCenter) / roiWidthAtFocalDist(glW, glH)`。
+- 矩形节点矩阵 = `translate(dC) * scale(relativeZoom)`；标题矩阵 = `translate(dC + min(roi)*relativeZoom - (5, 字高))`——**只有平移**，字号恒定（GL 里文字也是固定字号的 `displayText`）。
+
 ### D.13.10 M5 剩余
 
-- `cc2DLabel` count==3 的三角面、count==2 的连线；`cc2DViewportLabel` 的视口状态校验与缩放补偿
-- cc2DLabel 的中间刻度**数值标签**（目前只有刻度线，无文字）
-- 色标：自定义标签、布局（直方图宽度等目前是常量）
+- 色标：自定义标签（`colorScale->customLabels()`）、布局（直方图宽度等目前是常量）、色标区高度自适应（`computeColorRampAreaLimits`）
+- ccGui 参数仍未接的：`renderZoom`（目前恒为 1.0）、devicePixelRatio
 
 ---
 
@@ -1708,12 +1718,12 @@ link.verts->dirty();     // vsg::Data::dirty() - 不触发 recompile
 - 三角面用 `m_triangleShaderSet`，alpha=128 → 覆盖层始终开启混合，自动得到半透明。
 - 顶点直接写**覆盖层坐标**（与 `projectToOverlay()` 输出一致），因此不需要额外的 `MatrixTransform`。
 
-> **待验证**：`vsg::Data::dirty()` 是否真的触发 VBO 重新上传尚未实测（VSG 的 dynamic data 路径）。若三角面/连线不随相机更新，需改为每帧重建（代价高）或改用 `vsg::TransferTask` 显式上传。
+> ~~**待验证**：`vsg::Data::dirty()` 是否真的触发 VBO 重新上传尚未实测~~ → **已实测有效**（D.13.12：截图中三角面/连线随相机姿态正确投影）。
 
 ### D.13.11.2 色标直方图与对数轴
 
-- **直方图**：`ccScalarField::getHistogram()`（`: std::vector<unsigned>` + `maxValue`），在色带**左侧** 40px 内画水平条，最长的 bin 占满宽度。开关接 `ccGui::Parameters().colorScaleShowHistogram`。
-- **对数轴**：`sf->logScale()` 为真时刻度按 **log10 间距**取值再换算回线性位置（`pow(10, lv)`），否则线性。目前只画**刻度线**（25/50/75%），**未画数值文本**。
+- **直方图**：`ccScalarField::getHistogram()`（`: std::vector<unsigned>` + `maxValue`），在色带**左侧** 40px 内画水平条，最长的 bin 占满宽度。开关接 `ccGui::Parameters().colorScaleShowHistogram`；**log scale 时隐藏**（CC 同：bin 是线性间距，与对数色带对不上）。
+- **对数轴（已补全）**：`sf->logScale()` 时**整个色带按 log10 间距取色**（`valueAt(t) = 10^(log10(vMin) + t*(log10(vMax)-log10(vMin)))`，与 CC `DrawColorRamp()` 一致，此前色带是线性取值的），刻度线与**刻度数值文本**都由同一个 `valueAt()` 生成 → 刻度永远落在自己数值对应的高度上。数值格式 log 时用 `'E'`（CC 同，`valFormat = logScale ? 'E' : 'g'`），min/max 标签同。标题追加 `[Log scale]`。刻度文本画在色带左侧 `xStart-26`（与 min/max 同列），**画了直方图时跳过**（那列被直方图占了）。
 
 ### D.13.11.3 接上 ccGui::Parameters()
 
@@ -1746,6 +1756,13 @@ link.verts->dirty();     // vsg::Data::dirty() - 不触发 recompile
 
 - 全量构建通过；`project.bin`（用户已加入 cc2DLabel）冒烟截图成功，采样到约 9k 个黄色像素 → **3D marker 已渲染**。
 - 未做视觉细节核对（三角面/连线/直方图的实际观感）。
+
+### D.13.12 M5 第三轮：cc2DViewportLabel 视口补偿、对数轴刻度数值
+
+- **cc2DViewportLabel 视口补偿**：见 D.13.9.2。`updateLabels()` 签名增加 `const ccViewportParameters&`（默认不破坏旧调用）与 `renderZoom`（默认 1.0）。
+- **对数轴刻度数值文本**：见 D.13.11.2 更新。
+- 验证：构建通过；`project.bin` 冒烟截图成功，截图里 **3D marker（球）、两点连线、count==3 的半透明黄三角面同时可见**，几何随相机逐帧更新（`dirty()` 路径实测有效，之前 D.13.11.1 的"待验证"可以销掉）。
+- 注：`sameViewport()` 的容差用局部常量 1e-6 代替 `CCCoreLib::GreaterThanEpsilon()`（避免给 qCC_vsgWindow 再引一个 CCCoreLib 头）。
 - 色标：直方图、对数轴、自定义标签、按 `computeColorRampAreaLimits()` 预留空间
 - CJK 标签（需更大的 glyph atlas 或按需扩容）
 - 各类叠加元素接 `ccGui::Parameters()`（`textDefaultCol`、`labelMarkerSize` 等）

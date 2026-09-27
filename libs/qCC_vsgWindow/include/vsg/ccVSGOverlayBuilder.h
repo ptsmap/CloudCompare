@@ -36,6 +36,7 @@ class cc2DViewportLabel;
 class ccHObject;
 class ccImage;
 class ccScalarField;
+class ccViewportParameters;
 
 // system
 #include <cstdint>
@@ -117,16 +118,24 @@ class ccVSGOverlayBuilder
 	      point, with a short leader line between the point and the text
 	      (see cc2DLabel::drawMeOnly2D())
 	    - `cc2DViewportLabel`: the ROI rectangle, drawn as a dashed line loop
-	      (see cc2DViewportLabel::drawMeOnly())
+	      (see cc2DViewportLabel::drawMeOnly()). The ROI is only displayed
+	      when the current viewport matches the one it was created with: it is
+	      then rescaled and shifted so that it keeps covering the same part of
+	      the **3D scene** (and not of the screen) when the camera moves.
 
 	    \param viewMatrix,projectionMatrix the current camera matrices (used to
 	           project the 3D anchor of each cc2DLabel)
+	    \param viewportParams              the current viewport parameters
+	           (compared against the ones stored in each cc2DViewportLabel)
+	    \param renderZoom                  display zoom factor (1.0 = normal)
 	 **/
-	bool updateLabels(ccHObject*           root,
-	                  const vsg::dmat4&   viewMatrix,
-	                  const vsg::dmat4&   projectionMatrix,
-	                  int                 width,
-	                  int                 height);
+	bool updateLabels(ccHObject*                   root,
+	                  const vsg::dmat4&           viewMatrix,
+	                  const vsg::dmat4&           projectionMatrix,
+	                  const ccViewportParameters& viewportParams,
+	                  int                         width,
+	                  int                         height,
+	                  float                       renderZoom = 1.0f);
 
   private:
 	//! Creates the X/Y/Z direction axes (built once, then only its matrix changes)
@@ -210,6 +219,15 @@ class ccVSGOverlayBuilder
 	//! Cached unit spheres (plain / selected) shared by all the markers
 	vsg::ref_ptr<vsg::Node> m_markerSphere;
 	vsg::ref_ptr<vsg::Node> m_markerSphereSelected;
+
+	//! cc2DViewportLabel ROIs (M5.3)
+	/** The rectangle is built once, in the (fixed) ROI coordinates, and is
+	    moved and scaled by \c m_roiTransforms every frame. The title is a
+	    separate node: it must be translated only, so that its size does not
+	    follow the zoom compensation. **/
+	std::vector<const cc2DViewportLabel*>           m_roiLabels;
+	std::vector<vsg::ref_ptr<vsg::MatrixTransform>> m_roiTransforms;
+	std::vector<vsg::ref_ptr<vsg::MatrixTransform>> m_roiTitleTransforms;
 
 	//! Label font (ASCII + the code points used by the labels) and its charset
 	vsg::ref_ptr<vsg::Font> m_labelFont;
