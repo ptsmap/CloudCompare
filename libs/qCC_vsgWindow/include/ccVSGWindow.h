@@ -23,6 +23,7 @@
 #include <QWidget>
 
 class QResizeEvent;
+class QTimer;
 
 //! Qt widget embedding a VulkanSceneGraph 3D view
 /** A vsgQt::Window (a QWindow) is created and embedded into this widget with
@@ -71,7 +72,23 @@ class CCVSGWINDOW_LIB_API ccVSGWindow : public QWidget, public ccVSGWindowInterf
 	void invalidateViewport() override;
 	void deprecate3DLayer() override;
 
+  protected:
+	//! Keep the embedded VSG (Vulkan/Metal) surface in sync with the widget.
+	/** On macOS MDI maximize/restore the QWindow hosted by createWindowContainer
+		does not reliably receive the new size, so the swapchain / window extent
+		stays at the old value and the rendered image no longer fills the view.
+		We explicitly resize the vsgQt::Window and refresh the camera aspect. **/
+	void resizeEvent(QResizeEvent* event) override;
+
+  private slots:
+	//! Deferred resize: after the layout has settled, force the embedded VSG
+	//! window to the container's final size and redraw.
+	void onDeferredResize();
+
   private:
 	//! Widget hosting the vsgQt::Window
 	QWidget* m_container = nullptr;
+
+	//! Single-shot timer used to coalesce and defer VSG resizes.
+	QTimer* m_resizeTimer = nullptr;
 };

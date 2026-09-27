@@ -25,6 +25,10 @@
 #include <vsgQt/Window.h>
 
 // Qt
+#include <QMdiSubWindow>
+#include <QResizeEvent>
+#include <QSizePolicy>
+#include <QTimer>
 #include <QVBoxLayout>
 
 // system
@@ -52,11 +56,44 @@ ccVSGWindow::ccVSGWindow(QWidget* parent /*=nullptr*/, bool silentInitialization
 	vsgWindow->initializeWindow();
 
 	m_container = QWidget::createWindowContainer(vsgWindow, this);
+	// The container's default size policy is derived from the embedded QWindow
+	// (often Fixed/Preferred). If we don't make it Expanding, the QVBoxLayout
+	// will leave the container top-left aligned with gray space around it after
+	// MDI maximize/restore, which is exactly the "rendered image not filling the
+	// 3DView" symptom.
+	m_container->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+	m_container->setMinimumSize(1, 1);
 
 	auto* layout = new QVBoxLayout(this);
 	layout->setContentsMargins(0, 0, 0, 0);
-	layout->addWidget(m_container);
+	layout->addWidget(m_container, 1);
 	setLayout(layout);
+
+	// Resize events can be compressed by Qt during MDI maximize/restore,
+	// leaving the embedded QWindow at an intermediate size. Coalesce them
+	// with a single-shot timer and re-sync once the layout has its final
+	// geometry.
+	m_resizeTimer = new QTimer(this);
+	m_resizeTimer->setSingleShot(true);
+	connect(m_resizeTimer, &QTimer::timeout, this, &ccVSGWindow::onDeferredResize);
+
+	// Once this widget has been parented into the MDI area, watch the
+	// QMdiSubWindow for maximize/restore so we can force a re-sync even when
+	// Qt does not deliver a usable resize event for the inner widget.
+	QTimer::singleShot(0, this, [this]()
+	{
+		QWidget* p = parentWidget();
+		while (p)
+		{
+			if (auto* sub = qobject_cast<QMdiSubWindow*>(p))
+			{
+				connect(sub, &QMdiSubWindow::windowStateChanged,
+				        this, [this](Qt::WindowStates) { if (m_resizeTimer) m_resizeTimer->start(30); });
+				break;
+			}
+			p = p->parentWidget();
+		}
+	});
 
 	initializeViewer(viewer, vsgWindow);
 }
@@ -118,4 +155,60 @@ void ccVSGWindow::invalidateViewport()
 void ccVSGWindow::deprecate3DLayer()
 {
 	// TODO(M3): the 3D layer is not cached yet (no offscreen FBO equivalent)
+}
+
+void ccVSGWindow::resizeEvent(QResizeEvent* event)
+{
+	QWidget::resizeEvent(event);
+
+	// Force the embedded QWindow container to fill this widget immediately,
+	// synchronously. Relying on the QVBoxLayout alone leaves the container at
+	// its previous size right after an MDI maximize/restore, so the VSG
+	// swapchain extent is never updated and the rendered image no longer
+	// fills the view. Setting the geometry here also re-fires the QWindow's
+	// own resize, which is what makes vsgQt::Window update its extent.
+	if (m_container)
+	{
+		m_container->setGeometry(rect());
+	}
+
+	if (m_window)
+	{
+		const QSize sz = m_container ? m_container->size() : size();
+		m_window->resize(std::max(sz.width(), 1), std::max(sz.height(), 1));
+	}
+
+	// The projection aspect is derived from the widget size (getScreenSize()),
+	// so refresh the camera and request a new frame.
+	invalidateViewport();
+	redraw();
+
+	// Qt may still re-layout the container once more after this event; defer a
+	// second sync (using the now-correct container size) so the VSG window is
+	// guaranteed to match the final geometry.
+	if (m_resizeTimer)
+	{
+		m_resizeTimer->start(30);
+	}
+}
+
+void ccVSGWindow::onDeferredResize()
+{
+	if (!m_window || !m_container)
+	{
+		return;
+	}
+
+	// Re-assert the container geometry, then read its (now settled) size.
+	m_container->setGeometry(rect());
+
+	const QSize sz = m_container->size();
+	if (sz.isEmpty())
+	{
+		return;
+	}
+
+	m_window->resize(sz.width(), sz.height());
+	invalidateViewport();
+	redraw();
 }
