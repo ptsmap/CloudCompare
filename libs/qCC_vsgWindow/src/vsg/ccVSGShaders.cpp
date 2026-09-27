@@ -72,6 +72,30 @@ void main()
 }
 )";
 
+	//! Unlit ("flat") shader used for lines, wireframes, sensors and the quad
+	//! expanded thick lines: the vertex color is simply passed through.
+	//! (no gl_PointSize here: it is meaningless for non point topologies)
+	const char* s_flatVertexSource = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(push_constant) uniform PushConstants {
+    mat4 projection;
+    mat4 modelView;
+} pc;
+
+layout(location = 0) in vec3 vsg_Vertex;
+layout(location = 6) in vec4 vsg_Color;
+
+layout(location = 0) out vec4 vertexColor;
+
+void main()
+{
+    gl_Position = (pc.projection * pc.modelView) * vec4(vsg_Vertex, 1.0);
+    vertexColor = vsg_Color;
+}
+)";
+
 	//! Mesh (TRIANGLE_LIST) shader: per vertex color, simple diffuse lighting
 	const char* s_meshVertexSource = R"(
 #version 450
@@ -170,6 +194,29 @@ vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createMeshShaderSet(VkPrimitiveTopolo
 
 	shaderSet->addAttributeBinding("vsg_Vertex", "", 0, VK_FORMAT_R32G32B32_SFLOAT, {});
 	shaderSet->addAttributeBinding("vsg_Normal", "", 1, VK_FORMAT_R32G32B32_SFLOAT, {});
+	shaderSet->addAttributeBinding("vsg_Color", "", 6, VK_FORMAT_R8G8B8A8_UNORM, {});
+
+	shaderSet->addPushConstantRange("pc", "", VK_SHADER_STAGE_VERTEX_BIT, 0, 128);
+
+	shaderSet->defaultGraphicsPipelineStates = {
+	    vsg::InputAssemblyState::create(topology),
+	    vsg::RasterizationState::create(),
+	    vsg::MultisampleState::create(),
+	    vsg::ColorBlendState::create(),
+	    vsg::DepthStencilState::create()};
+
+	return shaderSet;
+}
+
+vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createFlatShaderSet(VkPrimitiveTopology topology)
+{
+	vsg::ShaderStages stages{
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_VERTEX_BIT, "main", s_flatVertexSource),
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_FRAGMENT_BIT, "main", s_pointCloudFragmentSource)};
+
+	auto shaderSet = vsg::ShaderSet::create(stages);
+
+	shaderSet->addAttributeBinding("vsg_Vertex", "", 0, VK_FORMAT_R32G32B32_SFLOAT, {});
 	shaderSet->addAttributeBinding("vsg_Color", "", 6, VK_FORMAT_R8G8B8A8_UNORM, {});
 
 	shaderSet->addPushConstantRange("pc", "", VK_SHADER_STAGE_VERTEX_BIT, 0, 128);

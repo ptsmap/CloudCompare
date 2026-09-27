@@ -44,6 +44,36 @@
 #include <limits>
 #include <vector>
 
+namespace
+{
+	//! Finds the vsg::View of a command graph (CommandGraph -> RenderGraph -> View)
+	vsg::ref_ptr<vsg::View> findView(vsg::ref_ptr<vsg::Node> node)
+	{
+		if (!node)
+		{
+			return {};
+		}
+
+		if (auto* view = dynamic_cast<vsg::View*>(node.get()))
+		{
+			return vsg::ref_ptr<vsg::View>(view);
+		}
+
+		if (auto* group = dynamic_cast<vsg::Group*>(node.get()))
+		{
+			for (auto& child : group->children)
+			{
+				if (auto found = findView(child))
+				{
+					return found;
+				}
+			}
+		}
+
+		return {};
+	}
+} // namespace
+
 ccVSGWindowInterface::ccVSGWindowInterface()
 {
 	m_signalEmitter = new ccVSGWindowSignalEmitter(this);
@@ -122,6 +152,21 @@ bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, 
 
 	vsg::ref_ptr<vsg::CommandGraph> commandGraph = vsg::createCommandGraphForView(window, m_camera, m_sceneRoot);
 	m_commandGraph                               = commandGraph;
+
+	// Transparent entities are collected in a dedicated bin and sorted back to
+	// front by the view (M4.5 - see ccVSGSceneBuilder::syncEntity).
+	// The bins are indexed by their bin number, so the vector must be filled
+	// up to CC_VSG_TRANSPARENT_BIN.
+	if (auto view = findView(commandGraph))
+	{
+		while (static_cast<int32_t>(view->bins.size()) <= CC_VSG_TRANSPARENT_BIN)
+		{
+			view->bins.push_back(vsg::Bin::create(static_cast<int32_t>(view->bins.size()), vsg::Bin::NO_SORT));
+		}
+
+		view->bins[CC_VSG_TRANSPARENT_BIN] = vsg::Bin::create(CC_VSG_TRANSPARENT_BIN, vsg::Bin::DESCENDING);
+	}
+
 	m_viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
 
 	// CloudCompare camera semantics (virtual trackball, pivot point, ...)

@@ -837,7 +837,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M1 | 骨架与构建 | ✅ 已完成（`build-hbqt` 双后端可编译运行，调试入口可用） | 3~4 | 7 |
 | M2 | 相机与交互 | ✅ 已完成（CC 语义操控器 + reverse-depth NDC 适配） | 2~3 | 10 |
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10） | 3~4 | 14 |
-| M4 | 网格/折线/传感器 | 🟡 部分：网格/折线已实现（commit `0ec5e855`）；传感器、粗线 quad 扩展、网格线框、LOD、半透明未做 | 3~4 | 18 |
+| M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ 传感器/粗线 quad/网格线框/LOD/半透明（见 D.11）；材质纹理（M4.3）与像素级线宽仍缺 | 3~4 | 18 |
 | M5 | 2D 覆盖层 | ⬜ 未开始（标签/比例尺/方向轴/色标/文字全缺） | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
 | M7 | 后处理与 LOD | ⬜ 未开始 | 4 | 28 |
@@ -1407,3 +1407,74 @@ material      : （无 —— 顶点阶段 pointSize UBO 已移除；Metal 下�
 5. **M7/M8**：后处理、LOD/分页、插件解耦。
 
 > 注：`libs/qCC_db/extern/CCCoreLib` 子模块当前有本地修改（未提交到子模块），与 VSG 改造无关，单独处理。
+
+---
+
+## 附录 D.11 — M4 收尾：传感器、粗线 quad、网格线框、LOD、半透明
+
+本轮补齐了 D.10.2/D.10.3 中标注未做的 M4 剩余项，全部落在 `libs/qCC_vsgWindow/`。
+
+### D.11.1 传感器（M4.4）
+
+| 项 | 实现 |
+|---|---|
+| 入口 | `ccVSGSceneBuilder::syncEntity()` 新增 `CC_TYPES::SENSOR` 分支 → `ccVSGMeshBuilder::buildSensor()` |
+| 变换 | 与 `ccSensor::drawMeOnly()` 一致：几何体建在**传感器局部坐标系**，外层包一个 `vsg::MatrixTransform`，矩阵取 `getActiveAbsoluteTransformation()`（对应 GL 的 `glMultMatrixf(sensorPos)`） |
+| GBL | ① 坐标轴（+X 红 / +Y 绿 / +Z 蓝，长 `0.3 * getGraphicScale()`）；② 头部线框盒 `±0.3*scale`；③ 三条支腿 `(0,0,-0.3s) → (-s,-s,-s) / (-s,s,-s) / (s,0,-s)` |
+| Camera | ① 近平面矩形（`computeUpperLeftPoint()`）；② 光心→四角侧线；③ 底座填充四边形（`6*uly/5`、`ulx/5`）；④ 箭头三角形（`3*uly/2`、`2*ulx/5`）；⑤ 视锥 6 个面（角点顺序与 `drawMeOnly` 完全一致）；⑥ 坐标轴（+X 红 / +Y 绿 / **-Z** 蓝，长 `|ulz|/2`） |
+| 变更指纹 | `computeSignature()` 增加 `getGraphicScale()`、`getActiveIndex()` 与 16 个变换分量，位置/尺度变化会触发重建 |
+
+为读取传感器颜色与视锥角点，给 `qCC_db` 加了三个**只读**访问器（不改语义、不动 `drawMeOnly`）：
+
+- `ccSensor::getSensorColor()`（`m_color` 原先是 protected，无访问器）
+- `ccCameraSensor::getUpperLeftPoint()`（转发 protected 的 `computeUpperLeftPoint()`）
+- `ccCameraSensor::getFrustumCorners(CCVector3[8])`（按需调用 protected 的 `computeFrustumCorners()`；实现放在 .cpp，`ccPointCloud` 在头文件里只是前向声明）
+
+### D.11.2 粗线 quad 扩展（R2 / M4.4）
+
+`ccPolyline::getWidth()` 现在是有效参数：
+
+- `width <= 1`（绝大多数折线）→ 仍走 `LINE_STRIP`，与之前一致，无额外开销。
+- `width > 1` → **CPU 生成三角带**：每段扩成 2 个三角形（4 顶点 quad），垂直方向取 `normalize(cross(dir, ref))`（`dir` 与参考轴夹角过大时换用 `(0,1,0)`）。
+
+**已知限制（重要）**：厚度用**世界单位**近似（`width * 包围盒尺寸 * 5e-4 * 0.5`），不是像素级线宽。原因是像素级线宽需要屏幕空间展开，即在顶点着色器里拿到 viewport 尺寸 → 需要顶点阶段 uniform，而 MoltenVK 会对这类布局报 orphaned buffer layout 并触发 Metal 验证 **abort**（见 R1）。等 R1 的 billboard quad 方案落地后可一并改成像素精确。段间拐角目前**未做 join 填充**（GL 的粗线有）。
+
+### D.11.3 网格线框（M4.2）
+
+`ccGenericMesh::isShownAsWire()` 为真时，不再输出三角面，而是把每个三角形的 3 条边展开成 `LINE_LIST`（每三角形 6 顶点），使用不参与光照的 flat 着色器，颜色沿用顶点色/标量场色。
+
+### D.11.4 LOD（对应 M7.3 的 `vsg::LOD` 映射）
+
+三角面数 > `MinLODTriangleCount`（10 万）时返回 `vsg::LOD`：
+
+```cpp
+lod->addChild(vsg::LOD::Child{0.25, fullMesh});   // 屏幕占比够大 → 完整网格
+lod->addChild(vsg::LOD::Child{0.0,  decimatedPoints}); // 否则 → 抽稀点云
+lod->bound = computeBound(vertices);
+```
+
+低模子是按 CC 语义抽稀的顶点点云（`decimStep = ceil(顶点数 / MinLODTriangleCount)`，对应 `ccMesh::drawMeOnly` 里 LOD 激活时 `triangleDisplayType = GL_POINTS`）。
+
+**注意**：这是按**屏幕占比**切换的静态 LOD，与 OpenGL 后端"移动时抽稀"（`decimateMeshOnMove` + `MACRO_LODActivated`，默认阈值 250 万三角面）语义不同。要把"移动时降细节"也接进来，需要在相机运动时动态切换 `vsg::LOD`/`vsg::Switch`，属于后续工作。
+
+### D.11.5 半透明（M4.5）
+
+| 环节 | 实现 |
+|---|---|
+| 判定 | 构建时统计顶点 alpha，任一 `< 255` 即标记为半透明（`buildMesh`/`buildPolyline` 的 `bool* transparent` 出参） |
+| 管线 | `ColorBlendState::configureAttachments(true)`（src_alpha / one_minus_src_alpha）+ `DepthStencilState::depthWriteEnable = VK_FALSE` |
+| 排序 | `vsg::DepthSorted::create(CC_VSG_TRANSPARENT_BIN, 实体包围球, node)` |
+| Bin | `ccVSGWindowInterface::initializeViewer()` 里从 CommandGraph 找到 `vsg::View`，按编号补齐 `bins` 并注册 `Bin(1, DESCENDING)`（远→近） |
+
+> **待验证**：`DepthSorted` 的 bound 目前取实体**局部**包围球（`getOwnBB(true)`）。VSG 是否会用累积矩阵变换该 bound 尚未实测确认；CC 渲染用局部坐标且 GL 变换通常为恒等，实际影响有限，但若发现半透明实体被误裁剪，需改为世界坐标包围球。
+
+### D.11.6 顺带修掉的隐患
+
+原 `buildMesh`/`buildPolyline` 同时调用了 `config->enableArray()` 和 `config->assignArray()`，会把 attribute/binding 重复注册（4 绑定 vs 2 数组）——正是记忆里记录的 MoltenVK "orphaned buffer layout" 触发条件。新代码统一改为 `enableArray()` 声明布局 → 按同序 `arrays.push_back()` → `draw->assignArrays(arrays)`（仿 `vsg::Builder`）。
+
+### D.11.7 仍未做（M4 剩余）
+
+- **M4.3 材质/纹理**：`ccMaterial` → `vsg::DescriptorImage` + `Sampler`，纹理坐标 `vsg_TexCoord0`（需 `QImage` 解码填 `vsg::Data`，vsgXchange 与 vsg 1.1.14 ABI 不兼容，见 R12/R15）
+- 粗线的像素级线宽与拐角 join（依赖 R1 的 billboard 方案）
+- 移动时降细节的 LOD 语义（`decimateMeshOnMove`）
+- `ccFacet`、图像、标签等实体

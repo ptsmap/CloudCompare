@@ -1421,6 +1421,26 @@ bool ccCameraSensor::computeGlobalPlaneCoefficients(float planeCoefficients[6][4
 	return true;
 }
 
+bool ccCameraSensor::getFrustumCorners(CCVector3 corners[8])
+{
+	if (!m_frustumInfos.isComputed && !computeFrustumCorners())
+	{
+		return false;
+	}
+
+	if (!m_frustumInfos.frustumCorners || m_frustumInfos.frustumCorners->size() < 8)
+	{
+		return false;
+	}
+
+	for (unsigned i = 0; i < 8; ++i)
+	{
+		corners[i] = *m_frustumInfos.frustumCorners->getPoint(i);
+	}
+
+	return true;
+}
+
 void ccCameraSensor::drawMeOnly(CC_DRAW_CONTEXT& context)
 {
 	if (!MACRO_Draw3D(context))

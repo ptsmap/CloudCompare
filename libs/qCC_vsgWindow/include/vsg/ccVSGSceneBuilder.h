@@ -37,6 +37,11 @@ namespace vsg
 	class Node;
 }
 
+//! Bin used for the transparent (alpha blended) entities - see M4.5
+/** The matching vsg::Bin (sorted back to front) is registered on the view by
+    ccVSGWindowInterface::initializeViewer(). **/
+constexpr int32_t CC_VSG_TRANSPARENT_BIN = 1;
+
 //! Keeps a VSG scene graph in sync with the ccHObject tree
 /** Instead of re-emitting draw calls every frame (as the historical
     ccHObject::draw() did), the entities are converted into VSG nodes and the

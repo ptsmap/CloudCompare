@@ -25,9 +25,13 @@
 #include <ccPointCloud.h>
 #include <ccPolyline.h>
 #include <ccScalarField.h>
+#include <ccSensor.h>
 
 // VSG
 #include <vsg/all.h>
+
+// system
+#include <cmath>
 
 namespace
 {
@@ -47,6 +51,26 @@ namespace
 	inline void hashCombine(quint64& hash, quint64 value)
 	{
 		hash = hash * HashPrime + value;
+	}
+
+	//! Bounding sphere of an entity, used by the depth sorted (transparent) nodes
+	vsg::dsphere computeObjectBound(ccHObject* obj)
+	{
+		const ccBBox    bb   = obj->getOwnBB(true);
+		const CCVector3 minC = bb.minCorner();
+		const CCVector3 maxC = bb.maxCorner();
+
+		const vsg::dvec3 center((minC.x + maxC.x) * 0.5,
+		                        (minC.y + maxC.y) * 0.5,
+		                        (minC.z + maxC.z) * 0.5);
+
+		const double dx = static_cast<double>(maxC.x) - static_cast<double>(minC.x);
+		const double dy = static_cast<double>(maxC.y) - static_cast<double>(minC.y);
+		const double dz = static_cast<double>(maxC.z) - static_cast<double>(minC.z);
+
+		const double radius = 0.5 * std::sqrt(dx * dx + dy * dy + dz * dz);
+
+		return vsg::dsphere(center, std::max(radius, 1.0));
 	}
 } // namespace
 
@@ -217,6 +241,7 @@ bool ccVSGSceneBuilder::syncEntity(ccHObject* obj, Entry& entry)
 	}
 
 	vsg::ref_ptr<vsg::Node> content;
+	bool                    transparent = false;
 
 	if (obj->isKindOf(CC_TYPES::POINT_CLOUD))
 	{
@@ -224,13 +249,25 @@ bool ccVSGSceneBuilder::syncEntity(ccHObject* obj, Entry& entry)
 	}
 	else if (obj->isKindOf(CC_TYPES::MESH))
 	{
-		content = m_meshBuilder.buildMesh(static_cast<ccGenericMesh*>(obj), ccColor::white);
+		content = m_meshBuilder.buildMesh(static_cast<ccGenericMesh*>(obj), ccColor::white, &transparent);
 	}
 	else if (obj->isKindOf(CC_TYPES::POLY_LINE))
 	{
-		content = m_meshBuilder.buildPolyline(static_cast<ccPolyline*>(obj), ccColor::white);
+		content = m_meshBuilder.buildPolyline(static_cast<ccPolyline*>(obj), ccColor::white, &transparent);
 	}
-	// TODO(M4): sensors (ccGBLSensor / ccCameraSensor), facets, images, labels
+	else if (obj->isKindOf(CC_TYPES::SENSOR))
+	{
+		content = m_meshBuilder.buildSensor(static_cast<ccSensor*>(obj));
+	}
+	// TODO(M4): facets, images, labels
+
+	// Transparent entities are collected in a dedicated bin and sorted back to
+	// front by the view (M4.5). The matching vsg::Bin is registered by
+	// ccVSGWindowInterface::initializeViewer().
+	if (transparent && content)
+	{
+		content = vsg::DepthSorted::create(CC_VSG_TRANSPARENT_BIN, computeObjectBound(obj), content);
+	}
 
 	if (content)
 	{
@@ -298,6 +335,25 @@ quint64 ccVSGSceneBuilder::computeSignature(ccHObject* obj)
 		hashCombine(hash, poly->size());
 		hashCombine(hash, poly->isClosed() ? 43u : 47u);
 		hashCombine(hash, poly->hasColors() ? 53u : 59u);
+		// the width drives the quad expansion (M4)
+		hashCombine(hash, static_cast<quint64>(poly->getWidth() * 1.0e6f));
+	}
+	else if (obj->isKindOf(CC_TYPES::SENSOR))
+	{
+		auto* sensor = static_cast<ccSensor*>(obj);
+
+		hashCombine(hash, static_cast<quint64>(sensor->getGraphicScale() * 1.0e6));
+		hashCombine(hash, static_cast<quint64>(sensor->getActiveIndex() * 1.0e6));
+
+		ccIndexedTransformation trans;
+		if (sensor->getActiveAbsoluteTransformation(trans))
+		{
+			const float* m = trans.data();
+			for (unsigned i = 0; i < 16; ++i)
+			{
+				hashCombine(hash, static_cast<quint64>(m[i] * 1.0e6f));
+			}
+		}
 	}
 
 	return hash;

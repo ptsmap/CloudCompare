@@ -536,6 +536,19 @@ class QCC_DB_LIB_API ccCameraSensor : public ccSensor
 	//! Helper: deduces camera f.o.v. (in radians) from focal (in mm)
 	static float ComputeFovRadFromFocalMm(float focal_mm, float ccdSize_mm);
 
+	//! Returns the upper left corner of the near plane (graphic representation)
+	/** Mirrors the internal computeUpperLeftPoint() used by drawMeOnly(). **/
+	CCVector3 getUpperLeftPoint() const
+	{
+		return computeUpperLeftPoint();
+	}
+
+	//! Returns the 8 corners of the frustum (computed on demand)
+	/** \param corners output array of 8 corners (local coordinates)
+	    \return true if the corners are available
+	 **/
+	bool getFrustumCorners(CCVector3 corners[8]);
+
   protected:
 	//! Used internally for display
 	CCVector3 computeUpperLeftPoint() const;

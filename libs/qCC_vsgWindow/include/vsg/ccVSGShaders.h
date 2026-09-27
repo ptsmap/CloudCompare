@@ -55,6 +55,11 @@ class ccVSGShaders
 	 **/
 	static vsg::ref_ptr<vsg::ShaderSet> createMeshShaderSet(VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 
+	//! Returns an unlit "flat" shader set: the vertex color is passed through
+	/** Used for the entities that must not be lit: wireframes, sensor wire
+	    geometry and the quad expanded thick lines. **/
+	static vsg::ref_ptr<vsg::ShaderSet> createFlatShaderSet(VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+
 	//! GLSL sources (exposed for tests / offline compilation)
 	static const char* pointCloudVertexSource();
 	static const char* pointCloudFragmentSource();

@@ -164,6 +164,12 @@ class QCC_DB_LIB_API ccSensor : public ccHObject
 		return m_scale;
 	}
 
+	//! Returns the color of the sensor graphic representation
+	ccColor::Rgb getSensorColor() const
+	{
+		return m_color;
+	}
+
 	//! Apply sensor 'viewport' to a 3D view
 	/** \param win 3D view to which to apply the sensor viewport (or the associated 'display' if 0)
 	    \return success
