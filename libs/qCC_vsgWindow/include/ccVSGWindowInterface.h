@@ -134,6 +134,15 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 	}
 	void setViewportParameters(const ccViewportParameters& params) override;
 
+	//! Device pixel ratio (1.0 standard, 2.0 on Retina)
+	/** vsgQt already sizes the swapchain in device pixels, so the overlay
+	    coordinate system stays logical; this is only forwarded to the overlay
+	    builder for the glyph atlas resolution. **/
+	float devicePixelRatio() const
+	{
+		return m_window ? static_cast<float>(m_window->devicePixelRatio()) : 1.0f;
+	}
+
 	// ----------------------------------------------------------------------
 	// View control (same vocabulary as ccGenericGLDisplay)
 	// ----------------------------------------------------------------------

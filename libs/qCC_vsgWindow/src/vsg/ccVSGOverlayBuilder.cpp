@@ -503,7 +503,25 @@ void ccVSGOverlayBuilder::update(int width, int height, const vsg::dmat4& viewMa
 	}
 }
 
-bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, int height)
+void ccVSGOverlayBuilder::setDevicePixelRatio(float dpr)
+{
+	if (dpr <= 0.0f || std::abs(dpr - m_devicePixelRatio) < 1.0e-3f)
+	{
+		return;
+	}
+	m_devicePixelRatio = dpr;
+
+	// rebuild the ASCII font at the new resolution; the (optional) CJK label
+	// font is rebuilt lazily by ensureLabelFont() the next time it is used
+	m_font = ccVSGFontBuilder::buildFont(ccVSGFontBuilder::defaultFontFile());
+	m_labelFont       = nullptr;
+	m_labelFontChars.clear();
+}
+
+static int colorRampBottom(float z){return static_cast<int>(5*z);}
+static int colorRampTop(int h,float z){return h-5*z-60;}
+
+bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, int height, float renderZoom)
 {
 	// ------------------------------------------------------------------
 	// fingerprint: the group is only rebuilt when something visible changed
@@ -543,16 +561,16 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 		return true;
 	}
 
-	constexpr int ScaleWidth  = 30;
-	constexpr int RightMargin = 20;
+	constexpr int BaseScaleWidth = 30;
+	constexpr int BaseRightMargin = 20;
 	constexpr int Steps       = 32;
 
-	const int xEnd   = width - 1 - RightMargin;
-	const int xStart = xEnd - ScaleWidth;
-	const int yStart = 90;          // bottom, in GL pixel coordinates
-	const int yStop  = height - 60; // top
+	const int xEnd   = width - 1 - BaseRightMargin;
+	const int xStart = xEnd - BaseScaleWidth;
+	const int yStart = colorRampBottom(renderZoom);
+	const int yStop  = colorRampTop(height, renderZoom);
 
-	if (yStop - yStart < ScaleWidth)
+	if (yStop - yStart < BaseScaleWidth)
 	{
 		// not enough room to display the color scale
 		return true;
@@ -757,7 +775,7 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 	{
 		if (auto* transform = dynamic_cast<vsg::MatrixTransform*>(node.get()))
 		{
-			transform->matrix = vsg::translate(ovX(xStart + ScaleWidth * 0.5), ovY(yStop + 18), 0.0);
+			transform->matrix = vsg::translate(ovX(xStart + BaseScaleWidth * 0.5), ovY(yStop + 18), 0.0);
 		}
 		group->addChild(node);
 	}
@@ -784,6 +802,76 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 			transform->matrix = vsg::translate(ovX(xStart - 26), ovY(yStop), 0.0);
 		}
 		group->addChild(node);
+	}
+
+	// custom labels
+	if (sf->getColorScale() && sf->getColorScale()->customLabels().size() >= 2)
+	{
+		const auto& L = sf->getColorScale()->customLabels();
+
+		// fraction of the ramp height at which a given (finite) value sits;
+		// this is the inverse of valueAt(), so a label always lines up with
+		// its own colour on the ramp (CC: ccRenderingTools::DrawColorRamp())
+		auto fractionFor = [vMin, vMax, useLog](double value)
+		{
+			if (!useLog)
+			{
+				return (value - vMin) / (vMax - vMin);
+			}
+			if (value <= 0.0)
+			{
+				return 0.0; // outside the log range -> clamp to the bottom
+			}
+			return (std::log10(value) - std::log10(vMin)) / (std::log10(vMax) - std::log10(vMin));
+		};
+
+		const char labFormat = (useLog ? 'E' : 'f');
+		const int  precision = ccGui::Parameters().displayedNumPrecision;
+		const auto tickCol   = toColor(textColor);
+
+		std::vector<vsg::vec3>   tickVerts;
+		std::vector<vsg::ubvec4> tickColors;
+
+		for (const auto& lab : L)
+		{
+			const double t  = std::clamp(fractionFor(lab.value), 0.0, 1.0);
+			const float  y  = static_cast<float>(ovY(yStart + (yStop - yStart) * t));
+			const float  xa = static_cast<float>(ovX(xEnd));
+			const float  xb = static_cast<float>(ovX(xEnd + 6));
+
+			tickVerts.push_back(vsg::vec3(xa, y, 0.0f));
+			tickVerts.push_back(vsg::vec3(xb, y, 0.0f));
+			tickColors.push_back(tickCol);
+			tickColors.push_back(tickCol);
+
+			const QString str = lab.text.isEmpty()
+			                        ? QString::number(lab.value, labFormat, precision)
+			                        : lab.text;
+
+			if (auto node = createLabel(str.toUtf8().constData(), textColor))
+			{
+				if (auto* transform = dynamic_cast<vsg::MatrixTransform*>(node.get()))
+				{
+					transform->matrix = vsg::translate(ovX(xStart - 26), static_cast<double>(y), 0.0);
+				}
+				group->addChild(node);
+			}
+		}
+
+		if (!tickVerts.empty())
+		{
+			auto verts  = vsg::vec3Array::create(tickVerts.size());
+			auto colors = vsg::ubvec4Array::create(tickColors.size());
+			for (std::size_t k = 0; k < tickVerts.size(); ++k)
+			{
+				(*verts)[k]  = tickVerts[k];
+				(*colors)[k] = tickColors[k];
+			}
+			if (auto node = buildGeometry(m_lineShaderSet, m_sharedObjects, verts, colors))
+			{
+				group->addChild(node);
+			}
+		}
 	}
 
 	m_colorScale = group;
@@ -1101,7 +1189,9 @@ vsg::ref_ptr<vsg::Font> ccVSGOverlayBuilder::ensureLabelFont(const std::vector<u
 		return m_labelFont;
 	}
 
-	auto font = ccVSGFontBuilder::buildFontFromChars(ccVSGFontBuilder::defaultFontFile(), chars);
+	auto font = ccVSGFontBuilder::buildFontFromChars(ccVSGFontBuilder::defaultFontFile(),
+	                                                  chars,
+	                                                  static_cast<uint32_t>(32 * m_devicePixelRatio));
 	if (!font)
 	{
 		// keep the ASCII font (the CJK characters will simply be missing)

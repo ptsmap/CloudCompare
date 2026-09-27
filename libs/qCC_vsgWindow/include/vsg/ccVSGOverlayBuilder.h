@@ -91,7 +91,14 @@ class ccVSGOverlayBuilder
 	    \return true when the group has been rebuilt (the new nodes then have
 	            to be compiled by the caller)
 	 **/
-	bool updateColorScale(const ccScalarField* sf, int width, int height);
+	bool updateColorScale(const ccScalarField* sf, int width, int height, float renderZoom = 1.0f);
+
+	//! Sets the device pixel ratio (1.0 on standard displays, 2.0 on Retina)
+	/** The overlay coordinate system is logical (the device-resolution VSG
+	    surface stretches it), so the layout already matches GL. The only thing
+	    that benefits from the DPR is the **glyph atlas resolution**: rasterizing
+	    the font at `32 * dpr` keeps the text crisp on HD screens. **/
+	void setDevicePixelRatio(float dpr);
 
 	//! Updates the scale bar (M5.4)
 	/** Mirrors ccGLWindowInterface::drawScale(): a horizontal bar with a tick
@@ -232,6 +239,9 @@ class ccVSGOverlayBuilder
 	//! Label font (ASCII + the code points used by the labels) and its charset
 	vsg::ref_ptr<vsg::Font> m_labelFont;
 	std::vector<uint32_t>   m_labelFontChars;
+
+	//! Device pixel ratio (1.0 standard, 2.0 Retina). See setDevicePixelRatio().
+	float m_devicePixelRatio = 1.0f;
 
 	//! Segments / triangles whose vertices are refreshed every frame
 	std::vector<LabelLink> m_labelLinks;
