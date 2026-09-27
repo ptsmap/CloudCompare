@@ -1667,7 +1667,6 @@ VSG 侧原先的 mesh shader 恒定带光照 → 切换无反应。现改为：
 ### D.13.10 M5 剩余
 
 - cc2DLabel 的 3D marker；`cc2DViewportLabel` 的视口状态校验与缩放补偿
-- `ccImage` 多图叠加（当前只显示首个可见的）
 - 色标：直方图、对数轴、自定义标签、按 `computeColorRampAreaLimits()` 预留空间
 - CJK 标签（需更大的 glyph atlas 或按需扩容）
 - 各类叠加元素接 `ccGui::Parameters()`（`textDefaultCol`、`labelMarkerSize` 等）

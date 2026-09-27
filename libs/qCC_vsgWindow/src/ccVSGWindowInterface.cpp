@@ -76,28 +76,24 @@ namespace
 		return {};
 	}
 
-	//! Returns the first visible 2D image of the DB tree (M5.6)
-	const ccImage* findFirstImage(ccHObject* obj)
+	//! Collects the visible 2D images of the DB tree (M5.6)
+	/** CloudCompare draws all the visible images, one on top of the other. **/
+	void collectImages(ccHObject* obj, std::vector<const ccImage*>& out)
 	{
 		if (!obj || !obj->isEnabled())
 		{
-			return nullptr;
+			return;
 		}
 
 		if (obj->isKindOf(CC_TYPES::IMAGE) && (obj->isVisible() || obj->isSelected()))
 		{
-			return static_cast<const ccImage*>(obj);
+			out.push_back(static_cast<const ccImage*>(obj));
 		}
 
 		for (unsigned i = 0; i < obj->getChildrenNumber(); ++i)
 		{
-			if (const ccImage* image = findFirstImage(obj->getChild(i)))
-			{
-				return image;
-			}
+			collectImages(obj->getChild(i), out);
 		}
-
-		return nullptr;
 	}
 
 	//! Returns the scalar field currently displayed by an entity (or one of its children)
@@ -524,14 +520,12 @@ void ccVSGWindowInterface::updateCamera()
 		m_overlayNeedsCompile = true;
 	}
 
-	// the 2D image overlay (M5.6)
-	const ccImage* image = findFirstImage(m_winDBRoot);
-	if (!image)
-	{
-		image = findFirstImage(m_globalDBRoot);
-	}
+	// the 2D image overlay (M5.6): all the visible images
+	std::vector<const ccImage*> images;
+	collectImages(m_winDBRoot, images);
+	collectImages(m_globalDBRoot, images);
 
-	if (m_overlayBuilder.updateImage(image, width, height))
+	if (m_overlayBuilder.updateImages(images, width, height))
 	{
 		m_overlayNeedsCompile = true;
 	}

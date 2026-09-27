@@ -107,7 +107,7 @@ class ccVSGOverlayBuilder
 	    centred on the viewport, scaled to fit (ccImage::computeDisplayedSize()),
 	    with the global alpha of the entity applied.
 	 **/
-	bool updateImage(const ccImage* image, int width, int height);
+	bool updateImages(const std::vector<const ccImage*>& images, int width, int height);
 
 	//! Updates the 2D labels (M5.3)
 	/** Handles the two flavours of CloudCompare 2D labels:
@@ -132,6 +132,9 @@ class ccVSGOverlayBuilder
 
 	//! Creates the X/Y/Z labels of the trihedron
 	void createTrihedronLabels();
+
+	//! Builds the textured quad of a single 2D image overlay (M5.6)
+	vsg::ref_ptr<vsg::Node> createImageQuad(const ccImage* image, int width, int height);
 
 	//! Builds a text node, wrapped in a transform so that it can be moved cheaply
 	vsg::ref_ptr<vsg::Node> createLabel(const char* text, const ccColor::Rgba& color);

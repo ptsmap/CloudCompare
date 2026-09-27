@@ -646,20 +646,23 @@ bool ccVSGOverlayBuilder::updateScaleBar(bool show, double pixelSize, int width,
 	return true;
 }
 
-bool ccVSGOverlayBuilder::updateImage(const ccImage* image, int width, int height)
+bool ccVSGOverlayBuilder::updateImages(const std::vector<const ccImage*>& images, int width, int height)
 {
 	quint64 signature = 17;
 	auto    mix       = [&signature](quint64 v) { signature = signature * 1000003 + v; };
 
-	mix(static_cast<quint64>(reinterpret_cast<quintptr>(image)));
 	mix(static_cast<quint64>(width));
 	mix(static_cast<quint64>(height));
 
-	if (image)
+	for (const ccImage* image : images)
 	{
-		mix(static_cast<quint64>(image->getAlpha() * 1.0e6));
-		mix(static_cast<quint64>(image->data().width()));
-		mix(static_cast<quint64>(image->data().height()));
+		mix(static_cast<quint64>(reinterpret_cast<quintptr>(image)));
+		if (image)
+		{
+			mix(static_cast<quint64>(image->getAlpha() * 1.0e6));
+			mix(static_cast<quint64>(image->data().width()));
+			mix(static_cast<quint64>(image->data().height()));
+		}
 	}
 
 	if (signature == m_imageSignature)
@@ -675,15 +678,40 @@ bool ccVSGOverlayBuilder::updateImage(const ccImage* image, int width, int heigh
 	}
 	m_imageNode = nullptr;
 
-	if (!image || image->data().isNull() || !m_texturedShaderSet)
+	// one textured quad per image - CloudCompare draws all the visible ones
+	auto group = vsg::Group::create();
+
+	for (const ccImage* image : images)
+	{
+		if (auto node = createImageQuad(image, width, height))
+		{
+			group->addChild(node);
+		}
+	}
+
+	if (group->children.empty())
 	{
 		return true;
+	}
+
+	m_imageNode = group;
+	m_root->addChild(m_imageNode);
+	m_imageMounted = true;
+
+	return true;
+}
+
+vsg::ref_ptr<vsg::Node> ccVSGOverlayBuilder::createImageQuad(const ccImage* image, int width, int height)
+{
+	if (!image || image->data().isNull() || !m_texturedShaderSet)
+	{
+		return {};
 	}
 
 	const QSizeF displayedSize = image->computeDisplayedSize(width, height);
 	if (displayedSize.width() <= 0 || displayedSize.height() <= 0)
 	{
-		return true;
+		return {};
 	}
 
 	const float w = static_cast<float>(displayedSize.width() / 2);
@@ -694,7 +722,7 @@ bool ccVSGOverlayBuilder::updateImage(const ccImage* image, int width, int heigh
 	const QImage rgba = image->data().convertToFormat(QImage::Format_RGBA8888);
 	if (rgba.isNull())
 	{
-		return true;
+		return {};
 	}
 
 	auto pixels = vsg::ubvec4Array2D::create(static_cast<uint32_t>(rgba.width()), static_cast<uint32_t>(rgba.height()));
@@ -780,11 +808,7 @@ bool ccVSGOverlayBuilder::updateImage(const ccImage* image, int width, int heigh
 
 	stateGroup->addChild(draw);
 
-	m_imageNode = stateGroup;
-	m_root->addChild(m_imageNode);
-	m_imageMounted = true;
-
-	return true;
+	return stateGroup;
 }
 
 bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
