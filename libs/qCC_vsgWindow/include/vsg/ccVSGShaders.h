@@ -60,6 +60,11 @@ class ccVSGShaders
 	    geometry and the quad expanded thick lines. **/
 	static vsg::ref_ptr<vsg::ShaderSet> createFlatShaderSet(VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
 
+	//! Returns a textured shader set (used by the 2D image overlay, M5.6)
+	/** Samples `diffuseMap` and multiplies the result by the vertex color,
+	    whose alpha channel carries the global opacity of the overlay. **/
+	static vsg::ref_ptr<vsg::ShaderSet> createTexturedShaderSet();
+
 	//! GLSL sources (exposed for tests / offline compilation)
 	static const char* pointCloudVertexSource();
 	static const char* pointCloudFragmentSource();

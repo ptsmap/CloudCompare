@@ -22,6 +22,7 @@
 
 // qCC_db
 #include <ccColorTypes.h>
+#include <ccImage.h>
 #include <ccScalarField.h>
 
 // VSG
@@ -55,6 +56,22 @@ namespace
 	inline vsg::ubvec4 toColor(const ccColor::Rgba& c)
 	{
 		return vsg::ubvec4(c.r, c.g, c.b, c.a);
+	}
+
+	//! Rounds a displayed width to a readable value
+	/** Mirrors ccGLWindowInterface::RoundScale(): avoids labels with a lot of
+	    decimals by snapping to a granularity of 0.5 * 10^k. **/
+	double roundScale(double equivalentWidth)
+	{
+		if (equivalentWidth <= 0.0)
+		{
+			return 0.0;
+		}
+
+		const int    k           = static_cast<int>(std::floor(std::log(equivalentWidth) / std::log(10.0)));
+		const double granularity = std::pow(10.0, static_cast<double>(k)) / 2.0;
+
+		return std::floor(std::max(equivalentWidth / granularity, 1.0)) * granularity;
 	}
 
 	//! Removes a node from a group (vsg::Group has no removeChild())
@@ -132,6 +149,7 @@ ccVSGOverlayBuilder::ccVSGOverlayBuilder()
     : m_root(vsg::Group::create())
     , m_lineShaderSet(ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_LINE_LIST))
     , m_triangleShaderSet(ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+    , m_texturedShaderSet(ccVSGShaders::createTexturedShaderSet())
     , m_sharedObjects(vsg::SharedObjects::create())
 {
 	// glyph atlas used by the overlay text (M5.2) - may be null when freetype
@@ -473,6 +491,239 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 	m_colorScale = group;
 	m_root->addChild(m_colorScale);
 	m_colorScaleMounted = true;
+
+	return true;
+}
+
+bool ccVSGOverlayBuilder::updateScaleBar(bool show, double pixelSize, int width, int height)
+{
+	// ------------------------------------------------------------------
+	// fingerprint
+	// ------------------------------------------------------------------
+	quint64 signature = 17;
+	auto    mix       = [&signature](quint64 v) { signature = signature * 1000003 + v; };
+
+	mix(show ? 1 : 2);
+	mix(static_cast<quint64>(pixelSize * 1.0e9));
+	mix(static_cast<quint64>(width));
+	mix(static_cast<quint64>(height));
+
+	if (signature == m_scaleBarSignature)
+	{
+		return false;
+	}
+	m_scaleBarSignature = signature;
+
+	if (m_scaleBarMounted)
+	{
+		unmount(m_root, m_scaleBar);
+		m_scaleBarMounted = false;
+	}
+	m_scaleBar = nullptr;
+
+	if (!show || pixelSize <= 0.0 || !m_font)
+	{
+		return true;
+	}
+
+	// ------------------------------------------------------------------
+	// geometry (see ccGLWindowInterface::drawScale())
+	// ------------------------------------------------------------------
+	const float  scaleMaxW        = static_cast<float>(width) / 4.0f;
+	const double equivalentWidth  = roundScale(scaleMaxW * pixelSize);
+	const float  scaleW_pix       = static_cast<float>(equivalentWidth / pixelSize);
+
+	const float trihedronLength = TrihedronAxesLength + TrihedronTextMargin + TrihedronLabelAdvance;
+	const float dW              = 2.0f * trihedronLength + 20.0f;
+	const float dH              = std::max(LabelHeightPx * 1.25f, trihedronLength + 5.0f);
+	const float w               = static_cast<float>(width) / 2.0f - dW;
+	const float h               = static_cast<float>(height) / 2.0f - dH;
+	const float tick            = 3.0f;
+
+	// drawScale() uses the very same centred coordinate system as the overlay
+	auto group = vsg::Group::create();
+
+	// TODO(M5.4): use ccGui::Parameters().textDefaultCol
+	const ccColor::Rgba barColor(255, 255, 255, 255);
+
+	const vsg::vec3 segments[6] = {vsg::vec3(w - scaleW_pix, -h, 0.0f),
+	                               vsg::vec3(w, -h, 0.0f),
+	                               vsg::vec3(w - scaleW_pix, -h - tick, 0.0f),
+	                               vsg::vec3(w - scaleW_pix, -h + tick, 0.0f),
+	                               vsg::vec3(w, -h + tick, 0.0f),
+	                               vsg::vec3(w, -h - tick, 0.0f)};
+
+	auto verts  = vsg::vec3Array::create(6);
+	auto colors = vsg::ubvec4Array::create(6);
+	const vsg::ubvec4 c = toColor(barColor);
+
+	for (unsigned i = 0; i < 6; ++i)
+	{
+		(*verts)[i]  = segments[i];
+		(*colors)[i] = c;
+	}
+
+	if (auto node = buildGeometry(m_lineShaderSet, m_sharedObjects, verts, colors))
+	{
+		group->addChild(node);
+	}
+
+	// ---- the equivalent width, below the bar ----
+	const QString text = QString::number(equivalentWidth);
+
+	if (auto node = createLabel(text.toUtf8().constData(), barColor))
+	{
+		if (auto* transform = dynamic_cast<vsg::MatrixTransform*>(node.get()))
+		{
+			transform->matrix = vsg::translate(w - scaleW_pix * 0.5, -h - LabelHeightPx * 0.4, 0.0);
+		}
+		group->addChild(node);
+	}
+
+	m_scaleBar = group;
+	m_root->addChild(m_scaleBar);
+	m_scaleBarMounted = true;
+
+	return true;
+}
+
+bool ccVSGOverlayBuilder::updateImage(const ccImage* image, int width, int height)
+{
+	quint64 signature = 17;
+	auto    mix       = [&signature](quint64 v) { signature = signature * 1000003 + v; };
+
+	mix(static_cast<quint64>(reinterpret_cast<quintptr>(image)));
+	mix(static_cast<quint64>(width));
+	mix(static_cast<quint64>(height));
+
+	if (image)
+	{
+		mix(static_cast<quint64>(image->getAlpha() * 1.0e6));
+		mix(static_cast<quint64>(image->data().width()));
+		mix(static_cast<quint64>(image->data().height()));
+	}
+
+	if (signature == m_imageSignature)
+	{
+		return false;
+	}
+	m_imageSignature = signature;
+
+	if (m_imageMounted)
+	{
+		unmount(m_root, m_imageNode);
+		m_imageMounted = false;
+	}
+	m_imageNode = nullptr;
+
+	if (!image || image->data().isNull() || !m_texturedShaderSet)
+	{
+		return true;
+	}
+
+	const QSizeF displayedSize = image->computeDisplayedSize(width, height);
+	if (displayedSize.width() <= 0 || displayedSize.height() <= 0)
+	{
+		return true;
+	}
+
+	const float w = static_cast<float>(displayedSize.width() / 2);
+	const float h = static_cast<float>(displayedSize.height() / 2);
+	const float a = image->getAlpha();
+
+	// ---- the image, converted to a RGBA array ----
+	const QImage rgba = image->data().convertToFormat(QImage::Format_RGBA8888);
+	if (rgba.isNull())
+	{
+		return true;
+	}
+
+	auto pixels = vsg::ubvec4Array2D::create(static_cast<uint32_t>(rgba.width()), static_cast<uint32_t>(rgba.height()));
+	for (int y = 0; y < rgba.height(); ++y)
+	{
+		for (int x = 0; x < rgba.width(); ++x)
+		{
+			const QRgb p = rgba.pixel(x, y);
+			pixels->at(static_cast<uint32_t>(x), static_cast<uint32_t>(y)) =
+			    vsg::ubvec4(static_cast<uint8_t>(qRed(p)),
+			                static_cast<uint8_t>(qGreen(p)),
+			                static_cast<uint8_t>(qBlue(p)),
+			                static_cast<uint8_t>(qAlpha(p)));
+		}
+	}
+
+	// ---- geometry: a quad centred on the viewport ----
+	// the texture coordinates are the ones of ccImage::drawMeOnly(), which
+	// already match the Vulkan convention (v increases downwards)
+	auto verts     = vsg::vec3Array::create(6);
+	auto texcoords = vsg::vec2Array::create(6);
+	auto colors    = vsg::ubvec4Array::create(6);
+
+	const vsg::vec3 tri[6]  = {vsg::vec3(-w, -h, 0.0f), vsg::vec3(w, -h, 0.0f), vsg::vec3(w, h, 0.0f),
+	                           vsg::vec3(-w, -h, 0.0f), vsg::vec3(w, h, 0.0f),  vsg::vec3(-w, h, 0.0f)};
+	const vsg::vec2 uv[6]   = {vsg::vec2(0.0f, 1.0f), vsg::vec2(1.0f, 1.0f), vsg::vec2(1.0f, 0.0f),
+	                           vsg::vec2(0.0f, 1.0f), vsg::vec2(1.0f, 0.0f), vsg::vec2(0.0f, 0.0f)};
+	const vsg::ubvec4 white(255, 255, 255, static_cast<uint8_t>(std::clamp(a, 0.0f, 1.0f) * 255.0f));
+
+	for (unsigned i = 0; i < 6; ++i)
+	{
+		(*verts)[i]     = tri[i];
+		(*texcoords)[i] = uv[i];
+		(*colors)[i]    = white;
+	}
+
+	auto config = vsg::GraphicsPipelineConfigurator::create(m_texturedShaderSet);
+
+	config->enableArray("vsg_Vertex", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(vsg::vec3), VK_FORMAT_R32G32B32_SFLOAT);
+	config->enableArray("vsg_TexCoord0", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(vsg::vec2), VK_FORMAT_R32G32_SFLOAT);
+	config->enableArray("vsg_Color", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(vsg::ubvec4), VK_FORMAT_R8G8B8A8_UNORM);
+
+	vsg::DataList arrays;
+	arrays.push_back(verts);
+	arrays.push_back(texcoords);
+	arrays.push_back(colors);
+
+	config->enableTexture("diffuseMap");
+
+	auto sampler = vsg::Sampler::create();
+	sampler->magFilter = VK_FILTER_LINEAR;
+	sampler->minFilter = VK_FILTER_LINEAR;
+	config->assignTexture("diffuseMap", pixels, sampler);
+
+	// the overlay is drawn on top of the 3D image, without depth
+	for (auto& state : config->pipelineStates)
+	{
+		if (auto* dss = dynamic_cast<vsg::DepthStencilState*>(state.get()))
+		{
+			dss->depthTestEnable  = VK_FALSE;
+			dss->depthWriteEnable = VK_FALSE;
+		}
+		else if (auto* rs = dynamic_cast<vsg::RasterizationState*>(state.get()))
+		{
+			rs->cullMode = VK_CULL_MODE_NONE;
+		}
+		else if (auto* cbs = dynamic_cast<vsg::ColorBlendState*>(state.get()))
+		{
+			// the image has an alpha channel (ccImage::m_texAlpha)
+			cbs->configureAttachments(true);
+		}
+	}
+
+	config->init();
+
+	auto stateGroup = vsg::StateGroup::create();
+	config->copyTo(stateGroup, m_sharedObjects);
+
+	auto draw = vsg::VertexDraw::create();
+	draw->assignArrays(arrays);
+	draw->vertexCount   = 6;
+	draw->instanceCount = 1;
+
+	stateGroup->addChild(draw);
+
+	m_imageNode = stateGroup;
+	m_root->addChild(m_imageNode);
+	m_imageMounted = true;
 
 	return true;
 }

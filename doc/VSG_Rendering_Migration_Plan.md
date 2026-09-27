@@ -838,7 +838,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M2 | 相机与交互 | ✅ 已完成（CC 语义操控器 + reverse-depth NDC 适配） | 2~3 | 10 |
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10） | 3~4 | 14 |
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
-| M5 | 2D 覆盖层 | 🟡 起步：M5.1 覆盖层 View、M5.4 方向轴、M5.2 文字/SDF 字体、M5.5 标量场色标已实现（视觉验证待 GUI）；标签/比例尺/图片未做 | 3 | 21 |
+| M5 | 2D 覆盖层 | 🟡 大部分完成：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加已实现（视觉验证待 GUI）；仅 M5.3 标签未做 | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
 | M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
@@ -1613,7 +1613,35 @@ cd build-hbqt/qCC/deployqt && open CloudCompare.app
 
 **近似/未做**：未接 CC 的 `computeColorRampAreaLimits()`（竖直范围取固定值，未为 trihedron 等预留空间）、无直方图（`colorScaleShowHistogram`）、无对数轴与自定义标签。
 
-### D.13.6 M4 修正：mesh 的"法线显示"= 光照开关
+### D.13.6 M5.4 比例尺（已实现）
+
+`ccVSGOverlayBuilder::updateScaleBar()`，复刻 `ccGLWindowInterface::drawScale()`：
+
+| 项 | 实现 |
+|---|---|
+| 适用条件 | **仅正交模式**（透视模式下屏幕距离没有恒定的世界当量，CC 同） |
+| 布局 | `scaleMaxW = W/4`；`equivalentWidth = RoundScale(scaleMaxW * pixelSize)`；`scaleW_pix = equivalentWidth / pixelSize`；横条 `w-scaleW_pix .. w`，两端各一个 ±3px 的刻度；`w = W/2 - dW`、`h = H/2 - dH`（`dW = 2*trihedronLength + 20`，`dH = max(labelHeight*1.25, trihedronLength + 5)`） |
+| 坐标 | `drawScale()` 用的就是**中心原点**坐标系，与覆盖层一致，无需转换 |
+| 文字 | 当量宽度数值，位于横条下方 |
+| RoundScale | 复刻 CC 的 `RoundScale()`（粒度 `0.5 * 10^k`），避免一堆小数 |
+| pixelSize | `m_viewportParams.computePixelSize(width, height)` |
+
+### D.13.7 M5.6 2D 图片叠加 `ccImage`（已实现）
+
+`ccVSGOverlayBuilder::updateImage()`，复刻 `ccImage::drawMeOnly()`（`MACRO_Draw2D` + `MACRO_Foreground`，即走 2D 前景覆盖层）：
+
+| 项 | 实现 |
+|---|---|
+| 几何 | 一个居中的纹理四边形，尺寸取 `ccImage::computeDisplayedSize(glW, glH)`（自动适配视口） |
+| 纹理 | `QImage` → `vsg::ubvec4Array2D`（RGBA8888），配线性采样 `vsg::Sampler` |
+| 着色器 | 新增 `ccVSGShaders::createTexturedShaderSet()`：`vsg_Vertex`@0、`vsg_TexCoord0`@1、`vsg_Color`@6，采样 `diffuseMap`（material descriptor set 1 / binding 0）后乘顶点色 —— 顶点色的 **alpha 承载 `ccImage::getAlpha()`** |
+| 坐标 | `drawMeOnly()` 的纹理坐标（左下 `v=1`）本就符合 Vulkan 约定（v 向下递增），无需翻转 |
+| 混合/深度 | `configureAttachments(true)`（alpha 混合）+ 深度测试/写入关闭 |
+| 查找 | `ccVSGWindowInterface::findFirstImage()` 递归取首个可见 `CC_TYPES::IMAGE` 实体 |
+
+**限制**：一次只显示**一张**图片（首个可见的）；CC 会画所有可见图片。多图支持需要按图片分别建节点。
+
+### D.13.8 M4 修正：mesh 的"法线显示"= 光照开关
 
 `ccMesh::drawMeOnly()` 里 `glParams.showNorms` 实际是**启用光照**（`glEnable(GL_LIGHTING)` + 法线属性），
 OpenGL 后端**从不画 mesh 的法线向量**（`ccMesh.cpp` 里唯一的 `GL_LINES` 是线框）。
@@ -1623,10 +1651,10 @@ VSG 侧原先的 mesh shader 恒定带光照 → 切换无反应。现改为：
 - 为真用带法线的光照 shader，为假用无光照 flat shader
 - `computeSignature()` 加入 `normalsShown()` / `triNormsShown()` / `isShownAsWire()`，切换才会重建
 
-### D.13.7 M5 剩余
+### D.13.9 M5 剩余
 
 - M5.3 `cc2DLabel` / `cc2DViewportLabel`
-- M5.4 剩余：比例尺、透视/正交状态提示
-- M5.6 `ccImage`
+- M5.4 剩余：透视/正交状态提示
+- `ccImage` 多图叠加（当前只显示首个可见的）
 - 色标：直方图、对数轴、自定义标签、按 `computeColorRampAreaLimits()` 布局
 - CJK 标签（需更大的 glyph atlas 或按需扩容）

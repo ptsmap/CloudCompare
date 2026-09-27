@@ -25,6 +25,7 @@
 #include <ccGenericMesh.h>
 #include <ccGenericPointCloud.h>
 #include <ccHObject.h>
+#include <ccImage.h>
 #include <ccLog.h>
 #include <ccPointCloud.h>
 #include <ccScalarField.h>
@@ -73,6 +74,30 @@ namespace
 		}
 
 		return {};
+	}
+
+	//! Returns the first visible 2D image of the DB tree (M5.6)
+	const ccImage* findFirstImage(ccHObject* obj)
+	{
+		if (!obj || !obj->isEnabled())
+		{
+			return nullptr;
+		}
+
+		if (obj->isKindOf(CC_TYPES::IMAGE) && (obj->isVisible() || obj->isSelected()))
+		{
+			return static_cast<const ccImage*>(obj);
+		}
+
+		for (unsigned i = 0; i < obj->getChildrenNumber(); ++i)
+		{
+			if (const ccImage* image = findFirstImage(obj->getChild(i)))
+			{
+				return image;
+			}
+		}
+
+		return nullptr;
 	}
 
 	//! Returns the scalar field currently displayed by an entity (or one of its children)
@@ -478,6 +503,26 @@ void ccVSGWindowInterface::updateCamera()
 	if (m_overlayBuilder.updateColorScale(sf, width, height))
 	{
 		// the new nodes have to be compiled before they can be rendered
+		m_overlayNeedsCompile = true;
+	}
+
+	// the scale bar (M5.4): only meaningful in orthographic mode
+	const double pixelSize = m_viewportParams.computePixelSize(width, height);
+
+	if (m_overlayBuilder.updateScaleBar(!m_viewportParams.perspectiveView, pixelSize, width, height))
+	{
+		m_overlayNeedsCompile = true;
+	}
+
+	// the 2D image overlay (M5.6)
+	const ccImage* image = findFirstImage(m_winDBRoot);
+	if (!image)
+	{
+		image = findFirstImage(m_globalDBRoot);
+	}
+
+	if (m_overlayBuilder.updateImage(image, width, height))
+	{
 		m_overlayNeedsCompile = true;
 	}
 }

@@ -96,6 +96,50 @@ void main()
 }
 )";
 
+	//! Textured shader: used by the 2D image overlay (M5.6)
+	const char* s_texturedVertexSource = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(push_constant) uniform PushConstants {
+    mat4 projection;
+    mat4 modelView;
+} pc;
+
+layout(location = 0) in vec3 vsg_Vertex;
+layout(location = 1) in vec2 vsg_TexCoord0;
+layout(location = 6) in vec4 vsg_Color;
+
+layout(location = 0) out vec2 texCoord;
+layout(location = 1) out vec4 vertexColor;
+
+void main()
+{
+    gl_Position = (pc.projection * pc.modelView) * vec4(vsg_Vertex, 1.0);
+    texCoord    = vsg_TexCoord0;
+    vertexColor = vsg_Color;
+}
+)";
+
+	const char* s_texturedFragmentSource = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+#define MATERIAL_DESCRIPTOR_SET 1
+
+layout(set = MATERIAL_DESCRIPTOR_SET, binding = 0) uniform sampler2D diffuseMap;
+
+layout(location = 0) in vec2 texCoord;
+layout(location = 1) in vec4 vertexColor;
+
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+    outColor = texture(diffuseMap, texCoord) * vertexColor;
+}
+)";
+
 	//! Mesh (TRIANGLE_LIST) shader: per vertex color, simple diffuse lighting
 	const char* s_meshVertexSource = R"(
 #version 450
@@ -200,6 +244,41 @@ vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createMeshShaderSet(VkPrimitiveTopolo
 
 	shaderSet->defaultGraphicsPipelineStates = {
 	    vsg::InputAssemblyState::create(topology),
+	    vsg::RasterizationState::create(),
+	    vsg::MultisampleState::create(),
+	    vsg::ColorBlendState::create(),
+	    vsg::DepthStencilState::create()};
+
+	return shaderSet;
+}
+
+vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createTexturedShaderSet()
+{
+	vsg::ShaderStages stages{
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_VERTEX_BIT, "main", s_texturedVertexSource),
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_FRAGMENT_BIT, "main", s_texturedFragmentSource)};
+
+	auto shaderSet = vsg::ShaderSet::create(stages);
+
+	shaderSet->addAttributeBinding("vsg_Vertex", "", 0, VK_FORMAT_R32G32B32_SFLOAT, {});
+	shaderSet->addAttributeBinding("vsg_TexCoord0", "", 1, VK_FORMAT_R32G32_SFLOAT, {});
+	shaderSet->addAttributeBinding("vsg_Color", "", 6, VK_FORMAT_R8G8B8A8_UNORM, {});
+
+	shaderSet->addPushConstantRange("pc", "", VK_SHADER_STAGE_VERTEX_BIT, 0, 128);
+
+	// the image is bound on the material descriptor set (1), binding 0 - the
+	// same values as the #define of the shader sources above
+	shaderSet->addDescriptorBinding("diffuseMap",
+	                                "",
+	                                1,
+	                                0,
+	                                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+	                                1,
+	                                VK_SHADER_STAGE_FRAGMENT_BIT,
+	                                {});
+
+	shaderSet->defaultGraphicsPipelineStates = {
+	    vsg::InputAssemblyState::create(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST),
 	    vsg::RasterizationState::create(),
 	    vsg::MultisampleState::create(),
 	    vsg::ColorBlendState::create(),

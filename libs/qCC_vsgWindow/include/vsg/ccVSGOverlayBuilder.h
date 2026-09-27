@@ -30,6 +30,7 @@
 #include <vsg/text/Font.h>
 #include <vsg/utils/ShaderSet.h>
 
+class ccImage;
 class ccScalarField;
 
 namespace vsg
@@ -83,6 +84,25 @@ class ccVSGOverlayBuilder
 	 **/
 	bool updateColorScale(const ccScalarField* sf, int width, int height);
 
+	//! Updates the scale bar (M5.4)
+	/** Mirrors ccGLWindowInterface::drawScale(): a horizontal bar with a tick
+	    at each end and the equivalent width as label, bottom left of the
+	    viewport. Only meaningful in **orthographic** mode (in perspective mode
+	    a screen distance has no constant world equivalent).
+
+	    \param show       false in perspective mode (or when the scale is off)
+	    \param pixelSize  size of one pixel, in world units
+	    \return true when the group has been rebuilt
+	 **/
+	bool updateScaleBar(bool show, double pixelSize, int width, int height);
+
+	//! Updates the 2D image overlay (M5.6)
+	/** Mirrors ccImage::drawMeOnly(): the image is drawn as a textured quad
+	    centred on the viewport, scaled to fit (ccImage::computeDisplayedSize()),
+	    with the global alpha of the entity applied.
+	 **/
+	bool updateImage(const ccImage* image, int width, int height);
+
   private:
 	//! Creates the X/Y/Z direction axes (built once, then only its matrix changes)
 	void createTrihedron();
@@ -107,6 +127,19 @@ class ccVSGOverlayBuilder
 	vsg::ref_ptr<vsg::Node> m_colorScale;
 	quint64                 m_colorScaleSignature = 0;
 	bool                    m_colorScaleMounted   = false;
+
+	//! Scale bar (M5.4)
+	vsg::ref_ptr<vsg::Node> m_scaleBar;
+	quint64                 m_scaleBarSignature = 0;
+	bool                    m_scaleBarMounted   = false;
+
+	//! 2D image overlay (M5.6)
+	vsg::ref_ptr<vsg::Node> m_imageNode;
+	quint64                 m_imageSignature = 0;
+	bool                    m_imageMounted   = false;
+
+	//! Textured shader set, used by the image overlay
+	vsg::ref_ptr<vsg::ShaderSet> m_texturedShaderSet;
 
 	vsg::ref_ptr<vsg::ShaderSet>     m_lineShaderSet;
 	vsg::ref_ptr<vsg::ShaderSet>     m_triangleShaderSet;
