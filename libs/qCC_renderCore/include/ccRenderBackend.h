@@ -72,6 +72,24 @@ class CC_RENDER_CORE_LIB_API ccRenderBackendRegistry
 	 **/
 	ccRenderBackend* defaultBackend() const;
 
+	//! Returns the name of the backend currently selected for new views
+	/** Resolution order (highest priority first):
+	    1. the \c CC_RENDER_BACKEND environment variable,
+	    2. the persisted choice (QSettings group "RenderBackend", key "Selected"),
+	    3. the implicit default: "OpenGL" when it is registered (safest
+	       first-run), otherwise defaultBackend().
+	 **/
+	QString selectedBackendName() const;
+
+	//! Persists the selected backend (no-op if the name is not registered)
+	void setSelectedBackendName(const QString& name);
+
+	//! Returns the backend that should be used to create new views
+	/** Equivalent to backend(selectedBackendName()), falling back to
+	    defaultBackend() when nothing is selected.
+	 **/
+	ccRenderBackend* currentBackend() const;
+
   private:
 	ccRenderBackendRegistry() = default;
 

@@ -12,4 +12,5 @@ target_sources( ${PROJECT_NAME}
 		${CMAKE_CURRENT_LIST_DIR}/vsg/ccVSGPointCloudBuilder.cpp
 		${CMAKE_CURRENT_LIST_DIR}/vsg/ccVSGSceneBuilder.cpp
 		${CMAKE_CURRENT_LIST_DIR}/vsg/ccVSGShaders.cpp
+		${CMAKE_CURRENT_LIST_DIR}/ccVSGRenderBackend.cpp
 )

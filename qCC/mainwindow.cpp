@@ -63,6 +63,12 @@
 #include <ccGLWindowInterface.h>
 #include <ccRenderingTools.h>
 
+// qCC_renderCore (render backend registry)
+#include <ccRenderBackend.h>
+
+// Qt
+#include <QMenu>
+
 #ifdef CC_RENDER_VSG_ENABLED
 #include <ccVSGWindow.h>
 #endif
@@ -6464,86 +6470,116 @@ void MainWindow::zoomOut()
 	}
 }
 
-ccGLWindowInterface* MainWindow::new3DViewInternal(bool allowEntitySelection, bool warnAboutLockedRotationAxis /*=false*/)
+ccViewInterface* MainWindow::new3DViewInternal(bool allowEntitySelection, bool warnAboutLockedRotationAxis /*=false*/, bool forceOpenGL /*=false*/)
 {
 	assert(m_ccRoot && m_mdiArea);
 
-	QWidget*             viewWidget = nullptr;
-	ccGLWindowInterface* view3D     = nullptr;
-
-	createGLWindow(view3D, viewWidget);
-	if (!viewWidget || !view3D)
+	// pick the backend to use (the selected one, or OpenGL when forced - e.g.
+	// for tools that rely on OpenGL specific features)
+	ccRenderBackendRegistry& registry = ccRenderBackendRegistry::instance();
+	ccRenderBackend*         backend  = forceOpenGL ? registry.backend(QStringLiteral("OpenGL")) : registry.currentBackend();
+	if (!backend)
 	{
-		ccLog::Error(tr("Failed to create the 3D view"));
-		assert(false);
+		// fallback (e.g. the forced backend is not registered in this build)
+		backend = registry.currentBackend();
+	}
+	if (!backend)
+	{
+		ccLog::Error(tr("No render backend available!"));
 		return nullptr;
 	}
 
-	// restore options
+	ccViewInterface* view3D = backend->createView(this);
+	if (!view3D)
 	{
-		QSettings settings;
-		bool      autoPickRotationCenter = settings.value(ccPS::AutoPickRotationCenter(), true).toBool();
-		view3D->setAutoPickPivotAtCenter(autoPickRotationCenter);
+		ccLog::Error(tr("Failed to create the 3D view (backend: %1)").arg(backend->name()));
+		return nullptr;
+	}
 
-		bool rotationAxisLocked = settings.value(ccPS::View3dRotationAxisLocked(), false).toBool();
-		if (rotationAxisLocked)
-		{
-			s_lockedRotationAxis.x = settings.value(ccPS::View3dLockedAxisRotation() + ".x", 0.0).toDouble();
-			s_lockedRotationAxis.y = settings.value(ccPS::View3dLockedAxisRotation() + ".y", 0.0).toDouble();
-			s_lockedRotationAxis.z = settings.value(ccPS::View3dLockedAxisRotation() + ".z", 1.0).toDouble();
-			s_lockedRotationAxis.normalize();
-
-			if (warnAboutLockedRotationAxis)
-			{
-				ccLog::Warning(QString("[3D view] ") + tr("Rotation axis locked to") + QString(" (%1 ; %2 ; %3)").arg(s_lockedRotationAxis.x).arg(s_lockedRotationAxis.y).arg(s_lockedRotationAxis.z));
-			}
-		}
-		view3D->lockRotationAxis(rotationAxisLocked, s_lockedRotationAxis);
-
-		m_UI->actionLockRotationAxis->blockSignals(true);
-		m_UI->actionLockRotationAxis->setChecked(rotationAxisLocked);
-		m_UI->actionLockRotationAxis->blockSignals(false);
-
-		m_UI->actionLockView3DRotationAxis->blockSignals(true);
-		m_UI->actionLockView3DRotationAxis->setChecked(rotationAxisLocked);
-		m_UI->actionLockView3DRotationAxis->blockSignals(false);
+	QWidget* viewWidget = view3D->asWidget();
+	if (!viewWidget)
+	{
+		ccLog::Error(tr("Failed to create the 3D view widget"));
+		return nullptr;
 	}
 
 	viewWidget->setMinimumSize(400, 300);
-
 	m_mdiArea->addSubWindow(viewWidget);
 
-	if (allowEntitySelection)
+	// backend specific wiring
+	auto* glView = dynamic_cast<ccGLWindowInterface*>(view3D);
+	if (glView)
 	{
-		connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::entitySelectionChanged, this, [=](ccHObject* entity)
-		        { m_ccRoot->selectEntity(entity); });
+		// restore options
+		{
+			QSettings settings;
+			bool      autoPickRotationCenter = settings.value(ccPS::AutoPickRotationCenter(), true).toBool();
+			glView->setAutoPickPivotAtCenter(autoPickRotationCenter);
 
-		connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::entitiesSelectionChanged, this, [=](std::unordered_set<int> entities)
-		        { m_ccRoot->selectEntities(entities); });
+			bool rotationAxisLocked = settings.value(ccPS::View3dRotationAxisLocked(), false).toBool();
+			if (rotationAxisLocked)
+			{
+				s_lockedRotationAxis.x = settings.value(ccPS::View3dLockedAxisRotation() + ".x", 0.0).toDouble();
+				s_lockedRotationAxis.y = settings.value(ccPS::View3dLockedAxisRotation() + ".y", 0.0).toDouble();
+				s_lockedRotationAxis.z = settings.value(ccPS::View3dLockedAxisRotation() + ".z", 1.0).toDouble();
+				s_lockedRotationAxis.normalize();
+
+				if (warnAboutLockedRotationAxis)
+				{
+					ccLog::Warning(QString("[3D view] ") + tr("Rotation axis locked to") + QString(" (%1 ; %2 ; %3)").arg(s_lockedRotationAxis.x).arg(s_lockedRotationAxis.y).arg(s_lockedRotationAxis.z));
+				}
+			}
+			glView->lockRotationAxis(rotationAxisLocked, s_lockedRotationAxis);
+
+			m_UI->actionLockRotationAxis->blockSignals(true);
+			m_UI->actionLockRotationAxis->setChecked(rotationAxisLocked);
+			m_UI->actionLockRotationAxis->blockSignals(false);
+
+			m_UI->actionLockView3DRotationAxis->blockSignals(true);
+			m_UI->actionLockView3DRotationAxis->setChecked(rotationAxisLocked);
+			m_UI->actionLockView3DRotationAxis->blockSignals(false);
+		}
+
+		if (allowEntitySelection)
+		{
+			connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::entitySelectionChanged, this, [=](ccHObject* entity)
+			        { m_ccRoot->selectEntity(entity); });
+
+			connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::entitiesSelectionChanged, this, [=](std::unordered_set<int> entities)
+			        { m_ccRoot->selectEntities(entities); });
+		}
+
+		//'echo' mode
+		connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::mouseWheelRotated, this, &MainWindow::echoMouseWheelRotate);
+		connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::viewMatRotated, this, &MainWindow::echoBaseViewMatRotation);
+		connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::cameraPosChanged, this, &MainWindow::echoCameraPosChanged);
+		connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::pivotPointChanged, this, &MainWindow::echoPivotPointChanged);
+
+		connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::aboutToClose, this, &MainWindow::prepareWindowDeletion);
+		connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::filesDropped, this, &MainWindow::addToDBAuto, Qt::QueuedConnection); // DGM: we don't want to block the 'dropEvent' method of ccGLWindow instances!
+		connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::newLabel, this, &MainWindow::handleNewLabel);
+		connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::exclusiveFullScreenToggled, this, &MainWindow::onExclusiveFullScreenToggled);
+
+		if (m_pickingHub)
+		{
+			// we must notify the picking hub as well if the window is destroyed
+			connect(glView->signalEmitter(), &ccGLWindowSignalEmitter::aboutToClose, m_pickingHub, &ccPickingHub::onActiveWindowDeleted);
+		}
 	}
-
-	//'echo' mode
-	connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::mouseWheelRotated, this, &MainWindow::echoMouseWheelRotate);
-	connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::viewMatRotated, this, &MainWindow::echoBaseViewMatRotation);
-	connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::cameraPosChanged, this, &MainWindow::echoCameraPosChanged);
-	connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::pivotPointChanged, this, &MainWindow::echoPivotPointChanged);
-
-	connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::aboutToClose, this, &MainWindow::prepareWindowDeletion);
-	connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::filesDropped, this, &MainWindow::addToDBAuto, Qt::QueuedConnection); // DGM: we don't want to block the 'dropEvent' method of ccGLWindow instances!
-	connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::newLabel, this, &MainWindow::handleNewLabel);
-	connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::exclusiveFullScreenToggled, this, &MainWindow::onExclusiveFullScreenToggled);
-
-	if (m_pickingHub)
+	else
 	{
-		// we must notify the picking hub as well if the window is destroyed
-		connect(view3D->signalEmitter(), &ccGLWindowSignalEmitter::aboutToClose, m_pickingHub, &ccPickingHub::onActiveWindowDeleted);
+		// VSG (or any other non-GL backend): minimal wiring only. The VSG view
+		// does not yet mirror all the OpenGL-specific signals (entity selection
+		// echo, camera echo, ...); those are connected progressively as the VSG
+		// backend matures (see doc/VSG_Rendering_Migration_Plan.md).
+		ccLog::Warning(tr("Created a %1 3D view (limited MainWindow integration)").arg(backend->name()));
 	}
 
 	view3D->setSceneDB(m_ccRoot->getRootEntity());
 	viewWidget->setAttribute(Qt::WA_DeleteOnClose);
 	m_ccRoot->updatePropertiesView();
 
-	QMainWindow::statusBar()->showMessage(tr("New 3D View"), 2000);
+	QMainWindow::statusBar()->showMessage(tr("New 3D View (%1)").arg(backend->name()), 2000);
 
 	viewWidget->showMaximized();
 	viewWidget->update();
@@ -7012,7 +7048,8 @@ void MainWindow::activateRegisterPointPairTool()
 		m_ccRoot->unselectAllEntities();
 	}
 
-	ccGLWindowInterface* win = new3DView();
+	ccViewInterface* view = new3DViewInternal(true, false, /*forceOpenGL=*/true);
+	auto*          win   = dynamic_cast<ccGLWindowInterface*>(view);
 	if (!win)
 	{
 		ccLog::Error(tr("[PointPairRegistration] Failed to create dedicated 3D view!"));
@@ -7107,7 +7144,8 @@ void MainWindow::activateSectionExtractionMode()
 		m_ccRoot->unselectAllEntities();
 	}
 
-	ccGLWindowInterface* win = new3DViewInternal(false);
+	ccViewInterface* view = new3DViewInternal(false, false, /*forceOpenGL=*/true);
+	auto*          win   = dynamic_cast<ccGLWindowInterface*>(view);
 	if (!win)
 	{
 		ccLog::Error(tr("[SectionExtraction] Failed to create dedicated 3D view!"));
@@ -11660,6 +11698,27 @@ void MainWindow::update3DViewsMenu()
 	m_UI->menu3DViews->addSeparator();
 	m_UI->menu3DViews->addAction(m_UI->actionNext3DView);
 	m_UI->menu3DViews->addAction(m_UI->actionPrevious3DView);
+
+	// render backend selection: new 3D views use the selected backend
+	{
+		auto*             backendMenu = new QMenu(tr("Render Backend"), m_UI->menu3DViews);
+		const QString     current      = ccRenderBackendRegistry::instance().selectedBackendName();
+
+		for (const QString& name : ccRenderBackendRegistry::instance().availableBackends())
+		{
+			QAction* act = backendMenu->addAction(name);
+			act->setCheckable(true);
+			act->setChecked(name == current);
+			connect(act, &QAction::triggered, this, [this, name]()
+			{
+				ccRenderBackendRegistry::instance().setSelectedBackendName(name);
+				ccLog::Print(tr("Render backend for new 3D views: %1").arg(name));
+			});
+		}
+
+		m_UI->menu3DViews->addSeparator();
+		m_UI->menu3DViews->addMenu(backendMenu);
+	}
 
 	QList<QMdiSubWindow*> windows = m_mdiArea->subWindowList();
 	if (!windows.isEmpty())

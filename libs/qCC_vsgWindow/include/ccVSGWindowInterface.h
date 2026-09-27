@@ -42,6 +42,7 @@
 
 // vsgQt
 #include <vsgQt/Viewer.h>
+#include <vsgQt/Window.h>
 
 // Qt
 #include <QImage>

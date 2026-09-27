@@ -18,6 +18,9 @@
 // Local
 #include "ccRenderBackend.h"
 
+// Qt
+#include <QSettings>
+
 // system
 #include <algorithm>
 
@@ -91,4 +94,66 @@ ccRenderBackend* ccRenderBackendRegistry::defaultBackend() const
 	}
 
 	return backend(QStringLiteral("OpenGL"));
+}
+
+QString ccRenderBackendRegistry::selectedBackendName() const
+{
+	// 1. environment variable override (highest priority)
+	QString env = qEnvironmentVariable("CC_RENDER_BACKEND");
+	if (!env.isEmpty() && backend(env))
+	{
+		return env;
+	}
+
+	// 2. persisted choice
+	QSettings settings;
+	settings.beginGroup(QStringLiteral("RenderBackend"));
+	QString saved = settings.value(QStringLiteral("Selected"), QString()).toString();
+	settings.endGroup();
+	if (!saved.isEmpty() && backend(saved))
+	{
+		return saved;
+	}
+
+	// 3. implicit default: OpenGL when available (safest first-run),
+	//    otherwise whatever backend is registered
+	if (ccRenderBackend* gl = backend(QStringLiteral("OpenGL")))
+	{
+		return gl->name();
+	}
+
+	if (ccRenderBackend* def = defaultBackend())
+	{
+		return def->name();
+	}
+
+	return QString();
+}
+
+void ccRenderBackendRegistry::setSelectedBackendName(const QString& name)
+{
+	if (!backend(name))
+	{
+		// not a registered backend: ignore
+		return;
+	}
+
+	QSettings settings;
+	settings.beginGroup(QStringLiteral("RenderBackend"));
+	settings.setValue(QStringLiteral("Selected"), name);
+	settings.endGroup();
+}
+
+ccRenderBackend* ccRenderBackendRegistry::currentBackend() const
+{
+	QString name = selectedBackendName();
+	if (!name.isEmpty())
+	{
+		if (ccRenderBackend* b = backend(name))
+		{
+			return b;
+		}
+	}
+
+	return defaultBackend();
 }

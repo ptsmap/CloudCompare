@@ -509,6 +509,9 @@ void ccVSGWindowInterface::updateCamera()
 	m_overlayBuilder.setDevicePixelRatio(devicePixelRatio());
 
 	if (m_overlayBuilder.updateColorScale(sf, width, height, 1.0f))
+	{
+		m_overlayNeedsCompile = true;
+	}
 
 	// the scale bar (M5.4): only meaningful in orthographic mode
 	const double pixelSize = m_viewportParams.computePixelSize(width, height);

@@ -48,9 +48,14 @@
 #include "ccPluginInterface.h"
 #include "ccPluginManager.h"
 
+// qCC_renderCore (render backend registry)
+#include <ccRenderBackend.h>
+#include <ccGLRenderBackend.h>
+
 #ifdef CC_RENDER_VSG_ENABLED
 // VSG render backend (see doc/VSG_Rendering_Migration_Plan.md)
 #include <ccVSGWindowInterface.h>
+#include <ccVSGRenderBackend.h>
 #endif
 
 #ifdef USE_VLD
@@ -163,6 +168,34 @@ int main(int argc, char** argv)
 	ccApplication::InitOpenGL();
 
 	ccApplication app(argc, argv, commandLine);
+
+	// ----------------------------------------------------------------------
+	// Register the available render backends (see doc/VSG_Rendering_Migration_Plan.md).
+	// The registry is a singleton, so this must happen before any 3D view is
+	// created (in particular before MainWindow builds its first view).
+	// ----------------------------------------------------------------------
+	{
+		ccRenderBackendRegistry& registry = ccRenderBackendRegistry::instance();
+
+		registry.registerBackend(QStringLiteral("OpenGL"),
+		                         []() { return std::unique_ptr<ccRenderBackend>(new ccGLRenderBackend()); });
+
+#ifdef CC_RENDER_VSG_ENABLED
+		registry.registerBackend(QStringLiteral("VSG"),
+		                         []() { return std::unique_ptr<ccRenderBackend>(new ccVSGRenderBackend()); });
+#endif
+
+		// command line override: --render-backend=OpenGL|VSG (matches the
+		// CC_RENDER_BACKEND environment variable handled inside the registry)
+		for (const QString& arg : argumentsLocal8Bit)
+		{
+			if (arg.startsWith(QStringLiteral("--render-backend=")))
+			{
+				const QString value = arg.mid(QStringLiteral("--render-backend=").length());
+				registry.setSelectedBackendName(value);
+			}
+		}
+	}
 
 	if (!commandLine)
 	{

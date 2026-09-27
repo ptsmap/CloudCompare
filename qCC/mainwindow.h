@@ -196,13 +196,18 @@ class MainWindow : public QMainWindow
 	void updatePropertiesView() override;
 
   private:
-	//! Creates a new 3D GL sub-window
-	ccGLWindowInterface* new3DView()
+	//! Creates a new 3D sub-window (backend chosen by the render backend registry)
+	ccViewInterface* new3DView()
 	{
 		return new3DViewInternal(true, false);
 	}
-	//! Creates a new 3D GL sub-window (choose whether entity selection is allowed or not)
-	ccGLWindowInterface* new3DViewInternal(bool allowEntitySelection, bool warnAboutLockedRotationAxis = false);
+	//! Creates a new 3D sub-window (backend chosen by the render backend registry)
+	/** \param allowEntitySelection whether entity selection is allowed or not
+	    \param warnAboutLockedRotationAxis whether to warn if the rotation axis is locked
+	    \param forceOpenGL when true, the OpenGL backend is used regardless of the
+	           current selection (used by tools that rely on OpenGL-specific features)
+	**/
+	ccViewInterface* new3DViewInternal(bool allowEntitySelection, bool warnAboutLockedRotationAxis = false, bool forceOpenGL = false);
 
 	//! Zooms in (current 3D view)
 	void zoomIn();
