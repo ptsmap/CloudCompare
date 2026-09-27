@@ -21,6 +21,8 @@
 #include <vsg/ccVSGShaders.h>
 
 // qCC_db
+#include <cc2DLabel.h>
+#include <cc2DViewportLabel.h>
 #include <ccColorTypes.h>
 #include <ccImage.h>
 #include <ccScalarField.h>
@@ -53,9 +55,66 @@ namespace
 	//! Distance between the axis tip and its label, in pixels
 	constexpr float LabelOffsetPx = 7.0f;
 
+	using PointList = std::vector<vsg::vec3>;
+	using ColorList = std::vector<ccColor::Rgba>;
+
 	inline vsg::ubvec4 toColor(const ccColor::Rgba& c)
 	{
 		return vsg::ubvec4(c.r, c.g, c.b, c.a);
+	}
+
+	//! Projects a world point to the overlay coordinate system (centre origin)
+	/** \return false when the point is behind the camera **/
+	bool projectToOverlay(const vsg::dmat4& projection,
+	                      const vsg::dmat4& view,
+	                      const vsg::dvec3& p,
+	                      int               width,
+	                      int               height,
+	                      double&           outX,
+	                      double&           outY)
+	{
+		const vsg::dvec4 clip = (projection * view) * vsg::dvec4(p.x, p.y, p.z, 1.0);
+		if (std::abs(clip.w) < 1.0e-12)
+		{
+			return false;
+		}
+
+		const double ndcX = clip.x / clip.w;
+		const double ndcY = clip.y / clip.w;
+
+		// Vulkan convention: ndc y = +1 is the *bottom* of the viewport
+		outX = (ndcX + 1.0) * 0.5 * static_cast<double>(width) - static_cast<double>(width) * 0.5;
+		outY = static_cast<double>(height) * 0.5 - (ndcY + 1.0) * 0.5 * static_cast<double>(height);
+
+		return true;
+	}
+
+	//! Collects the visible 2D labels of a ccHObject tree
+	void collectLabels(ccHObject*                          obj,
+	                   std::vector<const cc2DLabel*>&      labels2D,
+	                   std::vector<const cc2DViewportLabel*>& roiLabels)
+	{
+		if (!obj || !obj->isEnabled())
+		{
+			return;
+		}
+
+		if (obj->isVisible() || obj->isSelected())
+		{
+			if (auto* label = dynamic_cast<const cc2DLabel*>(obj))
+			{
+				labels2D.push_back(label);
+			}
+			else if (auto* roi = dynamic_cast<const cc2DViewportLabel*>(obj))
+			{
+				roiLabels.push_back(roi);
+			}
+		}
+
+		for (unsigned i = 0; i < obj->getChildrenNumber(); ++i)
+		{
+			collectLabels(obj->getChild(i), labels2D, roiLabels);
+		}
 	}
 
 	//! Rounds a displayed width to a readable value
@@ -726,4 +785,186 @@ bool ccVSGOverlayBuilder::updateImage(const ccImage* image, int width, int heigh
 	m_imageMounted = true;
 
 	return true;
+}
+
+bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
+                                      const vsg::dmat4& viewMatrix,
+                                      const vsg::dmat4& projectionMatrix,
+                                      int               width,
+                                      int               height)
+{
+	std::vector<const cc2DLabel*>           labels2D;
+	std::vector<const cc2DViewportLabel*>   roiLabels;
+	collectLabels(root, labels2D, roiLabels);
+
+	// ------------------------------------------------------------------
+	// the group is only rebuilt when the set of labels changes; moving the
+	// camera merely updates the anchor transforms
+	// ------------------------------------------------------------------
+	quint64 signature = 17;
+	auto    mix       = [&signature](quint64 v) { signature = signature * 1000003 + v; };
+
+	for (auto* label : labels2D)
+	{
+		mix(static_cast<quint64>(reinterpret_cast<quintptr>(label)));
+	}
+	for (auto* roi : roiLabels)
+	{
+		mix(static_cast<quint64>(reinterpret_cast<quintptr>(roi)));
+	}
+	mix(static_cast<quint64>(width));
+	mix(static_cast<quint64>(height));
+
+	bool rebuilt = false;
+
+	if (signature != m_labelsSignature)
+	{
+		m_labelsSignature = signature;
+
+		if (m_labelsMounted)
+		{
+			unmount(m_root, m_labelsNode);
+			m_labelsMounted = false;
+		}
+		m_labelsNode = nullptr;
+		m_2DLabels.clear();
+		m_2DLabelTransforms.clear();
+
+		auto group = vsg::Group::create();
+
+		// TODO(M5.3): use ccGui::Parameters().textDefaultCol
+		const ccColor::Rgba labelColor(255, 255, 255, 255);
+
+		// offset between the 3D anchor and its name
+		constexpr float LeaderDX = 10.0f;
+		constexpr float LeaderDY = 14.0f;
+
+		for (auto* label : labels2D)
+		{
+			auto transform = vsg::MatrixTransform::create();
+
+			// the leader line, from the anchor to the text
+			{
+				auto verts  = vsg::vec3Array::create(2);
+				auto colors = vsg::ubvec4Array::create(2);
+				const vsg::ubvec4 c = toColor(labelColor);
+
+				(*verts)[0].set(0.0f, 0.0f, 0.0f);
+				(*verts)[1].set(LeaderDX, LeaderDY, 0.0f);
+				(*colors)[0] = c;
+				(*colors)[1] = c;
+
+				if (auto node = buildGeometry(m_lineShaderSet, m_sharedObjects, verts, colors))
+				{
+					transform->addChild(node);
+				}
+			}
+
+			// the name itself
+			if (auto node = createLabel(label->getName().toUtf8().constData(), labelColor))
+			{
+				if (auto* textTransform = dynamic_cast<vsg::MatrixTransform*>(node.get()))
+				{
+					textTransform->matrix = vsg::translate(static_cast<double>(LeaderDX),
+					                                        static_cast<double>(LeaderDY) + LabelHeightPx * 0.6,
+					                                        0.0);
+				}
+				transform->addChild(node);
+			}
+
+			group->addChild(transform);
+			m_2DLabels.push_back(label);
+			m_2DLabelTransforms.push_back(transform);
+		}
+
+		// ---- the ROI rectangles, drawn as dashed line loops ----
+		for (auto* roi : roiLabels)
+		{
+			const auto& r = roi->roi();
+
+			const float x0 = r[0], y0 = r[1], x1 = r[2], y1 = r[3];
+
+			PointList   pts;
+			constexpr int dashesPerEdge = 10;
+
+			auto addEdge = [&pts](float ax, float ay, float bx, float by)
+			{
+				for (int k = 0; k < dashesPerEdge; ++k)
+				{
+					if (k % 2)
+					{
+						// every other dash is skipped (GL_LINE_STIPPLE, 0xAAAA)
+						continue;
+					}
+
+					const float t0 = static_cast<float>(k) / dashesPerEdge;
+					const float t1 = static_cast<float>(k + 1) / dashesPerEdge;
+
+					pts.push_back(vsg::vec3(ax + (bx - ax) * t0, ay + (by - ay) * t0, 0.0f));
+					pts.push_back(vsg::vec3(ax + (bx - ax) * t1, ay + (by - ay) * t1, 0.0f));
+				}
+			};
+
+			addEdge(x0, y0, x1, y0);
+			addEdge(x1, y0, x1, y1);
+			addEdge(x1, y1, x0, y1);
+			addEdge(x0, y1, x0, y0);
+
+			if (pts.empty())
+			{
+				continue;
+			}
+
+			auto verts  = vsg::vec3Array::create(pts.size());
+			auto colors = vsg::ubvec4Array::create(pts.size());
+			const vsg::ubvec4 c = toColor(roi->isSelected() ? ccColor::Rgba(255, 0, 0, 255) : labelColor);
+
+			for (std::size_t i = 0; i < pts.size(); ++i)
+			{
+				(*verts)[i]  = pts[i];
+				(*colors)[i] = c;
+			}
+
+			if (auto node = buildGeometry(m_lineShaderSet, m_sharedObjects, verts, colors))
+			{
+				group->addChild(node);
+			}
+		}
+
+		m_labelsNode = group;
+		m_root->addChild(m_labelsNode);
+		m_labelsMounted = true;
+		rebuilt         = true;
+	}
+
+	// ------------------------------------------------------------------
+	// move every anchor to the projection of its 3D point
+	// ------------------------------------------------------------------
+	for (std::size_t i = 0; i < m_2DLabels.size() && i < m_2DLabelTransforms.size(); ++i)
+	{
+		// a cc2DLabel can hold several picked points; the anchor follows the
+		// first one (CC displays one marker per point)
+		double ox = 0.0;
+		double oy = 0.0;
+		bool   ok = false;
+
+		if (m_2DLabels[i]->size() > 0)
+		{
+			const CCVector3 P = m_2DLabels[i]->getPickedPoint(0).getPointPosition();
+
+			ok = projectToOverlay(projectionMatrix, viewMatrix, vsg::dvec3(P.x, P.y, P.z), width, height, ox, oy);
+		}
+
+		if (ok)
+		{
+			m_2DLabelTransforms[i]->matrix = vsg::translate(ox, oy, 0.0);
+		}
+		else
+		{
+			// behind the camera (or no point): park it far outside the viewport
+			m_2DLabelTransforms[i]->matrix = vsg::translate(1.0e6, 1.0e6, 0.0);
+		}
+	}
+
+	return rebuilt;
 }

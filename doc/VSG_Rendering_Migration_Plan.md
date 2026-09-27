@@ -838,7 +838,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M2 | 相机与交互 | ✅ 已完成（CC 语义操控器 + reverse-depth NDC 适配） | 2~3 | 10 |
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10） | 3~4 | 14 |
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
-| M5 | 2D 覆盖层 | 🟡 大部分完成：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加已实现（视觉验证待 GUI）；仅 M5.3 标签未做 | 3 | 21 |
+| M5 | 2D 覆盖层 | 🟡 子项全部落地：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.3 2D 标签、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加（视觉验证待 GUI）；细节完善见 D.13.10 | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
 | M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
@@ -1651,10 +1651,23 @@ VSG 侧原先的 mesh shader 恒定带光照 → 切换无反应。现改为：
 - 为真用带法线的光照 shader，为假用无光照 flat shader
 - `computeSignature()` 加入 `normalsShown()` / `triNormsShown()` / `isShownAsWire()`，切换才会重建
 
-### D.13.9 M5 剩余
+### D.13.9 M5.3 2D 标签（已实现）
 
-- M5.3 `cc2DLabel` / `cc2DViewportLabel`
-- M5.4 剩余：透视/正交状态提示
+`ccVSGOverlayBuilder::updateLabels()` 处理两类标签：
+
+| 类型 | 实现 |
+|---|---|
+| `cc2DLabel` | 每个标签一个 `MatrixTransform` 锚点：几何是**相对于锚点**的（一条从 (0,0) 到 (+10,+14) 的引线 + 位于引线末端的名称文字）。每帧只需用 `getPickedPoint(0).getPointPosition()` 投影出的屏幕坐标更新锚点矩阵 —— **无需重建、无需 `compile()`** |
+| `cc2DViewportLabel` | ROI 矩形（`ROI = std::array<float,4>`，相对视口中心的像素值）画成**虚线**矩形环：每条边切成 10 段、隔段跳过，模拟 GL 的 `glLineStipple(1, 0xAAAA)`；选中时画成红色 |
+
+投影：`(P * V) * p` → 除以 w → **Vulkan 约定 ndc y = +1 是视口底部** → `y_from_top = (ndc.y+1)/2*H` → 再换成覆盖层的中心原点坐标。相机背后的点停放到视口外。
+
+**未做**：cc2DLabel 的 **3D marker**（`drawMeOnly3D()`，属于 3D pass，应由 `ccVSGSceneBuilder` 构建）；`cc2DViewportLabel` 的视口参数匹配与缩放/相机偏移补偿（`relativeZoom`、`dC`）。
+
+### D.13.10 M5 剩余
+
+- cc2DLabel 的 3D marker；`cc2DViewportLabel` 的视口状态校验与缩放补偿
 - `ccImage` 多图叠加（当前只显示首个可见的）
-- 色标：直方图、对数轴、自定义标签、按 `computeColorRampAreaLimits()` 布局
+- 色标：直方图、对数轴、自定义标签、按 `computeColorRampAreaLimits()` 预留空间
 - CJK 标签（需更大的 glyph atlas 或按需扩容）
+- 各类叠加元素接 `ccGui::Parameters()`（`textDefaultCol`、`labelMarkerSize` 等）

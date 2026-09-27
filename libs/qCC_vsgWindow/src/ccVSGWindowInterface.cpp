@@ -491,7 +491,17 @@ void ccVSGWindowInterface::updateCamera()
 
 	// the trihedron follows the camera orientation and the viewport size
 	// TODO(M5.4): wire the real 'showTrihedron' display parameter
-	m_overlayBuilder.update(width, height, m_viewMatrix->matrix, true);
+	{
+		// only the *rotation* of the view matrix is used: the trihedron
+		// geometry is expressed in pixels, whereas the view translation is in
+		// world units (which can be huge, e.g. for a mesh in millimetres)
+		ccGLMatrixd rotationOnly = viewMatd;
+		rotationOnly.data()[12] = 0.0;
+		rotationOnly.data()[13] = 0.0;
+		rotationOnly.data()[14] = 0.0;
+
+		m_overlayBuilder.update(width, height, toVSGMatrix(rotationOnly), true);
+	}
 
 	// the scalar field color scale (M5.5)
 	ccScalarField* sf = findDisplayedScalarField(m_winDBRoot);
@@ -524,6 +534,16 @@ void ccVSGWindowInterface::updateCamera()
 	if (m_overlayBuilder.updateImage(image, width, height))
 	{
 		m_overlayNeedsCompile = true;
+	}
+
+	// the 2D labels (M5.3): cc2DLabel anchors + cc2DViewportLabel ROIs
+	{
+		ccHObject* labelRoot = m_winDBRoot ? m_winDBRoot : m_globalDBRoot;
+
+		if (m_overlayBuilder.updateLabels(labelRoot, m_viewMatrix->matrix, m_projectionMatrix->matrix, width, height))
+		{
+			m_overlayNeedsCompile = true;
+		}
 	}
 }
 

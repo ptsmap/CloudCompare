@@ -166,11 +166,11 @@ bool ccVSGSceneBuilder::syncChildren(ccHObject* parent,
 	{
 		ccHObject* child = parent->getChild(i);
 
-		// must mirror the OpenGL backend's draw visibility test
-		// (see ccHObject::draw: drawInThisContext = (m_visible || m_selected) && ...)
-		// - a freshly loaded entity is selected (but not yet visible), so it
-		//   would otherwise never appear in the VSG view
-		if (!child || !child->isEnabled() || (!child->isVisible() && !child->isSelected()))
+		// mirrors ccHObject::draw(): a disabled entity is skipped entirely,
+		// but an invisible one still has its *children* processed - only its
+		// own content is not drawn (see the children loop of ccHObject::draw,
+		// which recurses unconditionally)
+		if (!child || !child->isEnabled())
 		{
 			continue;
 		}
@@ -195,7 +195,9 @@ bool ccVSGSceneBuilder::syncChildren(ccHObject* parent,
 
 		Entry& entry = it->second;
 
-		if (syncEntity(child, entry))
+		// the entity's own content is only built when it is visible or
+		// selected (a freshly loaded entity is selected but not yet visible)
+		if ((child->isVisible() || child->isSelected()) && syncEntity(child, entry))
 		{
 			changed = true;
 		}

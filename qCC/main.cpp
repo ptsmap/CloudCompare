@@ -349,18 +349,28 @@ int main(int argc, char** argv)
 					                   // diagnostics: is there anything in the DB / in the VSG scene graph?
 					                   if (ccHObject* dbRoot = mainWindow->dbRootObject())
 					                   {
-						                   fprintf(stderr, "[VSG] DB root children: %u\n", dbRoot->getChildrenNumber());
-						                   for (unsigned i = 0; i < dbRoot->getChildrenNumber(); ++i)
+						                   std::function<void(ccHObject*, int)> dump = [&](ccHObject* obj, int depth)
 						                   {
-							                   ccHObject* c = dbRoot->getChild(i);
-							                   fprintf(stderr, "[VSG]   child[%u] '%s' visible=%d selected=%d enabled=%d kind=%d\n",
-							                           i,
-							                           qPrintable(c->getName()),
-							                           c->isVisible(),
-							                           c->isSelected(),
-							                           c->isEnabled(),
-							                           static_cast<int>(c->getClassID()));
-						                   }
+							                   if (!obj)
+							                   {
+								                   return;
+							                   }
+							                   fprintf(stderr, "[VSG]   %*s'%s' visible=%d selected=%d enabled=%d kind=%d children=%u\n",
+							                           depth * 2,
+							                           "",
+							                           qPrintable(obj->getName()),
+							                           obj->isVisible(),
+							                           obj->isSelected(),
+							                           obj->isEnabled(),
+							                           static_cast<int>(obj->getClassID()),
+							                           obj->getChildrenNumber());
+							                   for (unsigned i = 0; i < obj->getChildrenNumber(); ++i)
+							                   {
+								                   dump(obj->getChild(i), depth + 1);
+							                   }
+						                   };
+						                   fprintf(stderr, "[VSG] DB tree:\n");
+						                   dump(dbRoot, 0);
 					                   }
 					                   if (auto* vsgView = dynamic_cast<ccVSGWindowInterface*>(view))
 					                   {

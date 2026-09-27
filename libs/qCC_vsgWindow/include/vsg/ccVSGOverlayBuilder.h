@@ -30,8 +30,14 @@
 #include <vsg/text/Font.h>
 #include <vsg/utils/ShaderSet.h>
 
+class cc2DLabel;
+class cc2DViewportLabel;
+class ccHObject;
 class ccImage;
 class ccScalarField;
+
+// system
+#include <vector>
 
 namespace vsg
 {
@@ -103,6 +109,23 @@ class ccVSGOverlayBuilder
 	 **/
 	bool updateImage(const ccImage* image, int width, int height);
 
+	//! Updates the 2D labels (M5.3)
+	/** Handles the two flavours of CloudCompare 2D labels:
+	    - `cc2DLabel`: the name is displayed next to the projection of its 3D
+	      point, with a short leader line between the point and the text
+	      (see cc2DLabel::drawMeOnly2D())
+	    - `cc2DViewportLabel`: the ROI rectangle, drawn as a dashed line loop
+	      (see cc2DViewportLabel::drawMeOnly())
+
+	    \param viewMatrix,projectionMatrix the current camera matrices (used to
+	           project the 3D anchor of each cc2DLabel)
+	 **/
+	bool updateLabels(ccHObject*           root,
+	                  const vsg::dmat4&   viewMatrix,
+	                  const vsg::dmat4&   projectionMatrix,
+	                  int                 width,
+	                  int                 height);
+
   private:
 	//! Creates the X/Y/Z direction axes (built once, then only its matrix changes)
 	void createTrihedron();
@@ -137,6 +160,18 @@ class ccVSGOverlayBuilder
 	vsg::ref_ptr<vsg::Node> m_imageNode;
 	quint64                 m_imageSignature = 0;
 	bool                    m_imageMounted   = false;
+
+	//! 2D labels (M5.3)
+	vsg::ref_ptr<vsg::Node> m_labelsNode;
+	quint64                 m_labelsSignature = 0;
+	bool                    m_labelsMounted   = false;
+
+	//! One entry per cc2DLabel: the anchor and the transform that positions it
+	/** The geometry of a label is expressed *relative* to its anchor, so that
+	    moving the camera only requires updating the transform matrix (no
+	    rebuild, and therefore no recompilation). **/
+	std::vector<const cc2DLabel*>                  m_2DLabels;
+	std::vector<vsg::ref_ptr<vsg::MatrixTransform>> m_2DLabelTransforms;
 
 	//! Textured shader set, used by the image overlay
 	vsg::ref_ptr<vsg::ShaderSet> m_texturedShaderSet;
