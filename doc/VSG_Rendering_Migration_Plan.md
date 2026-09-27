@@ -838,7 +838,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M2 | 相机与交互 | ✅ 已完成（CC 语义操控器 + reverse-depth NDC 适配） | 2~3 | 10 |
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10） | 3~4 | 14 |
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
-| M5 | 2D 覆盖层 | 🟡 起步：M5.1 覆盖层 View + 正交像素投影、M5.4 方向轴已落地（截图验证）；文字/标签/比例尺/色标/图片未做 | 3 | 21 |
+| M5 | 2D 覆盖层 | 🟡 起步：M5.1 覆盖层 View、M5.4 方向轴（截图验证）、M5.2 文字/SDF 字体（已实现，视觉验证待 GUI）；标签/比例尺/色标/图片未做 | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
 | M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
@@ -1571,12 +1571,38 @@ cd build-hbqt/qCC/deployqt && open CloudCompare.app
 
 验证：`scripts/vsg_smoke_test.sh bunny10k.ply` 截图右下角出现红/绿轴（Z 轴朝向观察者故极短，符合 CC 默认视角）。
 
-### D.13.3 M5 剩余
+### D.13.3 M5.2 文字：freetype → `vsg::Font` SDF 字体（已实现）
 
-- **M5.2 文字**：`vsg::Text` + SDF 字体。需要 freetype→`vsg::Font` 构建器（vsgXchange 1.1.6 与 vsg 1.1.14 ABI 不兼容，见 R15）。这是所有剩余项（比例尺、色标刻度、标签、X/Y/Z 轴标注、屏幕消息）的前置。
+新增 `ccVSGFontBuilder`（`libs/qCC_vsgWindow/{include/vsg/ccVSGFontBuilder.h, src/vsg/ccVSGFontBuilder.cpp}`），
+自写 freetype → `vsg::Font` 构建器（vsgXchange 与 vsg 1.1.14 ABI 不兼容，见 R15）：
+
+| 项 | 实现 |
+|---|---|
+| 光栅化 | `FT_Load_Char(..., FT_LOAD_RENDER \| FT_LOAD_TARGET_SDF)` —— **FreeType ≥ 2.11 的 SDF 渲染器**（注意：2.14 未提供 `FT_LOAD_TARGET_SDF` 宏，需自行 `#define` 为 `FT_LOAD_TARGET_(FT_RENDER_MODE_SDF)`） |
+| 距离编码 | FreeType 输出 128 = 字形边缘、每像素 16 个单位 → 转成 `float` 距离写入 atlas（**0 必须严格落在边缘上**，VSG 的 text shader 以 0 为阈值做 smoothstep） |
+| Atlas 格式 | `vsg::vec4Array2D` + 显式 `VK_FORMAT_R32G32B32A32_SFLOAT`。**不能用覆盖图（coverage）**——会导致整块半透明方块；也不必用 SNORM（SFLOAT 兼容性最好） |
+| 关键尺寸陷阱 | `FT_Set_Pixel_Sizes()` 下 **所有 glyph metrics 都是 26.6 定点**（/64）。误用 16.16（/65536）会让 quad 缩小 1000 倍 → 文字"消失" |
+| uvrect | 必须取**字形包围盒**（SDF 位图去掉 spread 边距后的内区），而非整个 SDF 位图 |
+| 覆盖范围 | 默认 ASCII 32..126；CJK 需更大 atlas（默认字体选 Hiragino Sans GB，ASCII+CJK 都有，扩展范围不用换文件） |
+| 字体构建 | 一次性构建；文本节点经 `MatrixTransform` 移动，改矩阵不需要 `viewer->compile()` |
+
+文字接入覆盖层：`ccVSGOverlayBuilder::createLabel()` 创建 `vsg::Text`（`CpuLayoutTechnique` + `StandardLayout`），
+`layout->horizontal/vertical` 直接用像素数（metrics 已归一化到行高 1.0），已用于方向轴的 **X/Y/Z 标注**。
+整个覆盖层 View 设 `overridePipelineStates`（depthTest/Write = OFF），保证文字永远在 3D 之上。
+
+### D.13.4 已知问题（M5 相关）
+
+- **无头截图被 PLY 导入对话框阻塞**：`PlyFilter` 在 `alwaysDisplayLoadDialog` 且 `!canBeSkipped()` 时弹模态 `PlyOpenDlg`，
+  而 `QTimer::singleShot(5000)`（截图钩子）要在 `addToDB()` 返回后才会创建 → 冒烟测试 90 秒内拿不到截图。
+  这与 M5 代码无关（`sample` 采样确认卡在 `PlyFilter::loadFile → QDialog::exec()`）。GUI 下人工确认即可绕过。
+- `showTrihedron` / 显示参数尚未接到 UI（当前恒为 true）
+- trihedron / 轴标注线宽 2px 未实现（R2）
+- X/Y/Z 标注的视觉验证尚未完成（受上述对话框阻塞）
+
+### D.13.5 M5 剩余
+
 - M5.3 `cc2DLabel` / `cc2DViewportLabel`
-- M5.4 剩余：比例尺、X/Y/Z 轴文字标注、透视/正交状态提示
+- M5.4 剩余：比例尺、透视/正交状态提示
 - M5.5 标量场色标（渐变条 + 刻度文字）
 - M5.6 `ccImage`
-- `showTrihedron` / 显示参数尚未接到 UI（当前恒为 true）
-- trihedron 线宽 2px 未实现（R2）
+- CJK 标签（需更大的 glyph atlas 或按需扩容）

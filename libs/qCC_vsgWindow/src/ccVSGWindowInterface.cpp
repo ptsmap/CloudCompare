@@ -208,6 +208,15 @@ bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, 
 	m_overlayCamera     = vsg::Camera::create(m_overlayProjection, m_overlayViewMatrix, m_camera->viewportState);
 	m_overlayView       = vsg::View::create(m_overlayCamera, m_overlayBuilder.overlayRoot());
 
+	// every pipeline of the overlay must be drawn on top of the 3D image: this
+	// also covers the text nodes, whose pipeline is built by VSG itself
+	{
+		auto dss              = vsg::DepthStencilState::create();
+		dss->depthTestEnable  = VK_FALSE;
+		dss->depthWriteEnable = VK_FALSE;
+		m_overlayView->overridePipelineStates = {dss};
+	}
+
 	if (auto renderGraph = findRenderGraph(commandGraph))
 	{
 		renderGraph->addChild(m_overlayView);

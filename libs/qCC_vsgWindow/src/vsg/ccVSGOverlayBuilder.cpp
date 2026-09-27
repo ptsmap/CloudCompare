@@ -16,6 +16,7 @@
 // ##########################################################################
 
 // Local
+#include <vsg/ccVSGFontBuilder.h>
 #include <vsg/ccVSGOverlayBuilder.h>
 #include <vsg/ccVSGShaders.h>
 
@@ -27,6 +28,7 @@
 
 // system
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace
@@ -40,12 +42,36 @@ namespace
 	constexpr float TrihedronTextMargin = 5.0f;
 
 	//! Rough horizontal advance of the 'X' label
-	/** TODO(M5.2): use the real font metrics once the SDF font is available **/
+	/** TODO(M5.2): use the real font metrics of the built atlas **/
 	constexpr float TrihedronLabelAdvance = 8.0f;
+
+	//! Height of the axis labels, in pixels
+	constexpr float LabelHeightPx = 14.0f;
+
+	//! Distance between the axis tip and its label, in pixels
+	constexpr float LabelOffsetPx = 7.0f;
 
 	inline vsg::ubvec4 toColor(const ccColor::Rgba& c)
 	{
 		return vsg::ubvec4(c.r, c.g, c.b, c.a);
+	}
+
+	//! Removes a node from a group (vsg::Group has no removeChild())
+	void unmount(vsg::Group* root, vsg::Node* node)
+	{
+		if (!root || !node)
+		{
+			return;
+		}
+
+		auto& children = root->children;
+		children.erase(std::remove_if(children.begin(),
+		                              children.end(),
+		                              [node](const vsg::ref_ptr<vsg::Node>& n)
+		                              {
+			                              return n.get() == node;
+		                              }),
+		               children.end());
 	}
 
 	//! Builds a draw node for the overlay: no lighting, no depth test
@@ -107,12 +133,79 @@ ccVSGOverlayBuilder::ccVSGOverlayBuilder()
     , m_triangleShaderSet(ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
     , m_sharedObjects(vsg::SharedObjects::create())
 {
+	// glyph atlas used by the overlay text (M5.2) - may be null when freetype
+	// is not available or when no system font was found
+	m_font = ccVSGFontBuilder::buildFont(ccVSGFontBuilder::defaultFontFile());
+
 	createTrihedron();
 
 	if (m_trihedron)
 	{
 		m_root->addChild(m_trihedron);
 		m_trihedronMounted = true;
+	}
+
+	createTrihedronLabels();
+}
+
+vsg::ref_ptr<vsg::Node> ccVSGOverlayBuilder::createLabel(const char* str, const ccColor::Rgba& color)
+{
+	if (!m_font)
+	{
+		return {};
+	}
+
+	auto text = vsg::Text::create();
+	text->font      = m_font;
+	text->shaderSet = vsg::createTextShaderSet();
+	text->technique = vsg::CpuLayoutTechnique::create();
+	text->text      = vsg::stringValue::create(str);
+
+	auto layout = vsg::StandardLayout::create();
+	// the glyph metrics are normalized to a line height of 1.0, so the layout
+	// vectors give the text size directly in overlay pixels
+	layout->horizontal          = vsg::vec3(LabelHeightPx, 0.0f, 0.0f);
+	layout->vertical            = vsg::vec3(0.0f, LabelHeightPx, 0.0f);
+	layout->position            = vsg::vec3(0.0f, 0.0f, 0.0f);
+	layout->horizontalAlignment = vsg::StandardLayout::CENTER_ALIGNMENT;
+	layout->verticalAlignment   = vsg::StandardLayout::CENTER_ALIGNMENT;
+	layout->color               = vsg::vec4(static_cast<float>(color.r) / 255.0f,
+	                                        static_cast<float>(color.g) / 255.0f,
+	                                        static_cast<float>(color.b) / 255.0f,
+	                                        1.0f);
+	text->layout = layout;
+
+	// builds the rendering subgraph (vertex arrays + text pipeline)
+	text->setup(0, {});
+
+	// the label is moved through a transform: changing the matrix does not
+	// require any recompilation, whereas rebuilding the text quads would
+	auto transform = vsg::MatrixTransform::create();
+	transform->addChild(text);
+
+	return transform;
+}
+
+void ccVSGOverlayBuilder::createTrihedronLabels()
+{
+	if (!m_font)
+	{
+		return;
+	}
+
+	static const char*      labelText[3]  = {"X", "Y", "Z"};
+	const ccColor::Rgba     labelColors[3] = {
+	    ccColor::Rgba(ccColor::red.r, ccColor::red.g, ccColor::red.b, 255),
+	    ccColor::Rgba(ccColor::green.r, ccColor::green.g, ccColor::green.b, 255),
+	    ccColor::Rgba(ccColor::blueCC.r, ccColor::blueCC.g, ccColor::blueCC.b, 255)};
+
+	for (unsigned k = 0; k < 3; ++k)
+	{
+		m_axisLabels[k] = dynamic_cast<vsg::MatrixTransform*>(createLabel(labelText[k], labelColors[k]).get());
+		if (m_axisLabels[k])
+		{
+			m_root->addChild(m_axisLabels[k]);
+		}
 	}
 }
 
@@ -178,23 +271,54 @@ void ccVSGOverlayBuilder::update(int width, int height, const vsg::dmat4& viewMa
 		                                     0.0)
 		                      * viewMatrix;
 
-		// show / hide: the node is simply (un)mounted from the overlay root
+		// axis labels: placed just beyond the (projected) axis tips
+		static const float axisTips[3][3] = {{TrihedronAxesLength, 0.0f, 0.0f},
+		                                     {0.0f, TrihedronAxesLength, 0.0f},
+		                                     {0.0f, 0.0f, TrihedronAxesLength}};
+
+		for (unsigned k = 0; k < 3; ++k)
+		{
+			if (!m_axisLabels[k])
+			{
+				continue;
+			}
+
+			const vsg::dvec4 tip = viewMatrix * vsg::dvec4(axisTips[k][0], axisTips[k][1], axisTips[k][2], 1.0);
+
+			double labelX = centerX + tip.x;
+			double labelY = -centerY + tip.y;
+
+			// push the label a bit further along the axis direction
+			const double len = std::sqrt(tip.x * tip.x + tip.y * tip.y);
+			if (len > 1.0e-6)
+			{
+				labelX += tip.x / len * LabelOffsetPx;
+				labelY += tip.y / len * LabelOffsetPx;
+			}
+
+			m_axisLabels[k]->matrix = vsg::translate(labelX, labelY, 0.0);
+		}
+
+		// show / hide: the nodes are simply (un)mounted from the overlay root
 		if (showTrihedron && !m_trihedronMounted)
 		{
 			m_root->addChild(m_trihedron);
+			for (auto& label : m_axisLabels)
+			{
+				if (label)
+				{
+					m_root->addChild(label);
+				}
+			}
 			m_trihedronMounted = true;
 		}
 		else if (!showTrihedron && m_trihedronMounted)
 		{
-			// vsg::Group has no removeChild(): drop it from the children list
-			auto& children = m_root->children;
-			children.erase(std::remove_if(children.begin(),
-			                              children.end(),
-			                              [this](const vsg::ref_ptr<vsg::Node>& node)
-			                              {
-				                              return node.get() == m_trihedron.get();
-			                              }),
-			               children.end());
+			for (auto& label : m_axisLabels)
+			{
+				unmount(m_root, label);
+			}
+			unmount(m_root, m_trihedron);
 			m_trihedronMounted = false;
 		}
 	}

@@ -19,11 +19,15 @@
 // Local
 #include <qCC_vsgWindow.h>
 
+// qCC_db
+#include <ccColorTypes.h>
+
 // VSG
 #include <vsg/core/ref_ptr.h>
 #include <vsg/maths/mat4.h>
 #include <vsg/nodes/Group.h>
 #include <vsg/nodes/MatrixTransform.h>
+#include <vsg/text/Font.h>
 #include <vsg/utils/ShaderSet.h>
 
 namespace vsg
@@ -67,10 +71,21 @@ class ccVSGOverlayBuilder
 	//! Creates the X/Y/Z direction axes (built once, then only its matrix changes)
 	void createTrihedron();
 
+	//! Creates the X/Y/Z labels of the trihedron
+	void createTrihedronLabels();
+
+	//! Builds a text node, wrapped in a transform so that it can be moved cheaply
+	vsg::ref_ptr<vsg::Node> createLabel(const char* text, const ccColor::Rgba& color);
+
 	vsg::ref_ptr<vsg::Group>           m_root;
 	vsg::ref_ptr<vsg::MatrixTransform> m_trihedron;
 	//! Whether the trihedron is currently mounted on the overlay root
 	bool                               m_trihedronMounted = false;
+
+	//! Glyph atlas used by the overlay text (M5.2)
+	vsg::ref_ptr<vsg::Font> m_font;
+	//! X / Y / Z axis labels, each movable through its own transform
+	vsg::ref_ptr<vsg::MatrixTransform> m_axisLabels[3];
 
 	vsg::ref_ptr<vsg::ShaderSet>     m_lineShaderSet;
 	vsg::ref_ptr<vsg::ShaderSet>     m_triangleShaderSet;
