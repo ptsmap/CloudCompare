@@ -21,6 +21,7 @@
 #include "vsg/ccVSGCameraAdapter.h"
 #include "vsg/ccVSGCameraManipulator.h"
 #include "ccVSGWindowSignalEmitter.h"
+#include "vsg/ccVSGOverlayBuilder.h"
 #include "vsg/ccVSGSceneBuilder.h"
 
 // qCC_renderCore
@@ -33,6 +34,8 @@
 // VSG
 #include <vsg/app/Camera.h>
 #include <vsg/app/CommandGraph.h>
+#include <vsg/app/ProjectionMatrix.h>
+#include <vsg/app/View.h>
 #include <vsg/core/ref_ptr.h>
 #include <vsg/maths/mat4.h>
 #include <vsg/nodes/Group.h>
@@ -276,6 +279,20 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   vsg::ref_ptr<ccVSGCameraManipulator> m_manipulator;
   vsg::ref_ptr<vsg::Group>             m_sceneRoot;
   bool                                 m_initialized = false;
+
+  // ----------------------------------------------------------------------
+  // 2D overlay (M5)
+  // ----------------------------------------------------------------------
+
+  //! Second view, sharing the RenderGraph of the 3D scene
+  /** It is therefore drawn after the 3D image, within the same render pass. **/
+  vsg::ref_ptr<vsg::View>              m_overlayView;
+  vsg::ref_ptr<vsg::Camera>            m_overlayCamera;
+  vsg::ref_ptr<ccVSGViewMatrix>        m_overlayViewMatrix;
+  vsg::ref_ptr<vsg::Orthographic>      m_overlayProjection;
+
+  //! Builds the 2D entities (trihedron, and later the scale bar, color ramp...)
+  ccVSGOverlayBuilder m_overlayBuilder;
 
   //! Keeps the VSG scene graph in sync with the ccHObject tree
   ccVSGSceneBuilder m_sceneBuilder;

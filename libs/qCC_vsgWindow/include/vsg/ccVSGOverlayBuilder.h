@@ -1,0 +1,78 @@
+#pragma once
+// ##########################################################################
+// #                                                                        #
+// #                            CLOUDCOMPARE                                #
+// #                                                                        #
+// #  This program is free software; you can redistribute it and/or modify  #
+// #  it under the terms of the GNU General Public License as published by  #
+// #  the Free Software Foundation; version 2 or later of the License.      #
+// #                                                                        #
+// #  This program is distributed in the hope that it will be useful,       #
+// #  but WITHOUT ANY WARRANTY; without even the implied warranty of        #
+// #  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the          #
+// #  GNU General Public License for more details.                          #
+// #                                                                        #
+// #          COPYRIGHT: CloudCompare project                               #
+// #                                                                        #
+// ##########################################################################
+
+// Local
+#include <qCC_vsgWindow.h>
+
+// VSG
+#include <vsg/core/ref_ptr.h>
+#include <vsg/maths/mat4.h>
+#include <vsg/nodes/Group.h>
+#include <vsg/nodes/MatrixTransform.h>
+#include <vsg/utils/ShaderSet.h>
+
+namespace vsg
+{
+	class SharedObjects;
+}
+
+//! Builds the 2D overlay entities (M5)
+/** The overlay is rendered by a second vsg::View that lives in the very same
+    RenderGraph as the 3D scene: it is therefore drawn on top of the 3D image
+    within the same render pass (no extra clear), with the depth test disabled.
+
+    The 2D coordinate system mirrors the one the OpenGL backend uses for its
+    foreground entities (ccGLWindowInterface::setStandardOrthoCenter()): an
+    orthographic projection centered on the viewport
+    (-halfW..halfW, -halfH..halfH), Y axis pointing up, unit = 1 pixel.
+
+    The geometry of each entity is built once; the per frame updates (camera
+    orientation, viewport size) are applied through the node matrices, which
+    does not require any recompilation.
+**/
+class ccVSGOverlayBuilder
+{
+  public:
+	ccVSGOverlayBuilder();
+
+	//! Returns the root of the overlay scene graph
+	vsg::ref_ptr<vsg::Group> overlayRoot() const
+	{
+		return m_root;
+	}
+
+	//! Updates the overlay for the current viewport and camera
+	/** \param width,height  viewport size in pixels
+	    \param viewMatrix    current camera view matrix
+	    \param showTrihedron whether the direction axes should be displayed
+	 **/
+	void update(int width, int height, const vsg::dmat4& viewMatrix, bool showTrihedron = true);
+
+  private:
+	//! Creates the X/Y/Z direction axes (built once, then only its matrix changes)
+	void createTrihedron();
+
+	vsg::ref_ptr<vsg::Group>           m_root;
+	vsg::ref_ptr<vsg::MatrixTransform> m_trihedron;
+	//! Whether the trihedron is currently mounted on the overlay root
+	bool                               m_trihedronMounted = false;
+
+	vsg::ref_ptr<vsg::ShaderSet>     m_lineShaderSet;
+	vsg::ref_ptr<vsg::ShaderSet>     m_triangleShaderSet;
+	vsg::ref_ptr<vsg::SharedObjects> m_sharedObjects;
+};

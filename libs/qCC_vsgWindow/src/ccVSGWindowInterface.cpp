@@ -72,6 +72,33 @@ namespace
 
 		return {};
 	}
+
+	//! Finds the vsg::RenderGraph of a command graph (CommandGraph -> RenderGraph)
+	vsg::ref_ptr<vsg::RenderGraph> findRenderGraph(vsg::ref_ptr<vsg::Node> node)
+	{
+		if (!node)
+		{
+			return {};
+		}
+
+		if (auto* rg = dynamic_cast<vsg::RenderGraph*>(node.get()))
+		{
+			return vsg::ref_ptr<vsg::RenderGraph>(rg);
+		}
+
+		if (auto* group = dynamic_cast<vsg::Group*>(node.get()))
+		{
+			for (auto& child : group->children)
+			{
+				if (auto found = findRenderGraph(child))
+				{
+					return found;
+				}
+			}
+		}
+
+		return {};
+	}
 } // namespace
 
 ccVSGWindowInterface::ccVSGWindowInterface()
@@ -165,6 +192,25 @@ bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, 
 		}
 
 		view->bins[CC_VSG_TRANSPARENT_BIN] = vsg::Bin::create(CC_VSG_TRANSPARENT_BIN, vsg::Bin::DESCENDING);
+	}
+
+	// ----------------------------------------------------------------------
+	// 2D overlay (M5.1)
+	// A second View added to the *same* RenderGraph: it is therefore recorded
+	// after the 3D view within the same render pass (no additional clear), and
+	// its pipelines have the depth test disabled so that it always ends up on
+	// top of the 3D image.
+	// ----------------------------------------------------------------------
+	m_overlayViewMatrix = ccVSGViewMatrix::create();
+	m_overlayViewMatrix->matrix = vsg::dmat4(); // identity: pixel coordinates
+	m_overlayProjection = vsg::Orthographic::create();
+	// the viewport state is shared with the 3D camera so that both stay in sync
+	m_overlayCamera     = vsg::Camera::create(m_overlayProjection, m_overlayViewMatrix, m_camera->viewportState);
+	m_overlayView       = vsg::View::create(m_overlayCamera, m_overlayBuilder.overlayRoot());
+
+	if (auto renderGraph = findRenderGraph(commandGraph))
+	{
+		renderGraph->addChild(m_overlayView);
 	}
 
 	m_viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
@@ -359,6 +405,30 @@ void ccVSGWindowInterface::updateCamera()
 
 	m_viewportParams.zNear = zNear;
 	m_viewportParams.zFar  = zFar;
+
+	// ----------------------------------------------------------------------
+	// 2D overlay (M5)
+	// Orthographic projection centred on the viewport, in pixels - the very
+	// same one the OpenGL backend uses for its foreground entities
+	// (ccGLWindowInterface::setStandardOrthoCenter()).
+	// ----------------------------------------------------------------------
+	if (m_overlayProjection)
+	{
+		const double halfW = static_cast<double>(width) * 0.5;
+		const double halfH = static_cast<double>(height) * 0.5;
+		const double maxS  = std::max(halfW, halfH);
+
+		m_overlayProjection->left         = -halfW;
+		m_overlayProjection->right        = halfW;
+		m_overlayProjection->bottom       = -halfH;
+		m_overlayProjection->top          = halfH;
+		m_overlayProjection->nearDistance = -maxS;
+		m_overlayProjection->farDistance  = maxS;
+	}
+
+	// the trihedron follows the camera orientation and the viewport size
+	// TODO(M5.4): wire the real 'showTrihedron' display parameter
+	m_overlayBuilder.update(width, height, m_viewMatrix->matrix, true);
 }
 
 void ccVSGWindowInterface::setSceneDB(ccHObject* root)
@@ -581,6 +651,33 @@ QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
 	// TODO(M6): use the CloudCompare background color (ccGui::Parameters)
 	renderGraph->setClearValues(VkClearColorValue{{0.15f, 0.15f, 0.20f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
 	renderGraph->addChild(view);
+
+	// the 2D overlay is rendered on top of the 3D image, within the same render
+	// pass (M5). The orthographic projection is recomputed as the offscreen
+	// size may differ from the window one (zoom factor).
+	if (m_overlayProjection && m_overlayViewMatrix)
+	{
+		const double halfW = static_cast<double>(width) * 0.5;
+		const double halfH = static_cast<double>(height) * 0.5;
+		const double maxS  = std::max(halfW, halfH);
+
+		m_overlayProjection->left         = -halfW;
+		m_overlayProjection->right        = halfW;
+		m_overlayProjection->bottom       = -halfH;
+		m_overlayProjection->top          = halfH;
+		m_overlayProjection->nearDistance = -maxS;
+		m_overlayProjection->farDistance  = maxS;
+
+		m_overlayBuilder.update(static_cast<int>(width),
+		                        static_cast<int>(height),
+		                        m_viewMatrix->matrix,
+		                        true);
+
+		vsg::ref_ptr<vsg::Camera> overlayCamera = vsg::Camera::create(m_overlayProjection,
+		                                                              m_overlayViewMatrix,
+		                                                              viewportState);
+		renderGraph->addChild(vsg::View::create(overlayCamera, m_overlayBuilder.overlayRoot()));
+	}
 
 	// ----------------------------------------------------------------------
 	// copy the result back to a CPU visible buffer

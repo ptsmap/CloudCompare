@@ -838,7 +838,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M2 | 相机与交互 | ✅ 已完成（CC 语义操控器 + reverse-depth NDC 适配） | 2~3 | 10 |
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10） | 3~4 | 14 |
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
-| M5 | 2D 覆盖层 | ⬜ 未开始（标签/比例尺/方向轴/色标/文字全缺） | 3 | 21 |
+| M5 | 2D 覆盖层 | 🟡 起步：M5.1 覆盖层 View + 正交像素投影、M5.4 方向轴已落地（截图验证）；文字/标签/比例尺/色标/图片未做 | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
 | M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
@@ -1402,7 +1402,7 @@ material      : （无 —— 顶点阶段 pointSize UBO 已移除；Metal 下�
 | **M4** 网格/折线/传感器 | 网格（顶点/面法线、顶点色/SF、双面 Lambert）、折线、传感器（GBL/Camera）、粗线 quad 扩展、网格线框、LOD→`vsg::LOD`、半透明 `DepthSorted`+`Bin` | ✅ 已实现（`0ec5e855` + **`7e438499`**，见 D.11）；❌ 材质纹理（M4.3）、像素级线宽与拐角 join（受 R1 阻塞）、"移动时抽稀"语义 |
 | **M6** 拾取与离屏 | `ccPickingHub` 后端无关化、`ccViewInterface`/`getActiveViewWindow`、VSG 侧 CPU 拾取、`zoomGlobal()` | ✅ 抽象层与相机 fit 已完成；❌ 实体/框选的**渲染期**拾取（R32_UINT + `CopyImageToBuffer`）、深度反投影、通用 `renderToImage()` 未做（仅冒烟截图钩子 `CC_VSG_SCREENSHOT` 可用） |
 | **M8** 插件收尾 | 视图抽象、枚举统一 | ✅ 部分；❌ 插件 `requiresBackends` metadata、GL-only 插件跳过、自定义 GL drawable→`ccRenderCommandSink`、`CCPluginAPI` 解耦、立体降级未做 |
-| **M5** 2D 覆盖层 | overlay RenderGraph、`vsg::Text`、标签/比例尺/方向轴/色标/图片 | ⬜ 未开始 |
+| **M5** 2D 覆盖层 | overlay View + 正交像素投影、方向轴 trihedron | 🟡 起步：**M5.1 与 M5.4 方向轴已实现并截图验证**（见 D.13）；❌ `vsg::Text`/SDF 字体（M5.2）、`cc2DLabel`/`cc2DViewportLabel`（M5.3）、比例尺与色标（M5.4/M5.5）、`ccImage`（M5.6） |
 | **M7** 后处理/LOD | 后处理框架、SSAO、LOD→`vsg::LOD`、PagedLOD 分页、性能调优 | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，按屏幕占比切换）；❌ 后处理、SSAO、PagedLOD 分页、性能调优未开始 |
 
 ### D.10.3 下一步优先级建议
@@ -1539,3 +1539,44 @@ cd build-hbqt/qCC/deployqt && open CloudCompare.app
 
 `fix_cc_bundle.sh` 负责：把 AGL stub（需重建 `Info.plist`，否则 codesign 拒收）与 `QtDBus.framework` 打进 bundle、
 用 `install_name_tool -delete_rpath` 去掉外部 homebrew RPATH（消除重复加载 Qt 的 ObjC 类警告）、重新 ad-hoc 签名。
+
+---
+
+## 附录 D.13 — M5 起步：2D 覆盖层基础设施与方向轴
+
+### D.13.1 覆盖层架构（M5.1）
+
+| 项 | 决策 |
+|---|---|
+| 叠加方式 | **同一个 `RenderGraph` 里加第二个 `vsg::View`**，而不是第二个 RenderGraph。VSG 的 render pass 清屏发生在 `RenderGraph` 层级：两个 RenderGraph 会清两次（第二个会把 3D 结果清掉，除非另配 LOAD 载入的 RenderPass），而同一 RenderGraph 里的多个 View 顺序绘制、只清一次。 |
+| 投影 | `vsg::Orthographic`，参数复刻 `ccGLWindowInterface::setStandardOrthoCenter()`：`(-halfW..halfW, -halfH..halfH)`，`near/far = ∓maxS`，**原点在视口中心、Y 向上、单位为像素**。每次 `updateCamera()`（含 resize）与 `renderToImage()` 重新计算。 |
+| 视图矩阵 | 恒等（`ccVSGViewMatrix` 复用，matrix 置零）。 |
+| 视口 | 与 3D 相机**共享同一个 `ViewportState` 对象**，避免 resize 后错位。 |
+| 深度 | 覆盖层管线 `depthTestEnable = depthWriteEnable = VK_FALSE`、`cullMode = NONE` —— 3D 之后绘制、永远在上层且不遮挡 3D。 |
+| 着色器 | 复用 M4 的 `ccVSGShaders::createFlatShaderSet()`（无光照、颜色直通）。 |
+| 新文件 | `libs/qCC_vsgWindow/{include/vsg/ccVSGOverlayBuilder.h, src/vsg/ccVSGOverlayBuilder.cpp}`，由 `ccVSGWindowInterface` 持有 `m_overlayBuilder` / `m_overlayView` / `m_overlayCamera` / `m_overlayProjection` / `m_overlayViewMatrix`。 |
+
+> **renderToImage() 修复**：离屏截图路径原先只装 3D View，现在也装入覆盖层 View（离屏尺寸可能与窗口不同，正交投影与 trihedron 矩阵按离屏尺寸重算）——否则截图里永远看不到 2D 元素。
+
+### D.13.2 方向轴 trihedron（M5.4，已截图验证）
+
+几何与定位逐行复刻 `ccGLWindowInterface::drawTrihedron()`：
+
+- 三条轴：+X 红 / +Y 绿 / +Z 蓝（`CC_DISPLAYED_TRIHEDRON_AXES_LENGTH = 25`），线宽语义为 2px（当前 1px，见 R2）
+- 定位：`translate(centerX, -centerY, 0) * viewMat`，其中 `centerX = halfW - L - 10`、`centerY = halfH - L - 5`、`L = 25 + 5 + 8`（`computeTrihedronLength()`）
+- **右下角**，随相机姿态旋转（`glMultMatrixd(viewMat)` 语义）
+
+性能：几何只构建一次，相机/视口变化只改 `MatrixTransform::matrix`，**不需要 `viewer->compile()`**。
+显隐：`vsg::Group` 没有 `removeChild()`，用挂载/卸载子节点实现（`vsg::MatrixTransform` 也没有 `mask` 成员）。
+
+验证：`scripts/vsg_smoke_test.sh bunny10k.ply` 截图右下角出现红/绿轴（Z 轴朝向观察者故极短，符合 CC 默认视角）。
+
+### D.13.3 M5 剩余
+
+- **M5.2 文字**：`vsg::Text` + SDF 字体。需要 freetype→`vsg::Font` 构建器（vsgXchange 1.1.6 与 vsg 1.1.14 ABI 不兼容，见 R15）。这是所有剩余项（比例尺、色标刻度、标签、X/Y/Z 轴标注、屏幕消息）的前置。
+- M5.3 `cc2DLabel` / `cc2DViewportLabel`
+- M5.4 剩余：比例尺、X/Y/Z 轴文字标注、透视/正交状态提示
+- M5.5 标量场色标（渐变条 + 刻度文字）
+- M5.6 `ccImage`
+- `showTrihedron` / 显示参数尚未接到 UI（当前恒为 true）
+- trihedron 线宽 2px 未实现（R2）
