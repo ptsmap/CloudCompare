@@ -72,6 +72,42 @@ void main()
 }
 )";
 
+	//! Billboard quad ("point sprite") shader: each point is an instanced quad
+	//! that is expanded in screen space, which is the only way to get a real
+	//! point size on Metal/MoltenVK (R1 - gl_PointSize is ignored there).
+	//!
+	//! `vsg_Vertex` carries the quad corner as a **normalized device coordinate
+	//! offset** (computed on the CPU from the point size and the viewport size),
+	//! so the shader needs no extra uniform for either of them.
+	const char* s_pointSpriteVertexSource = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+#define VIEW_DESCRIPTOR_SET 0
+#define MATERIAL_DESCRIPTOR_SET 1
+
+layout(push_constant) uniform PushConstants {
+    mat4 projection;
+    mat4 modelView;
+} pc;
+
+layout(location = 0) in vec3 vsg_Vertex;
+layout(location = 1) in vec3 cc_PointPosition;
+layout(location = 6) in vec4 vsg_Color;
+
+layout(location = 0) out vec4 vertexColor;
+
+void main()
+{
+    vec4 clip = (pc.projection * pc.modelView) * vec4(cc_PointPosition, 1.0);
+    // screen space expansion: scaling the offset by w keeps the quad a
+    // constant number of pixels wide after the perspective divide
+    clip.xy   += vsg_Vertex.xy * clip.w;
+    gl_Position = clip;
+    vertexColor = vsg_Color;
+}
+)";
+
 	//! Unlit ("flat") shader used for lines, wireframes, sensors and the quad
 	//! expanded thick lines: the vertex color is simply passed through.
 	//! (no gl_PointSize here: it is meaningless for non point topologies)
@@ -220,6 +256,35 @@ vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createPointCloudShaderSet()
 
 	shaderSet->defaultGraphicsPipelineStates = {
 	    vsg::InputAssemblyState::create(VK_PRIMITIVE_TOPOLOGY_POINT_LIST),
+	    vsg::RasterizationState::create(),
+	    vsg::MultisampleState::create(),
+	    vsg::ColorBlendState::create(),
+	    vsg::DepthStencilState::create()};
+
+	return shaderSet;
+}
+
+vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createPointSpriteShaderSet()
+{
+	vsg::ShaderStages stages{
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_VERTEX_BIT, "main", s_pointSpriteVertexSource),
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_FRAGMENT_BIT, "main", s_pointCloudFragmentSource)};
+
+	auto shaderSet = vsg::ShaderSet::create(stages);
+
+	// 'vsg_Vertex' is per vertex (the 4 corners of the quad) while the point
+	// data is per instance - the input rate is set by the builder, which calls
+	// vsg::GraphicsPipelineConfigurator::enableArray() with either
+	// VK_VERTEX_INPUT_RATE_VERTEX or VK_VERTEX_INPUT_RATE_INSTANCE.
+	shaderSet->addAttributeBinding("vsg_Vertex", "", 0, VK_FORMAT_R32G32B32_SFLOAT, {});
+	shaderSet->addAttributeBinding("cc_PointPosition", "", 1, VK_FORMAT_R32G32B32_SFLOAT, {});
+	shaderSet->addAttributeBinding("vsg_Color", "", 6, VK_FORMAT_R8G8B8A8_UNORM, {});
+
+	// VSG pushes 'projection' and 'modelView' itself
+	shaderSet->addPushConstantRange("pc", "", VK_SHADER_STAGE_VERTEX_BIT, 0, 128);
+
+	shaderSet->defaultGraphicsPipelineStates = {
+	    vsg::InputAssemblyState::create(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP),
 	    vsg::RasterizationState::create(),
 	    vsg::MultisampleState::create(),
 	    vsg::ColorBlendState::create(),

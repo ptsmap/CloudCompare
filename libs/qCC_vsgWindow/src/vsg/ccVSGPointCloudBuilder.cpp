@@ -31,25 +31,67 @@
 #include <cmath>
 
 ccVSGPointCloudBuilder::ccVSGPointCloudBuilder()
-    : m_shaderSet(ccVSGShaders::createPointCloudShaderSet())
+    : m_shaderSet(ccVSGShaders::createPointSpriteShaderSet())
     , m_sharedObjects(vsg::SharedObjects::create())
-    , m_pointSizeData(vsg::floatValue::create(1.0f))
+    , m_quadCorners(vsg::vec3Array::create(4))
 {
+	updateQuadCorners();
 }
 
 void ccVSGPointCloudBuilder::setPointSize(float size)
 {
-	if (m_pointSizeData && m_pointSizeData->value() != size)
+	if (std::fabs(m_pointSize - size) < 1.0e-6f)
 	{
-		m_pointSizeData->value() = size;
-		// triggers the transfer of the new value to the GPU (see vsg::TransferTask)
-		m_pointSizeData->dirty();
+		return;
 	}
+
+	m_pointSize = size;
+	updateQuadCorners();
 }
 
 float ccVSGPointCloudBuilder::pointSize() const
 {
-	return m_pointSizeData ? m_pointSizeData->value() : 1.0f;
+	return m_pointSize;
+}
+
+void ccVSGPointCloudBuilder::setViewportSize(int width, int height)
+{
+	const int w = std::max(width, 1);
+	const int h = std::max(height, 1);
+
+	if (w == m_viewportWidth && h == m_viewportHeight)
+	{
+		return;
+	}
+
+	m_viewportWidth  = w;
+	m_viewportHeight = h;
+	updateQuadCorners();
+}
+
+void ccVSGPointCloudBuilder::updateQuadCorners()
+{
+	if (!m_quadCorners || m_quadCorners->size() != 4)
+	{
+		return;
+	}
+
+	// The corners are stored as an offset in normalized device coordinates:
+	// the NDC range covers 2.0 for the whole viewport, hence 'pointSize' pixels
+	// are halfWidth = pointSize / viewportWidth in NDC units. The quad is then
+	// expanded in screen space by the vertex shader, so the size stays constant
+	// in pixels whatever the distance to the camera (like gl_PointSize).
+	const float halfW = m_pointSize / static_cast<float>(m_viewportWidth);
+	const float halfH = m_pointSize / static_cast<float>(m_viewportHeight);
+
+	(*m_quadCorners)[0].set(-halfW, -halfH, 0.0f);
+	(*m_quadCorners)[1].set(halfW, -halfH, 0.0f);
+	(*m_quadCorners)[2].set(-halfW, halfH, 0.0f);
+	(*m_quadCorners)[3].set(halfW, halfH, 0.0f);
+
+	// re-upload the (shared) buffer: vsg::Data::dirty() does not require the
+	// pipeline to be recompiled
+	m_quadCorners->dirty();
 }
 
 vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const ccColor::Rgba& defaultColor)
@@ -126,6 +168,10 @@ vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const
 		}
 
 		// pipeline / descriptor set
+		// The points are drawn as **billboard quads**: a 4 vertex triangle strip
+		// instanced once per point. Metal/MoltenVK ignores gl_PointSize (points
+		// are always 1px there - see R1 of the migration plan), so expanding a
+		// quad in screen space is the only way to get a real point size.
 		auto config = vsg::GraphicsPipelineConfigurator::create(m_shaderSet);
 		vsg::DataList arrays;
 
@@ -134,12 +180,16 @@ vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const
 		// the SAME order and handed to the draw. Do NOT also call
 		// assignArray(arrays, ...) here - that would double-register the
 		// attributes and create inconsistent vertex bindings.
+		// The quad corners are per vertex, the point data is per instance.
 		config->enableArray("vsg_Vertex", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(vsg::vec3), VK_FORMAT_R32G32B32_SFLOAT);
-		config->enableArray("vsg_Color", VK_VERTEX_INPUT_RATE_VERTEX, sizeof(vsg::ubvec4), VK_FORMAT_R8G8B8A8_UNORM);
+		config->enableArray("cc_PointPosition", VK_VERTEX_INPUT_RATE_INSTANCE, sizeof(vsg::vec3), VK_FORMAT_R32G32B32_SFLOAT);
+		config->enableArray("vsg_Color", VK_VERTEX_INPUT_RATE_INSTANCE, sizeof(vsg::ubvec4), VK_FORMAT_R8G8B8A8_UNORM);
 		config->init();
 
-		// arrays must match the enableArray order (vsg_Vertex at binding 0,
-		// vsg_Color at binding 1) so the draw binds them to the right slots.
+		// arrays must match the enableArray order (quad corners at binding 0,
+		// point positions at binding 1, colors at binding 2) so the draw binds
+		// them to the right slots.
+		arrays.push_back(m_quadCorners); // shared by every chunk and cloud
 		arrays.push_back(vertices);
 		arrays.push_back(colors);
 
@@ -148,8 +198,10 @@ vsg::ref_ptr<vsg::Node> ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const
 
 		auto draw = vsg::VertexDraw::create();
 		draw->assignArrays(arrays);
-		draw->vertexCount   = static_cast<uint32_t>(chunkCount);
-		draw->instanceCount = 1;
+		draw->firstVertex   = 0;
+		draw->vertexCount   = 4;
+		draw->firstInstance = 0;
+		draw->instanceCount = static_cast<uint32_t>(chunkCount);
 
 		stateGroup->addChild(draw);
 

@@ -836,7 +836,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M0 | 技术验证 Spike | ✅ 已完成（含运行时能力查询；**PointSize 结论见 R1 修正**） | 2~3 | 3 |
 | M1 | 骨架与构建 | ✅ 已完成（`build-hbqt` 双后端可编译运行，调试入口可用） | 3~4 | 7 |
 | M2 | 相机与交互 | ✅ 已完成（CC 语义操控器 + reverse-depth NDC 适配） | 2~3 | 10 |
-| M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10） | 3~4 | 14 |
+| M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10）；点大小 billboard quad 已补齐（见 D.14） | 3~4 | 14 |
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
 | M5 | 2D 覆盖层 | 🟡 子项全部落地：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.3 2D 标签、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加（视觉验证待 GUI）；细节完善见 D.13.10 | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 部分：拾取中枢后端无关化 + `zoomGlobal()` 已实现（M6 三个提交）；实体/框选拾取渲染、深度反投影、通用 `renderToImage()` 未做 | 3 | 24 |
@@ -1398,7 +1398,7 @@ material      : （无 —— 顶点阶段 pointSize UBO 已移除；Metal 下�
 | **M0** 技术验证 | PointSize / wideLines / 字体 CJK / 深度回读能力查询 | ✅ 已完成（结论见 R1/R2/R3/R16 修正） |
 | **M1** 骨架与构建 | CMake 开关、双后端构建、视图抽象基类、VSG 窗口重写、调试入口 | ✅ 已完成（`build-hbqt` 可编译运行） |
 | **M2** 相机与交互 | `ccViewportParameters`⇄`vsg::Camera` 同步、CC 语义操控器、reverse-depth NDC 适配 | ✅ 已完成 |
-| **M3** 点云渲染 | PointCloud ShaderSet、分块构建、`ccVSGSceneBuilder` 增量同步、RGB/SF/单色着色 | ✅ 已完成（Metal 出图已验证）；⚠️ **点大小仅 1px**（见 R1） |
+| **M3** 点云渲染 | PointCloud ShaderSet、分块构建、`ccVSGSceneBuilder` 增量同步、RGB/SF/单色着色 | ✅ 已完成（Metal 出图已验证）；点大小改走 billboard quad（**见 D.14**，R1 解除） |
 | **M4** 网格/折线/传感器 | 网格（顶点/面法线、顶点色/SF、双面 Lambert）、折线、传感器（GBL/Camera）、粗线 quad 扩展、网格线框、LOD→`vsg::LOD`、半透明 `DepthSorted`+`Bin` | ✅ 已实现（`0ec5e855` + **`7e438499`**，见 D.11）；❌ 材质纹理（M4.3）、像素级线宽与拐角 join（受 R1 阻塞）、"移动时抽稀"语义 |
 | **M6** 拾取与离屏 | `ccPickingHub` 后端无关化、`ccViewInterface`/`getActiveViewWindow`、VSG 侧 CPU 拾取、`zoomGlobal()` | ✅ 抽象层与相机 fit 已完成；❌ 实体/框选的**渲染期**拾取（R32_UINT + `CopyImageToBuffer`）、深度反投影、通用 `renderToImage()` 未做（仅冒烟截图钩子 `CC_VSG_SCREENSHOT` 可用） |
 | **M8** 插件收尾 | 视图抽象、枚举统一 | ✅ 部分；❌ 插件 `requiresBackends` metadata、GL-only 插件跳过、自定义 GL drawable→`ccRenderCommandSink`、`CCPluginAPI` 解耦、立体降级未做 |
@@ -1407,7 +1407,7 @@ material      : （无 —— 顶点阶段 pointSize UBO 已移除；Metal 下�
 
 ### D.10.3 下一步优先级建议
 
-1. **点大小（R1，最高优）**：billboard quad（instanced 扩展 quad）替代 `gl_PointSize`；**同时解锁 M4 的像素级线宽** —— 粗线 quad 目前是世界单位近似、拐角 join 未做，都受同一个 R1 限制（`wideLines` 不可用见 R2）。
+1. ~~**点大小（R1，最高优）**：billboard quad（instanced 扩展 quad）替代 `gl_PointSize`~~ → **已完成，见 D.14**（点云部分）。M4 的**像素级线宽**仍受同一限制：粗线 quad 目前是世界单位近似、拐角 join 未做（`wideLines` 不可用见 R2），可沿用 D.14 的「CPU 端折进顶点」思路。
 2. **M6 拾取闭环**：R32_UINT 离屏拾取 + `CopyImageToBuffer` 回读；深度反投影（依赖 D.10.1 的 reverse-depth）；通用 `renderToImage()`。这是分割 / 裁剪 / 配准等交互工具能否端到端可用的前提。
 3. **M5 2D 覆盖层**：标签 / 比例尺 / 方向轴 / 色标 + `vsg::Text`（中文字体走 freetype→`vsg::Font`，见 R3/R15）。
 4. **M4 剩余**：材质纹理（M4.3：`ccMaterial`→`vsg::DescriptorImage`+`Sampler`，需 `QImage` 解码填 `vsg::Data`，见 R12）；"移动时抽稀"的 LOD 语义（`decimateMeshOnMove`）。
@@ -1766,3 +1766,39 @@ link.verts->dirty();     // vsg::Data::dirty() - 不触发 recompile
 - 色标：直方图、对数轴、自定义标签、按 `computeColorRampAreaLimits()` 预留空间
 - CJK 标签（需更大的 glyph atlas 或按需扩容）
 - 各类叠加元素接 `ccGui::Parameters()`（`textDefaultCol`、`labelMarkerSize` 等）
+
+---
+
+## 附录 D.14 — M3.5 点大小：billboard quad（R1 解除）
+
+Metal/MoltenVK **忽略 `gl_PointSize`**（`POINT_LIST` 恒为 1px），且把点大小放进顶点阶段 UBO 会触发 Metal 验证 abort（见 R1）。本轮把点云改成**屏幕空间扩展的 instanced billboard quad**，点大小成为真正可调的参数。
+
+### D.14.1 实现
+
+- **新增 `ccVSGShaders::createPointSpriteShaderSet()`**（`libs/qCC_vsgWindow/src/vsg/ccVSGShaders.cpp`）：
+  - 拓扑 `VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP`：4 顶点 quad，按点实例化。
+  - 顶点属性分工：`vsg_Vertex`（location 0，`VK_VERTEX_INPUT_RATE_VERTEX`）是 quad 角点，且**已经存成归一化设备坐标偏移**；`cc_PointPosition`（location 1，`VK_VERTEX_INPUT_RATE_INSTANCE`）是点坐标；`vsg_Color`（location 6，`VK_VERTEX_INPUT_RATE_INSTANCE`）是点颜色。
+  - 顶点着色器在**裁剪空间**做偏移：`clip.xy += vsg_Vertex.xy * clip.w;` —— 乘 `clip.w` 使偏移在透视除法后保持恒定像素数，语义等价于 `gl_PointSize`。
+  - 片元复用既有的 `s_pointCloudFragmentSource`（顶点色直通）。
+- **`ccVSGPointCloudBuilder`**（`src/vsg/ccVSGPointCloudBuilder.cpp`）：
+  - `build()` 改为实例化绘制：`draw->vertexCount = 4`、`draw->instanceCount = chunkCount`；数组顺序必须是 `[quadCorners, positions, colors]`，与 `enableArray` 的调用顺序（binding 0/1/2）一致。
+  - 新增共享成员 `m_quadCorners`（4 顶点 `vsg::vec3Array`，**所有 chunk、所有点云共用**），由 `updateQuadCorners()` 按「点大小 + 视口尺寸」算出：NDC 全宽为 2.0，故 `halfW = pointSize / viewportWidth`、`halfH = pointSize / viewportHeight`。
+  - `setPointSize()` 与新增的 `setViewportSize()` 只重算这 4 个角点并 `vsg::Data::dirty()`，**不重建场景图、不重编译管线**。
+  - 删掉旧的 `m_pointSizeData`（`vsg::floatValue` 顶点阶段 UBO）—— 正是 R1 里触发 Metal abort 的写法。
+- **`ccVSGWindowInterface::updateCamera()`**：算出 `width/height` 后调用 `pointCloudBuilder().setViewportSize(width, height)`，窗口 resize 时角点随之更新。
+
+### D.14.2 为什么把角点存成 NDC 偏移
+
+点大小既要「屏幕像素恒定」又要避免新增 uniform：`gl_PointSize` 不可用（R1）；顶点阶段 UBO 会让 MoltenVK 写出 orphaned `MTLVertexDescriptor` buffer layout 并触发 Metal abort；而 VSG 的 push constant 区 `pc` 固定 128 字节、由 VSG 自己推送，无法安全扩展。于是在 CPU 端把 `pointSize / viewportSize` 折进 4 个角点，着色器不需要任何额外 uniform。
+
+### D.14.3 验证状态
+
+- 全量构建通过（`make CloudCompare`，VSG 库重编 + 主程序重链）。
+- **视觉验证待 GUI**：`ccViewportParameters::defaultPointSize` 默认为 **1**（`ccViewportParameters.cpp:27`，与 OpenGL 后端一致），所以需在 VSG 视图里用 **Alt + 滚轮** 把点调大来确认生效 —— 改动前 Metal 下无论怎么调都是 1px。
+- 冒烟脚本 `scripts/vsg_smoke_test.sh` 当前被环境问题阻塞：未打包 app 缺 `@rpath/AGL.framework`（需先跑 `fix_cc_bundle.sh` 第 6 步补 stub rpath）；打包 app 则是 homebrew 与 bundle 内的 `QtCore`/`QtGui` 被同时加载。
+
+### D.14.4 已知限制
+
+- 点是**方形**（与 OpenGL 后端 `glPointSize` 的方形点一致）；圆形点需在片元着色器里 discard 掉角上的片元，未做。
+- 实例化使顶点着色器调用数 ×4；`ChunkSize` 仍为 2^16（每 draw 65536 个实例）。
+- 包围球 margin 仍是世界单位 `+1.0`，点很大时视口边缘的点可能被裁剪（像素级 margin 需结合 `pixelSize` 换算，未做）。

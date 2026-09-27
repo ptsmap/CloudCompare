@@ -365,6 +365,10 @@ void ccVSGWindowInterface::updateCamera()
 	const int   width      = std::max(screenSize.width(), 1);
 	const int   height     = std::max(screenSize.height(), 1);
 
+	// The point sprites are expanded in screen space: their (shared) quad
+	// corners are stored as NDC offsets, so they depend on the viewport size.
+	m_sceneBuilder.pointCloudBuilder().setViewportSize(width, height);
+
 	// bounding box of the visible objects
 	ccBBox visibleObjectsBBox;
 	if (m_globalDBRoot)

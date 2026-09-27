@@ -23,6 +23,7 @@
 #include <ccColorTypes.h>
 
 // VSG
+#include <vsg/core/Array.h>
 #include <vsg/core/Value.h>
 #include <vsg/core/ref_ptr.h>
 #include <vsg/nodes/Node.h>
@@ -54,10 +55,18 @@ class ccVSGPointCloudBuilder
 	ccVSGPointCloudBuilder();
 
 	//! Sets the point size (in pixels) used by every built node
+	/** The points are billboard quads expanded in screen space, so changing the
+	    size only re-uploads the (shared) quad corners: the scene graph does not
+	    have to be rebuilt. **/
 	void setPointSize(float size);
 
 	//! Returns the current point size
 	float pointSize() const;
+
+	//! Sets the size (in pixels) of the viewport the points are drawn in
+	/** The quad corners are stored as normalized device coordinate offsets, so
+	    they must be recomputed whenever the viewport is resized. **/
+	void setViewportSize(int width, int height);
 
 	//! Builds the VSG node for the given cloud
 	/** \param cloud        the cloud to convert
@@ -67,7 +76,19 @@ class ccVSGPointCloudBuilder
 	vsg::ref_ptr<vsg::Node> build(ccPointCloud* cloud, const ccColor::Rgba& defaultColor);
 
   private:
+	//! Recomputes the (shared) quad corners from the point size and the
+	//! viewport size, and re-uploads them to the GPU
+	void updateQuadCorners();
+
 	vsg::ref_ptr<vsg::ShaderSet>     m_shaderSet;
 	vsg::ref_ptr<vsg::SharedObjects> m_sharedObjects;
-	vsg::ref_ptr<vsg::floatValue>    m_pointSizeData;
+
+	//! The 4 corners of the billboard quad, as NDC offsets
+	/** Shared by every chunk and every cloud: it only depends on the point size
+	    and on the viewport size. **/
+	vsg::ref_ptr<vsg::vec3Array>     m_quadCorners;
+
+	float m_pointSize      = 1.0f;
+	int   m_viewportWidth  = 640;
+	int   m_viewportHeight = 480;
 };

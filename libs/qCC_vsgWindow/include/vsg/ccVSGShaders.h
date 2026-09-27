@@ -46,8 +46,26 @@ class ccVSGShaders
 	    - default:               per point RGBA color (`vsg_Color`)
 	    - CC_SCALAR_FIELD:       per point scalar coordinate (`vsg_Scalar`)
 	                             + a color ramp texture sampled by the shader
+
+	    \warning Metal/MoltenVK ignores `gl_PointSize`, so this shader set can
+	    only draw 1 pixel points. Use createPointSpriteShaderSet() to get a
+	    real, pixel sized point (see R1 of the migration plan).
 	 **/
 	static vsg::ref_ptr<vsg::ShaderSet> createPointCloudShaderSet();
+
+	//! Returns the shader set used to render point clouds as billboard quads
+	/** Each point is drawn as an instanced triangle strip quad that is expanded
+	    in **screen space** (`clip.xy += corner * clip.w`), which is the only way
+	    to get a real point size on Metal/MoltenVK (R1).
+
+	    The vertex attributes are:
+	      - `vsg_Vertex`       (per vertex)   the quad corner, already expressed
+	                                          as a normalized device coordinate
+	                                          offset (see ccVSGPointCloudBuilder)
+	      - `cc_PointPosition` (per instance) the point position
+	      - `vsg_Color`        (per instance) the point color
+	 **/
+	static vsg::ref_ptr<vsg::ShaderSet> createPointSpriteShaderSet();
 
 	//! Returns the shader set used to render meshes
 	/** \param topology VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST (solid) or

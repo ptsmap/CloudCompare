@@ -201,8 +201,26 @@ int main(int argc, char** argv)
 			}
 		}
 
-		// if the sole remaining argument was our flag, fall back to GUI mode
-		commandLine = (argumentsLocal8Bit.size() > 1);
+		// Recompute the mode now that our flag has been stripped: like
+		// IsCommandLine() above, CloudCompare runs in command line mode only
+		// when the first *real* argument starts with '-'; anything else is a
+		// file to open in the GUI ('CloudCompare cloud.bin').
+		// This must NOT be a plain size check: argumentsLocal8Bit still holds
+		// the program name at index 0, so 'CloudCompare cloud.bin' would be
+		// mistaken for the command line mode and rejected by the parser with
+		// "Command expected (commands start with '-')".
+		commandLine = false;
+		for (int i = 1; i < argumentsLocal8Bit.size(); ++i)
+		{
+			// ignore the process serial number the Finder adds on macOS
+			if (argumentsLocal8Bit.at(i).startsWith(QStringLiteral("-psn_")))
+			{
+				continue;
+			}
+
+			commandLine = argumentsLocal8Bit.at(i).startsWith('-');
+			break;
+		}
 	}
 
 	if (!commandLine)
