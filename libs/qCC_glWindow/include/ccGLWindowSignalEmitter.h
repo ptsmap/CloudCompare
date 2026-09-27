@@ -54,8 +54,9 @@ class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public ccViewSignalEmitter
   Q_SIGNALS:
 
 	// NOTE: entitySelectionChanged() / entitiesSelectionChanged() /
-	// itemPickedFast() now live in ccViewSignalEmitter (the backend agnostic
-	// base class) so that a VSG view can emit them too - see M6.1.
+	// itemPickedFast() (M6.1) and pivotPointChanged() (M6.4) now live in
+	// ccViewSignalEmitter (the backend agnostic base class) so that a VSG view
+	// can emit them too.
 
 	//! Signal emitted when fast picking is finished (FAST_PICKING mode only)
 	void fastPickingFinished();
@@ -84,9 +85,6 @@ class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public ccViewSignalEmitter
 
 	//! Signal emitted when the clipping planes enability has been changed
 	void clippingPlanesToggled(bool state);
-
-	//! Signal emitted when the pivot point is changed
-	void pivotPointChanged(const CCVector3d&);
 
 	//! Signal emitted when the camera position is changed
 	void cameraPosChanged(const CCVector3d&);

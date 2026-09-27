@@ -339,6 +339,50 @@ void ccVSGWindowInterface::setFocalDistance(double focalDistance)
 	redraw();
 }
 
+void ccVSGWindowInterface::setPivotPoint(const CCVector3d& P,
+                                         bool              autoUpdateCameraPos /*=false*/,
+                                         bool              verbose /*=false*/)
+{
+	if (autoUpdateCameraPos && m_viewportParams.objectCenteredView)
+	{
+		// compute the equivalent camera center (same as the OpenGL backend:
+		// the point of view must not change when the pivot moves)
+		CCVector3d pivotShift           = m_viewportParams.getPivotPoint() - P;
+		CCVector3d pivotShiftInCameraCS = pivotShift;
+		m_viewportParams.viewMat.applyRotation(pivotShiftInCameraCS);
+		CCVector3d newCameraPos = m_viewportParams.getCameraCenter() + pivotShiftInCameraCS - pivotShift;
+
+		if (!m_viewportParams.perspectiveView)
+		{
+			// in orthographic mode, make sure the level of 'zoom' is maintained by repositioning the camera
+			newCameraPos.z = m_viewportParams.getFocalDistance() + P.z;
+		}
+
+		setCameraPos(newCameraPos); // will also update the pixel size
+	}
+
+	m_viewportParams.setPivotPoint(P, true);
+
+	if (m_signalEmitter)
+	{
+		Q_EMIT m_signalEmitter->pivotPointChanged(P);
+	}
+
+	if (verbose)
+	{
+		// the VSG backend has no on screen message queue yet (M5): the console
+		// is used instead, as the OpenGL backend does with its status bar
+		ccLog::Print(QString("Point (%1 ; %2 ; %3) set as rotation center")
+		                 .arg(P.x, 0, 'f', 6)
+		                 .arg(P.y, 0, 'f', 6)
+		                 .arg(P.z, 0, 'f', 6));
+	}
+
+	invalidateViewport();
+	deprecate3DLayer();
+	redraw(true, false);
+}
+
 void ccVSGWindowInterface::updateCamera()
 {
 	if (!m_camera || !m_viewMatrix || !m_projectionMatrix)
@@ -695,31 +739,47 @@ void ccVSGWindowInterface::getGLCameraParameters(ccGLCameraParameters& params) c
 	params.farClippingDepth  = m_viewportParams.farClippingDepth;
 }
 
-QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
-                                          bool  /*dontScaleFeatures*/ /*=false*/,
-                                          bool  /*renderOverlayItems*/ /*=false*/,
-                                          bool  /*silent*/ /*=false*/)
+bool ccVSGWindowInterface::renderOffscreen(const OffscreenRequest& request, std::vector<uint8_t>& pixels)
 {
-	if (!m_viewer || !m_window || !m_window->windowAdapter || !m_camera || !m_sceneRoot)
+	pixels.clear();
+
+	if (!m_viewer || !m_window || !m_window->windowAdapter || !m_camera || !request.scene)
 	{
-		ccLog::Warning("[VSG] renderToImage: the viewer is not initialized");
-		return QImage();
+		ccLog::Warning("[VSG] renderOffscreen: the viewer is not initialized");
+		return false;
 	}
 
 	vsg::ref_ptr<vsg::Window> window = m_window->windowAdapter;
 	vsg::ref_ptr<vsg::Device> device = window->getOrCreateDevice();
 	if (!device)
 	{
-		ccLog::Warning("[VSG] renderToImage: no Vulkan device");
-		return QImage();
+		ccLog::Warning("[VSG] renderOffscreen: no Vulkan device");
+		return false;
 	}
 
-	const QSize screenSize = getScreenSize();
-	const uint32_t width   = static_cast<uint32_t>(std::max(1, static_cast<int>(std::lround(screenSize.width() * zoomFactor))));
-	const uint32_t height  = static_cast<uint32_t>(std::max(1, static_cast<int>(std::lround(screenSize.height() * zoomFactor))));
+	const uint32_t width  = std::max<uint32_t>(1u, request.width);
+	const uint32_t height = std::max<uint32_t>(1u, request.height);
 
-	constexpr VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
-	const VkFormat     depthFormat = window->depthFormat();
+	// size of one pixel of the attachment that is read back
+	std::size_t elementSize = 4; // R8G8B8A8_UNORM, R32_UINT and D32_SFLOAT
+	if (request.readDepth)
+	{
+		if (request.depthFormat == VK_FORMAT_D32_SFLOAT)
+		{
+			elementSize = 4;
+		}
+		else if (request.depthFormat == VK_FORMAT_D16_UNORM)
+		{
+			elementSize = 2;
+		}
+		else
+		{
+			// a packed depth/stencil format (D24_UNORM_S8_UINT for instance)
+			// interleaves its components: decoding it is not worth the risk
+			ccLog::Warning("[VSG] renderOffscreen: the depth format cannot be read back (only D32_SFLOAT and D16_UNORM are supported)");
+			return false;
+		}
+	}
 
 	// ----------------------------------------------------------------------
 	// offscreen attachments
@@ -745,24 +805,29 @@ QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
 		return image;
 	};
 
-	vsg::ref_ptr<vsg::Image> colorImage = makeAttachment(colorFormat,
-	                                                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-	vsg::ref_ptr<vsg::Image> depthImage = makeAttachment(depthFormat,
-	                                                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+	const VkImageUsageFlags colorUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+	                                     | (request.readDepth ? VkImageUsageFlags{0} : VkImageUsageFlags{VK_IMAGE_USAGE_TRANSFER_SRC_BIT});
+	const VkImageUsageFlags depthUsage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+	                                     | (request.readDepth ? VkImageUsageFlags{VK_IMAGE_USAGE_TRANSFER_SRC_BIT} : VkImageUsageFlags{0});
+
+	vsg::ref_ptr<vsg::Image> colorImage = makeAttachment(request.colorFormat, colorUsage);
+	vsg::ref_ptr<vsg::Image> depthImage = makeAttachment(request.depthFormat, depthUsage);
 
 	if (!colorImage || !depthImage)
 	{
-		ccLog::Warning("[VSG] renderToImage: failed to allocate the offscreen attachments");
-		return QImage();
+		ccLog::Warning("[VSG] renderOffscreen: failed to allocate the offscreen attachments");
+		return false;
 	}
 
 	vsg::ref_ptr<vsg::ImageView> colorImageView = vsg::createImageView(device, colorImage, VK_IMAGE_ASPECT_COLOR_BIT);
-	vsg::ref_ptr<vsg::ImageView> depthImageView = vsg::createImageView(device, depthImage, vsg::computeAspectFlagsForFormat(depthFormat));
+	vsg::ref_ptr<vsg::ImageView> depthImageView = vsg::createImageView(device, depthImage, vsg::computeAspectFlagsForFormat(request.depthFormat));
 
 	// ----------------------------------------------------------------------
 	// render pass / framebuffer / render graph
 	// ----------------------------------------------------------------------
-	vsg::ref_ptr<vsg::RenderPass>  renderPass  = vsg::createRenderPass(device, colorFormat, depthFormat);
+	// 'requiresDepthRead' is what makes the depth attachment actually stored
+	// (vsg::defaultDepthAttachment() uses STORE_OP_DONT_CARE otherwise)
+	vsg::ref_ptr<vsg::RenderPass>  renderPass  = vsg::createRenderPass(device, request.colorFormat, request.depthFormat, request.readDepth);
 	vsg::ref_ptr<vsg::Framebuffer> framebuffer = vsg::Framebuffer::create(renderPass,
 	                                                                     vsg::ImageViews{colorImageView, depthImageView},
 	                                                                     width,
@@ -772,20 +837,22 @@ QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
 	// the very same camera, but with the offscreen viewport
 	vsg::ref_ptr<vsg::ViewportState> viewportState = vsg::ViewportState::create(0, 0, width, height);
 	vsg::ref_ptr<vsg::Camera>        camera        = vsg::Camera::create(m_projectionMatrix, m_viewMatrix, viewportState);
-	vsg::ref_ptr<vsg::View>          view          = vsg::View::create(camera, m_sceneRoot);
+	vsg::ref_ptr<vsg::View>          view          = vsg::View::create(camera, request.scene);
 
 	vsg::ref_ptr<vsg::RenderGraph> renderGraph = vsg::RenderGraph::create();
 	renderGraph->framebuffer = framebuffer;
 	renderGraph->renderArea  = VkRect2D{{0, 0}, {width, height}};
-	// TODO(M6): use the CloudCompare background color (ccGui::Parameters)
-	renderGraph->setClearValues(VkClearColorValue{{0.15f, 0.15f, 0.20f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
+	renderGraph->setClearValues(request.clearColor.color, VkClearDepthStencilValue{request.clearDepth, 0});
 	renderGraph->addChild(view);
 
 	// the 2D overlay is rendered on top of the 3D image, within the same render
 	// pass (M5). The orthographic projection is recomputed as the offscreen
 	// size may differ from the window one (zoom factor).
-	if (m_overlayProjection && m_overlayViewMatrix)
+	if (request.withOverlay && m_overlayProjection && m_overlayViewMatrix)
 	{
+		// TODO(M5): the overlay layout (and its orthographic projection) is
+		// left in its offscreen state: it is rebuilt on the next on screen
+		// frame, but a 1:1 renderToImage() should restore it.
 		const double halfW = static_cast<double>(width) * 0.5;
 		const double halfH = static_cast<double>(height) * 0.5;
 		const double maxS  = std::max(halfW, halfH);
@@ -811,39 +878,61 @@ QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
 	// ----------------------------------------------------------------------
 	// copy the result back to a CPU visible buffer
 	// ----------------------------------------------------------------------
-	const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(width) * height * 4;
+	const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(width) * height * elementSize;
 
 	vsg::ref_ptr<vsg::Buffer> buffer = vsg::createBufferAndMemory(device,
-	                                                              bufferSize,
-	                                                              VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-	                                                              VK_SHARING_MODE_EXCLUSIVE,
-	                                                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+	                                                             bufferSize,
+	                                                             VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+	                                                             VK_SHARING_MODE_EXCLUSIVE,
+	                                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+	// the render pass leaves the depth attachment in
+	// DEPTH_STENCIL_ATTACHMENT_OPTIMAL: a barrier is required before using it
+	// as the source of a transfer
+	vsg::ref_ptr<vsg::PipelineBarrier> barrier;
+	if (request.readDepth)
+	{
+		vsg::ref_ptr<vsg::ImageMemoryBarrier> imageBarrier = vsg::ImageMemoryBarrier::create();
+		imageBarrier->srcAccessMask    = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		imageBarrier->dstAccessMask    = VK_ACCESS_TRANSFER_READ_BIT;
+		imageBarrier->oldLayout        = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		imageBarrier->newLayout        = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		imageBarrier->image            = depthImage;
+		imageBarrier->subresourceRange = VkImageSubresourceRange{VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+
+		barrier = vsg::PipelineBarrier::create(VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+		                                      VK_PIPELINE_STAGE_TRANSFER_BIT,
+		                                      0,
+		                                      imageBarrier);
+	}
 
 	vsg::ref_ptr<vsg::CopyImageToBuffer> copyImage = vsg::CopyImageToBuffer::create();
-	copyImage->srcImage       = colorImage;
+	copyImage->srcImage       = request.readDepth ? depthImage : colorImage;
 	copyImage->srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 	copyImage->dstBuffer      = buffer;
 
 	VkBufferImageCopy region{};
-	region.bufferOffset                     = 0;
-	region.bufferRowLength                  = width;
-	region.bufferImageHeight                = height;
-	region.imageSubresource.aspectMask      = VK_IMAGE_ASPECT_COLOR_BIT;
-	region.imageSubresource.mipLevel        = 0;
-	region.imageSubresource.baseArrayLayer  = 0;
-	region.imageSubresource.layerCount      = 1;
-	region.imageOffset                      = VkOffset3D{0, 0, 0};
-	region.imageExtent                      = VkExtent3D{width, height, 1};
-	copyImage->regions                      = {region};
+	region.bufferOffset                    = 0;
+	region.bufferRowLength                 = width;
+	region.bufferImageHeight               = height;
+	region.imageSubresource.aspectMask     = request.readDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.mipLevel       = 0;
+	region.imageSubresource.baseArrayLayer = 0;
+	region.imageSubresource.layerCount     = 1;
+	region.imageOffset                     = VkOffset3D{0, 0, 0};
+	region.imageExtent                     = VkExtent3D{width, height, 1};
+	copyImage->regions                     = {region};
 
 	// ----------------------------------------------------------------------
 	// render (temporarily replacing the on screen command graph)
 	// ----------------------------------------------------------------------
 	vsg::ref_ptr<vsg::CommandGraph> offscreenGraph = vsg::CommandGraph::create(window);
 	offscreenGraph->addChild(renderGraph);
+	if (barrier)
+	{
+		offscreenGraph->addChild(barrier);
+	}
 	offscreenGraph->addChild(copyImage);
-
-	QImage result;
 
 	m_viewer->assignRecordAndSubmitTaskAndPresentation({offscreenGraph});
 	m_viewer->compile();
@@ -855,25 +944,23 @@ QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
 	m_viewer->recordAndSubmit();
 	m_viewer->deviceWaitIdle();
 
+	bool ok = false;
+
 	// read the pixels back
 	if (vsg::DeviceMemory* memory = buffer->getDeviceMemory(0))
 	{
 		void* data = nullptr;
 		if (memory->map(buffer->getMemoryOffset(0), bufferSize, 0, &data) == VK_SUCCESS && data)
 		{
-			const auto* src = static_cast<const uint8_t*>(data);
-
-			result = QImage(static_cast<int>(width), static_cast<int>(height), QImage::Format_RGBA8888);
-			for (uint32_t y = 0; y < height; ++y)
-			{
-				std::memcpy(result.scanLine(static_cast<int>(y)), src + static_cast<size_t>(y) * width * 4, static_cast<size_t>(width) * 4);
-			}
+			pixels.resize(static_cast<std::size_t>(bufferSize));
+			std::memcpy(pixels.data(), data, static_cast<std::size_t>(bufferSize));
+			ok = true;
 
 			memory->unmap();
 		}
 		else
 		{
-			ccLog::Warning("[VSG] renderToImage: failed to map the output buffer");
+			ccLog::Warning("[VSG] renderOffscreen: failed to map the output buffer");
 		}
 	}
 
@@ -882,6 +969,49 @@ QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
 	{
 		m_viewer->assignRecordAndSubmitTaskAndPresentation({m_commandGraph});
 		m_viewer->compile();
+	}
+
+	return ok;
+}
+
+QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
+                                          bool  /*dontScaleFeatures*/ /*=false*/,
+                                          bool  /*renderOverlayItems*/ /*=false*/,
+                                          bool  /*silent*/ /*=false*/)
+{
+	if (!m_viewer || !m_window || !m_window->windowAdapter || !m_camera || !m_sceneRoot)
+	{
+		ccLog::Warning("[VSG] renderToImage: the viewer is not initialized");
+		return QImage();
+	}
+
+	vsg::ref_ptr<vsg::Window> window = m_window->windowAdapter;
+
+	const QSize screenSize = getScreenSize();
+	const uint32_t width   = static_cast<uint32_t>(std::max(1, static_cast<int>(std::lround(screenSize.width() * zoomFactor))));
+	const uint32_t height  = static_cast<uint32_t>(std::max(1, static_cast<int>(std::lround(screenSize.height() * zoomFactor))));
+
+	OffscreenRequest request;
+	request.scene           = m_sceneRoot;
+	request.colorFormat     = VK_FORMAT_R8G8B8A8_UNORM;
+	request.depthFormat     = window->depthFormat();
+	request.clearColor.color = VkClearColorValue{{0.15f, 0.15f, 0.20f, 1.0f}}; // TODO(M6): use the CloudCompare background color (ccGui::Parameters)
+	request.width           = width;
+	request.height          = height;
+	request.withOverlay     = true;
+
+	std::vector<uint8_t> pixels;
+	if (!renderOffscreen(request, pixels))
+	{
+		return QImage();
+	}
+
+	QImage result(static_cast<int>(width), static_cast<int>(height), QImage::Format_RGBA8888);
+	for (uint32_t y = 0; y < height; ++y)
+	{
+		std::memcpy(result.scanLine(static_cast<int>(y)),
+		            pixels.data() + static_cast<std::size_t>(y) * width * 4,
+		            static_cast<std::size_t>(width) * 4);
 	}
 
 	return result;
@@ -1084,142 +1214,144 @@ bool ccVSGWindowInterface::renderIdPass(std::vector<uint32_t>& ids, uint32_t& wi
 	// The IDs are written as unsigned integers: Vulkan (and Metal) accept
 	// R32_UINT as a color attachment and, unlike the RGBA "unique color" of the
 	// OpenGL backend, an integer cannot be mangled by blending.
-	constexpr VkFormat idFormat    = VK_FORMAT_R32_UINT;
-	const VkFormat     depthFormat = window->depthFormat();
-
-	auto makeAttachment = [&device, w, h](VkFormat format, VkImageUsageFlags usage) -> vsg::ref_ptr<vsg::Image>
-	{
-		vsg::ref_ptr<vsg::Image> image = vsg::Image::create();
-		image->imageType     = VK_IMAGE_TYPE_2D;
-		image->format        = format;
-		image->extent        = VkExtent3D{w, h, 1};
-		image->mipLevels     = 1;
-		image->arrayLayers   = 1;
-		image->samples       = VK_SAMPLE_COUNT_1_BIT;
-		image->tiling        = VK_IMAGE_TILING_OPTIMAL;
-		image->usage         = usage;
-		image->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-		if (image->compile(device) != VK_SUCCESS)
-		{
-			return {};
-		}
-
-		return image;
-	};
-
-	vsg::ref_ptr<vsg::Image> idImage    = makeAttachment(idFormat,
-	                                                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
-	vsg::ref_ptr<vsg::Image> depthImage = makeAttachment(depthFormat,
-	                                                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
-
-	if (!idImage || !depthImage)
-	{
-		ccLog::Warning("[VSG] renderIdPass: failed to allocate the offscreen attachments");
-		return false;
-	}
-
-	vsg::ref_ptr<vsg::ImageView> idImageView    = vsg::createImageView(device, idImage, VK_IMAGE_ASPECT_COLOR_BIT);
-	vsg::ref_ptr<vsg::ImageView> depthImageView = vsg::createImageView(device, depthImage, vsg::computeAspectFlagsForFormat(depthFormat));
-
-	vsg::ref_ptr<vsg::RenderPass>  renderPass  = vsg::createRenderPass(device, idFormat, depthFormat);
-	vsg::ref_ptr<vsg::Framebuffer> framebuffer = vsg::Framebuffer::create(renderPass,
-	                                                                     vsg::ImageViews{idImageView, depthImageView},
-	                                                                     w,
-	                                                                     h,
-	                                                                     1);
-
-	// the very same camera, but with the offscreen viewport
-	vsg::ref_ptr<vsg::ViewportState> viewportState = vsg::ViewportState::create(0, 0, w, h);
-	vsg::ref_ptr<vsg::Camera>        camera        = vsg::Camera::create(m_projectionMatrix, m_viewMatrix, viewportState);
-	vsg::ref_ptr<vsg::View>          view          = vsg::View::create(camera, m_sceneBuilder.idSceneRoot());
-
-	vsg::ref_ptr<vsg::RenderGraph> renderGraph = vsg::RenderGraph::create();
-	renderGraph->framebuffer = framebuffer;
-	renderGraph->renderArea  = VkRect2D{{0, 0}, {w, h}};
+	OffscreenRequest request;
+	request.scene       = m_sceneBuilder.idSceneRoot();
+	request.colorFormat = VK_FORMAT_R32_UINT;
+	request.depthFormat = window->depthFormat();
+	request.width       = w;
+	request.height      = h;
 
 	// 0 means 'no entity' - the *uint32* member of the union has to be set,
 	// otherwise the clear value would be read back as garbage
-	VkClearValue clearColor{};
-	clearColor.color.uint32[0] = 0;
-	clearColor.color.uint32[1] = 0;
-	clearColor.color.uint32[2] = 0;
-	clearColor.color.uint32[3] = 0;
-	renderGraph->setClearValues(clearColor.color, VkClearDepthStencilValue{0.0f, 0});
-	renderGraph->addChild(view);
+	request.clearColor.color.uint32[0] = 0;
+	request.clearColor.color.uint32[1] = 0;
+	request.clearColor.color.uint32[2] = 0;
+	request.clearColor.color.uint32[3] = 0;
 
-	// ----------------------------------------------------------------------
-	// copy the IDs back to a CPU visible buffer
-	// ----------------------------------------------------------------------
-	const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(w) * h * 4;
-
-	vsg::ref_ptr<vsg::Buffer> buffer = vsg::createBufferAndMemory(device,
-	                                                             bufferSize,
-	                                                             VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-	                                                             VK_SHARING_MODE_EXCLUSIVE,
-	                                                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-	vsg::ref_ptr<vsg::CopyImageToBuffer> copyImage = vsg::CopyImageToBuffer::create();
-	copyImage->srcImage       = idImage;
-	copyImage->srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	copyImage->dstBuffer      = buffer;
-
-	VkBufferImageCopy region{};
-	region.bufferOffset                    = 0;
-	region.bufferRowLength                 = w;
-	region.bufferImageHeight               = h;
-	region.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-	region.imageSubresource.mipLevel       = 0;
-	region.imageSubresource.baseArrayLayer = 0;
-	region.imageSubresource.layerCount     = 1;
-	region.imageOffset                     = VkOffset3D{0, 0, 0};
-	region.imageExtent                     = VkExtent3D{w, h, 1};
-	copyImage->regions                     = {region};
-
-	vsg::ref_ptr<vsg::CommandGraph> offscreenGraph = vsg::CommandGraph::create(window);
-	offscreenGraph->addChild(renderGraph);
-	offscreenGraph->addChild(copyImage);
-
-	m_viewer->assignRecordAndSubmitTaskAndPresentation({offscreenGraph});
-	m_viewer->compile();
-
-	// same order as vsgQt::Viewer::render() - advanceToNextFrame() is required,
-	// otherwise the frame fences are not ready and RecordAndSubmitTask crashes
-	m_viewer->advanceToNextFrame();
-	m_viewer->update();
-	m_viewer->recordAndSubmit();
-	m_viewer->deviceWaitIdle();
-
-	bool ok = false;
-
-	if (vsg::DeviceMemory* memory = buffer->getDeviceMemory(0))
+	std::vector<uint8_t> pixels;
+	if (!renderOffscreen(request, pixels))
 	{
-		void* data = nullptr;
-		if (memory->map(buffer->getMemoryOffset(0), bufferSize, 0, &data) == VK_SUCCESS && data)
-		{
-			const auto* src = static_cast<const uint32_t*>(data);
+		return false;
+	}
 
-			ids.assign(src, src + static_cast<std::size_t>(w) * h);
-			width  = w;
-			height = h;
-			ok     = true;
+	const auto* src = reinterpret_cast<const uint32_t*>(pixels.data());
 
-			memory->unmap();
-		}
-		else
+	ids.assign(src, src + static_cast<std::size_t>(w) * h);
+	width  = w;
+	height = h;
+
+	return true;
+}
+
+bool ccVSGWindowInterface::renderDepthPass(std::vector<float>& depths, uint32_t& width, uint32_t& height)
+{
+	depths.clear();
+	width  = 0;
+	height = 0;
+
+	if (!m_viewer || !m_window || !m_window->windowAdapter || !m_camera || !m_sceneRoot)
+	{
+		ccLog::Warning("[VSG] renderDepthPass: the viewer is not initialized");
+		return false;
+	}
+
+	vsg::ref_ptr<vsg::Window> window = m_window->windowAdapter;
+
+	const VkFormat depthFormat = window->depthFormat();
+	if (depthFormat != VK_FORMAT_D32_SFLOAT && depthFormat != VK_FORMAT_D16_UNORM)
+	{
+		ccLog::Warning("[VSG] renderDepthPass: the depth format cannot be read back (only D32_SFLOAT and D16_UNORM are supported)");
+		return false;
+	}
+
+	const QSize screenSize = getScreenSize();
+	const uint32_t w = static_cast<uint32_t>(std::max(1, screenSize.width()));
+	const uint32_t h = static_cast<uint32_t>(std::max(1, screenSize.height()));
+
+	OffscreenRequest request;
+	request.scene       = m_sceneRoot;
+	request.colorFormat = VK_FORMAT_R8G8B8A8_UNORM; // required by the render pass, but never read back
+	request.depthFormat = depthFormat;
+	request.width       = w;
+	request.height      = h;
+	request.readDepth   = true;
+
+	std::vector<uint8_t> pixels;
+	if (!renderOffscreen(request, pixels))
+	{
+		return false;
+	}
+
+	const std::size_t count = static_cast<std::size_t>(w) * h;
+	depths.resize(count);
+
+	if (depthFormat == VK_FORMAT_D32_SFLOAT)
+	{
+		const auto* src = reinterpret_cast<const float*>(pixels.data());
+		std::copy(src, src + count, depths.begin());
+	}
+	else
+	{
+		const auto* src = reinterpret_cast<const uint16_t*>(pixels.data());
+		for (std::size_t i = 0; i < count; ++i)
 		{
-			ccLog::Warning("[VSG] renderIdPass: failed to map the output buffer");
+			depths[i] = static_cast<float>(src[i]) / 65535.0f;
 		}
 	}
 
-	// restore the on screen rendering
-	if (m_commandGraph)
+	width  = w;
+	height = h;
+
+	return true;
+}
+
+bool ccVSGWindowInterface::getClick3DPos(int x, int y, CCVector3d& P3D)
+{
+	std::vector<float> depths;
+	uint32_t           imgWidth  = 0;
+	uint32_t           imgHeight = 0;
+
+	if (!renderDepthPass(depths, imgWidth, imgHeight))
 	{
-		m_viewer->assignRecordAndSubmitTaskAndPresentation({m_commandGraph});
-		m_viewer->compile();
+		return false;
 	}
 
-	return ok;
+	if (x < 0 || y < 0 || x >= static_cast<int>(imgWidth) || y >= static_cast<int>(imgHeight))
+	{
+		return false;
+	}
+
+	// the image is stored top down while CloudCompare works in a Y-up screen
+	// space (see the OpenGL backend)
+	const uint32_t yUp = imgHeight - 1 - static_cast<uint32_t>(y);
+
+	const float depth = depths[static_cast<std::size_t>(yUp) * imgWidth + static_cast<uint32_t>(x)];
+
+	// reverse depth: 0 is the far plane, i.e. nothing was drawn there (the
+	// OpenGL backend tests the very same thing with its INVALID_DEPTH = 1.0)
+	if (depth <= 0.0f)
+	{
+		return false;
+	}
+
+	// ccGLCameraParameters::unproject() expects an OpenGL window depth:
+	// 0 on the near plane and 1 on the far one - exactly the opposite of the
+	// Vulkan reverse depth
+	CCVector3d P2D(static_cast<double>(x), static_cast<double>(yUp), 1.0 - static_cast<double>(depth));
+
+	ccGLCameraParameters camera;
+	getGLCameraParameters(camera);
+
+	return camera.unproject(P2D, P3D);
+}
+
+void ccVSGWindowInterface::processMouseDoubleClick(int x, int y)
+{
+	CCVector3d P;
+	if (getClick3DPos(x, y, P))
+	{
+		setPivotPoint(P, true, true);
+	}
 }
 
 void ccVSGWindowInterface::doEntityPicking(int x, int y)

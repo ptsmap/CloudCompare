@@ -61,6 +61,16 @@ class CCVSGWINDOW_LIB_API ccVSGCameraManipulator : public vsg::Inherit<vsg::Visi
 	//! Relative zoom step used by the wheel and the middle button drag
 	double zoomStep = 0.1;
 
+	// ----------------------------------------------------------------------
+	// Double click (M6.4)
+	// ----------------------------------------------------------------------
+
+	//! Maximum delay between two presses for them to be a double click
+	vsg::clock::duration doubleClickInterval = std::chrono::milliseconds(300);
+
+	//! Maximum distance (in pixels) between the two presses
+	int32_t doubleClickTolerance = 4;
+
   protected:
 	enum class Mode
 	{
@@ -71,6 +81,13 @@ class CCVSGWINDOW_LIB_API ccVSGCameraManipulator : public vsg::Inherit<vsg::Visi
 	};
 
 	Mode modeForMask(vsg::ButtonMask mask) const;
+
+	//! Tells whether the press follows the previous one closely enough
+	/** VSG has no 'double click' event, while Qt (and therefore the OpenGL
+	    backend) has: it is detected here, from the button, the position and
+	    the timestamp of the previous press.
+	 **/
+	bool isDoubleClick(const vsg::ButtonPressEvent& event) const;
 
 	//! Replicates ccGLWindowInterface::convertMousePositionToOrientation()
 	CCVector3d convertMousePositionToOrientation(int32_t x, int32_t y);
@@ -86,4 +103,15 @@ class CCVSGWINDOW_LIB_API ccVSGCameraManipulator : public vsg::Inherit<vsg::Visi
 	bool    m_mouseMoved = false;
 
 	CCVector3d m_lastOrientation;
+
+	// double click detection (M6.4)
+	vsg::clock::time_point m_lastPressTime;
+	int32_t                m_lastPressX    = 0;
+	int32_t                m_lastPressY    = 0;
+	uint32_t               m_lastPressButton = 0;
+	vsg::ButtonMask        m_lastPressMask   = vsg::BUTTON_MASK_OFF;
+
+	//! Set when the current press/release pair is the second one of a double
+	//! click: the release must then not start a picking
+	bool m_ignoreNextPicking = false;
 };

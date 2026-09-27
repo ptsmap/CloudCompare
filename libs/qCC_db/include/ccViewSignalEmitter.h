@@ -80,4 +80,11 @@ Q_SIGNALS:
 	    \param y           mouse cursor y position
 	 **/
 	void itemPickedFast(ccHObject* entity, int subEntityID, int x, int y);
+
+	//! Signal emitted when the pivot point is changed
+	/** \note It used to be declared by ccGLWindowSignalEmitter only, which
+	    made it impossible to connect to a VSG view. It now lives here so that
+	    both backends expose the very same signal (M6.4).
+	 **/
+	void pivotPointChanged(const CCVector3d&);
 };

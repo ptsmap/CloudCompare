@@ -226,6 +226,14 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   //! Sets the camera center
   void setCameraPos(const CCVector3d& P);
 
+  //! Sets the pivot point (as ccGLWindowInterface::setPivotPoint)
+  /** \param P                    the new rotation center
+      \param autoUpdateCameraPos  move the camera so that the point of view
+                                  does not change (used by the double click)
+      \param verbose              log the new rotation center
+   **/
+  void setPivotPoint(const CCVector3d& P, bool autoUpdateCameraPos = false, bool verbose = false);
+
   // ----------------------------------------------------------------------
   // Picking
   // ----------------------------------------------------------------------
@@ -262,6 +270,34 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   void doPicking(int x, int y);
 
   // ----------------------------------------------------------------------
+  // Depth unprojection (M6.4)
+  // ----------------------------------------------------------------------
+
+  //! Unprojects a (window) position in 3D using the depth buffer
+  /** The scene is rendered a second time into an offscreen framebuffer whose
+      **depth** attachment is read back on the CPU (see renderDepthPass()), and
+      the depth of the pixel under the cursor is unprojected with the very same
+      helper as the OpenGL backend (ccGLCameraParameters::unproject).
+
+      \param x   horizontal position (window coordinates, origin = top left)
+      \param y   vertical position (window coordinates, origin = top left)
+      \param P3D output: the 3D position of the point displayed at (x,y)
+      \return false when the depth is undefined (i.e. the background) or when
+              the offscreen pass could not be run
+
+      \warning The whole view is rendered again: this is fine for a double
+      click, but it must not be called on every mouse move.
+   **/
+  bool getClick3DPos(int x, int y, CCVector3d& P3D);
+
+  //! Handles a mouse double click: sets the pivot point under the cursor
+  /** Called by ccVSGCameraManipulator, which detects the double click itself
+      (VSG has no such event). Mirrors
+      ccGLWindowInterface::processMouseDoubleClickEvent().
+   **/
+  void processMouseDoubleClick(int x, int y);
+
+  // ----------------------------------------------------------------------
   // Signals
   // ----------------------------------------------------------------------
 
@@ -279,6 +315,61 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
         is a Vulkan (reverse depth, Y flipped) matrix.
    **/
   void updateCamera();
+
+  // ----------------------------------------------------------------------
+  // Offscreen rendering (M6)
+  // ----------------------------------------------------------------------
+
+  //! Description of an offscreen render + read back pass
+  /** renderToImage(), renderIdPass() and renderDepthPass() only differ by the
+      format of the attachments and by the one they read back, so the whole
+      Vulkan boilerplate lives in renderOffscreen().
+   **/
+  struct OffscreenRequest
+  {
+      //! Scene graph to render (the display root, or the picking one)
+      vsg::ref_ptr<vsg::Node> scene;
+
+      //! Format of the color attachment (R8G8B8A8_UNORM or R32_UINT)
+      VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+
+      //! Format of the depth attachment (the one of the on screen window)
+      VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;
+
+      //! Clear value of the color attachment
+      /** \warning VkClearColorValue is a **union**: an integer attachment
+          (R32_UINT) must be cleared through its `uint32` members.
+       **/
+      VkClearValue clearColor{};
+
+      //! Clear value of the depth attachment (0 = far plane: reverse depth)
+      float clearDepth = 0.0f;
+
+      uint32_t width  = 0;
+      uint32_t height = 0;
+
+      //! Read the depth attachment back instead of the color one
+      bool readDepth = false;
+
+      //! Draw the 2D overlay on top of the 3D image (renderToImage only)
+      bool withOverlay = false;
+  };
+
+  //! Renders a scene graph into an offscreen framebuffer and reads it back
+  /** \param request  what to render and which attachment to read back
+      \param pixels   output: raw pixels, row 0 = **top** of the image. The
+                      size is width * height * (4 for a color attachment,
+                      4 for D32_SFLOAT, 2 for D16_UNORM).
+      \return false when the pass could not be run
+   **/
+  bool renderOffscreen(const OffscreenRequest& request, std::vector<uint8_t>& pixels);
+
+  //! Reads the depth buffer of the view back on the CPU (M6.4)
+  /** \param depths output: one depth per pixel ([0..1], 1 = near plane)
+      \param width  output: width of the returned image
+      \param height output: height of the returned image
+   **/
+  bool renderDepthPass(std::vector<float>& depths, uint32_t& width, uint32_t& height);
 
   // ----------------------------------------------------------------------
   // Entity picking (M6.1 / M6.2)

@@ -31,7 +31,9 @@
 
 // system
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
 
 ccVSGCameraManipulator::ccVSGCameraManipulator(ccVSGWindowInterface* view)
     : m_view(view)
@@ -166,8 +168,41 @@ void ccVSGCameraManipulator::doZoom(double factor)
 	m_view->setFocalDistance(focal * factor);
 }
 
+bool ccVSGCameraManipulator::isDoubleClick(const vsg::ButtonPressEvent& event) const
+{
+	// both the button and the mask are compared: some window adapters leave
+	// 'button' unset, and the mask alone would not tell which button was
+	// actually pressed
+	return event.button == m_lastPressButton
+	    && event.mask == m_lastPressMask
+	    && (event.time - m_lastPressTime) < doubleClickInterval
+	    && std::abs(event.x - m_lastPressX) <= doubleClickTolerance
+	    && std::abs(event.y - m_lastPressY) <= doubleClickTolerance;
+}
+
 void ccVSGCameraManipulator::apply(vsg::ButtonPressEvent& event)
 {
+	// VSG has no 'double click' event: the OpenGL backend gets one from Qt and
+	// uses it to set the pivot point under the cursor (M6.4)
+	m_ignoreNextPicking = false;
+
+	if (isDoubleClick(event))
+	{
+		// the release that follows must not start a picking
+		m_ignoreNextPicking = true;
+
+		if (m_view)
+		{
+			m_view->processMouseDoubleClick(event.x, event.y);
+		}
+	}
+
+	m_lastPressTime   = event.time;
+	m_lastPressX      = event.x;
+	m_lastPressY      = event.y;
+	m_lastPressButton = event.button;
+	m_lastPressMask   = event.mask;
+
 	m_lastX      = event.x;
 	m_lastY      = event.y;
 	m_mode       = modeForMask(event.mask);
@@ -181,6 +216,15 @@ void ccVSGCameraManipulator::apply(vsg::ButtonPressEvent& event)
 
 void ccVSGCameraManipulator::apply(vsg::ButtonReleaseEvent& event)
 {
+	if (m_ignoreNextPicking)
+	{
+		// the second click of a double click is not a picking request (the
+		// OpenGL backend cancels its deferred picking in the same way)
+		m_ignoreNextPicking = false;
+		m_mode              = Mode::None;
+		return;
+	}
+
 	// a 'click' (i.e. a press/release pair without any drag) must trigger the
 	// picking process - dragging still controls the camera, as in the OpenGL
 	// backend

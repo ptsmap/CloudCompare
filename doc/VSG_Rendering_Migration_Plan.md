@@ -595,7 +595,7 @@ vsg::LookAt / 自定义 ViewMatrix  +  vsg::Perspective
 | **矩形框选实体** | 复用实体拾取 + CPU 扫描像素矩形 | 同实体拾取，只回读矩形区域（可用 scissor + 小尺寸 attachment 优化） |
 | **点拾取** | CPU 投影 + 八叉树 | **完全复用** CPU 算法；或用 `vsg::LineSegmentIntersector`（对 POINT_LIST 图元支持有限，建议保留 CPU 路径） |
 | **三角拾取** | CPU ray-triangle（八叉树加速） | 同上，可试 `vsg::LineSegmentIntersector`（对 TRIANGLE_LIST 支持良好，返回 `indexRatios`） |
-| **深度反投影** | `glReadPixels` depth + PBO | depth image → `CopyImageToBuffer` → host buffer，注意 [0,1] NDC 换算 |
+| **深度反投影** | `glReadPixels` depth + PBO | depth image → `CopyImageToBuffer` → host buffer。render pass 需 `requiresDepthRead`（否则 `storeOp = DONT_CARE`）、回读前需布局屏障；reverse depth 下 `glDepth = 1 - vkDepth`（见 D.16） |
 | **标签拾取** | 颜色编码 | 同实体拾取 |
 
 **对外协议保持不变**：`ccPickingHub` / `ccOverlayDialog` 的信号语义不变，插件无感。
@@ -839,7 +839,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10）；点大小 billboard quad 已补齐（见 D.14） | 3~4 | 14 |
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
 | M5 | 2D 覆盖层 | 🟡 子项全部落地：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.3 2D 标签、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加（视觉验证待 GUI）；细节完善见 D.13.10 | 3 | 21 |
-| M6 | 拾取与离屏 | 🟡 大部分完成：`renderToImage()`、点/三角 CPU 拾取、**实体/框选拾取（离屏 R32_UINT ID pass，见 D.15）** 已实现；深度反投影（M6.4）与 `ccPickingHub` 端到端验证未做 | 3 | 24 |
+| M6 | 拾取与离屏 | 🟡 大部分完成：`renderToImage()`、点/三角 CPU 拾取、**实体/框选拾取（离屏 R32_UINT ID pass，见 D.15）**、**深度反投影（双击设 pivot，见 D.16）** 已实现；`LABEL_PICKING`、`ccPickingHub` 端到端验证未做 | 3 | 24 |
 | M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
 | **合计** | | | **26~32 PW** | ≈ **6~8 人月** |
@@ -847,8 +847,9 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 > 若不含后处理（M7.1/M7.2）与分页（M7.4），核心功能对齐约 **20~22 PW（5 人月）**。
 > 图例：✅ 完成 / 🟡 部分完成 / ⬜ 未开始。详细子项见 §7 各里程碑与附录 **D.10 / D.11 / D.12**。
 >
-> **最近两次提交**：`9becfcc8` M6 VSG 视图 resize 同步（强制容器几何 + `QMdiSubWindow` 重同步）；
-> `7e438499` M4 收尾（传感器 / 粗线 quad / 线框 / LOD / 半透明）。详见 D.12。
+> **最近三次提交**：`87faa35c` M6.1/M6.2 实体拾取（离屏 R32_UINT ID pass，见 D.15）；
+> `71b7760a` M3.5 点大小 billboard quad + 修复裸文件名被误判为命令行（见 D.14）；
+> `7e438499` M4 收尾（传感器 / 粗线 quad / 线框 / LOD / 半透明，见 D.11）。
 
 ---
 
@@ -1857,5 +1858,53 @@ VSG 自己占用 push constant 的 `0..128` 字节（`mat4 projection` + `mat4 m
 - 未覆盖：
   - **sensor 不可拾取**（`buildSensor()` 返回空 `ids`）：它的线框是多个小子几何拼的，需逐个配对 ID 节点。
   - `LABEL_PICKING` 仍需 CPU 射线求交。
-  - **M6.4 深度反投影**（双击设 pivot）未开始。
+  - M6.4 深度反投影（双击设 pivot）**已实现**，见 **D.16**。
   - 每顶点/实例 4 字节的 ID 冗余可用 `vkCmdBindVertexBuffers` + instanced 常量属性或 descriptor 优化。
+
+## 附录 D.16 — M6.4 深度反投影：双击设 pivot
+
+OpenGL 后端双击时回读深度缓冲的一个像素，用 `ccGLCameraParameters::unproject()` 反投影成世界坐标，再 `setPivotPoint()`（`ccGLWindowInterface::processMouseDoubleClickEvent()`）。VSG 版沿用同一套判定，只是"回读"换成 `CopyImageToBuffer`，并必须处理 **reverse depth**。
+
+### D.16.1 离屏 pass 的统一（`renderOffscreen`）
+
+`renderToImage()`（M6.5）、`renderIdPass()`（M6.1）与本次的 `renderDepthPass()` 各自都要"建离屏附件 → render pass → framebuffer → 提交 → 回读 → 恢复屏幕渲染"，Vulkan 样板约 100 行。现抽成：
+
+| 成员 | 作用 |
+|---|---|
+| `struct OffscreenRequest` | 场景、color/depth 格式、清除值、尺寸、`readDepth`、`withOverlay` |
+| `bool renderOffscreen(request, pixels)` | 渲染并把指定附件回读成裸字节（行 0 = 顶部） |
+
+三个调用者只负责解释像素（`QImage` / `uint32` ID / `float` 深度）。
+
+### D.16.2 读深度的两个坑
+
+1. **`storeOp` 必须是 STORE**：`vsg::defaultDepthAttachment()` 默认 `VK_ATTACHMENT_STORE_OP_DONT_CARE`，即 `vsg::createRenderPass(device, color, depth)` **不保存**深度。必须传 `requiresDepthRead = true`（第 4 个参数），否则回读全是 0。
+2. **布局要先转**：render pass 结束时深度附件停在 `DEPTH_STENCIL_ATTACHMENT_OPTIMAL`，不能直接当 transfer 源；插入一条 `vsg::PipelineBarrier`（`LATE_FRAGMENT_TESTS → TRANSFER`、`DEPTH_STENCIL_ATTACHMENT_WRITE → TRANSFER_READ`）把它转到 `TRANSFER_SRC_OPTIMAL`，再用 `vsg::CopyImageToBuffer`（`aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT`）回读。
+
+只支持 `D32_SFLOAT`（按 `float` 读）与 `D16_UNORM`（`uint16 / 65535`）；`D24_UNORM_S8_UINT` 这类打包格式分量交错，直接拒绝并告警。
+
+### D.16.3 reverse depth → OpenGL 窗口深度
+
+- Vulkan/VSG 是 reverse depth：**近平面 = 1，远平面 = 0**（清除值 0）。
+- `ccGLCameraParameters::unproject()`（`ccGL::Unproject`）期望 OpenGL 窗口深度：**近 = 0，远 = 1**。
+
+所以 `glDepth = 1.0 - vulkanDepth`；`vulkanDepth == 0` 表示"这里没画到东西"，正好对应 OpenGL 后端的 `INVALID_DEPTH = 1.0`。图像行 0 在顶部、CC 用 Y-up 屏幕空间，取像素时要 `yUp = height - 1 - y`。
+
+### D.16.4 双击从哪来
+
+VSG **没有双击事件**（Qt 有；VSG 只有 ButtonPress / Release / Move / ScrollWheel），且鼠标事件由 `vsgQt::Window` 直接送给操控器，不经 `ccVSGWindow` 这个 QWidget。因此：
+
+- `ccVSGCameraManipulator::apply(vsg::ButtonPressEvent&)` 自己判定：同按钮 + 间隔 < 300 ms + 位移 ≤ 4 px → 双击（`isDoubleClick()`）。
+- 双击时置 `m_ignoreNextPicking`，让随后的 release **不要**触发拾取 —— 对应 OpenGL 后端的 `m_deferredPickingTimer.stop()` + `m_ignoreMouseReleaseEvent`。
+- 视图层新增 `processMouseDoubleClick(x, y)` → `getClick3DPos()` → `setPivotPoint(P, true, true)`，与 GL 同构；`pivotPointChanged` 信号也按需提升到 `ccViewSignalEmitter`（同 D.15.4 的做法）。
+
+### D.16.5 验证状态
+
+- 全量构建通过。
+- **运行时待 GUI 验证**：Metal/MoltenVK 是否支持把深度附件 copy 到 buffer（MoltenVK 对 depth 格式回读有已知限制）。
+
+### D.16.6 仍未做
+
+- sensor 拾取、`LABEL_PICKING`、`ccPickingHub` / `ccOverlayDialog` 端到端（M6.6）。
+- 鼠标移动时显示光标 3D 坐标（`m_showCursorCoordinates`）：现在每次都会触发一次**全屏**离屏 pass，需先做小区域（scissor + 小 attachment）优化。
+- `getClick3DPos()` 目前也只取单像素；OpenGL 后端在深度无效时可向 3×3 邻域扩展（`getGLDepth(..., extendToNeighbors)`），VSG 侧尚未实现。
