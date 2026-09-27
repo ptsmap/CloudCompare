@@ -1662,11 +1662,28 @@ VSG 侧原先的 mesh shader 恒定带光照 → 切换无反应。现改为：
 
 投影：`(P * V) * p` → 除以 w → **Vulkan 约定 ndc y = +1 是视口底部** → `y_from_top = (ndc.y+1)/2*H` → 再换成覆盖层的中心原点坐标。相机背后的点停放到视口外。
 
-**未做**：cc2DLabel 的 **3D marker**（`drawMeOnly3D()`，属于 3D pass，应由 `ccVSGSceneBuilder` 构建）；`cc2DViewportLabel` 的视口参数匹配与缩放/相机偏移补偿（`relativeZoom`、`dC`）。
+**3D marker（已补，见 D.13.9.1）**：`drawMeOnly3D()` 里对每个 picked point 画一个球体 marker。**未做**：`count==3` 时的半透明黄色三角面（`DefaultTriangleColor(255,255,0,128)`）—— 它的屏幕形状随相机变化，逐帧重建几何会触发 `compile()`，代价过高；`cc2DViewportLabel` 的视口参数匹配与缩放/相机偏移补偿（`relativeZoom`、`dC`）。
+
+#### D.13.9.1 cc2DLabel 的 3D marker
+
+`cc2DLabel::drawMeOnly3D()` 的语义（注意 switch **无 break**，case 3 会 fall-through 到 case 1）：
+
+| picked points | GL 行为 | VSG 实现 |
+|---|---|---|
+| 1 | 一个球体 marker | ✅ 球体（屏幕空间） |
+| 2 | 线段（已注注释，改在 2D 画） | ⬜ 未做 |
+| 3 | 半透明黄三角面 **+ 3 个球体** | ⬜ 三角面未做（球体已做） |
+
+实现要点：
+
+- 球体程序生成（12×12 经纬细分，非索引三角形），**着色烘进顶点色**（`0.35 + 0.65*max(0, n.z)` 的简易头灯），因此无光照 flat shader 即可读出球体感。
+- 球体在**屏幕空间**绘制：位置取 3D 点在覆盖层的投影，缩放用固定像素半径（正交投影下均匀缩放仍是球）→ **marker 屏幕尺寸恒定**，比 CC 的透视距离补偿（`sqrt(d/unitD)`）更稳定。
+- 普通色用黄 `(255,255,0)`、选中用红（与 CC 一致），两种球体各缓存一份并被所有 marker 共享，逐帧只更新 `MatrixTransform` 矩阵。
+- TODO：颜色应取 `ccGui::Parameters().labelDefaultMarkerCol`，半径应取 `labelMarkerSize * relMarkerScale * devicePixelRatio`。
 
 ### D.13.10 M5 剩余
 
-- cc2DLabel 的 3D marker；`cc2DViewportLabel` 的视口状态校验与缩放补偿
+- `cc2DLabel` count==3 的三角面、count==2 的连线；`cc2DViewportLabel` 的视口状态校验与缩放补偿
 - 色标：直方图、对数轴、自定义标签、按 `computeColorRampAreaLimits()` 预留空间
 - CJK 标签（需更大的 glyph atlas 或按需扩容）
 - 各类叠加元素接 `ccGui::Parameters()`（`textDefaultCol`、`labelMarkerSize` 等）

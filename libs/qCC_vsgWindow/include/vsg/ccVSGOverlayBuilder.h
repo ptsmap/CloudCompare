@@ -136,6 +136,11 @@ class ccVSGOverlayBuilder
 	//! Builds the textured quad of a single 2D image overlay (M5.6)
 	vsg::ref_ptr<vsg::Node> createImageQuad(const ccImage* image, int width, int height);
 
+	//! Builds (and caches) the sphere used as the 3D marker of a cc2DLabel
+	/** The shading is baked into the vertex colors, so the unlit flat shader is
+	    enough to make it read as a sphere. **/
+	vsg::ref_ptr<vsg::Node> createLabelMarker(const ccColor::Rgba& color);
+
 	//! Builds a text node, wrapped in a transform so that it can be moved cheaply
 	vsg::ref_ptr<vsg::Node> createLabel(const char* text, const ccColor::Rgba& color);
 
@@ -175,6 +180,15 @@ class ccVSGOverlayBuilder
 	    rebuild, and therefore no recompilation). **/
 	std::vector<const cc2DLabel*>                  m_2DLabels;
 	std::vector<vsg::ref_ptr<vsg::MatrixTransform>> m_2DLabelTransforms;
+
+	//! 3D markers (one sphere per picked point of each cc2DLabel)
+	std::vector<const cc2DLabel*>                   m_markerLabels;
+	std::vector<unsigned>                           m_markerPointIndex;
+	std::vector<vsg::ref_ptr<vsg::MatrixTransform>> m_markerTransforms;
+
+	//! Cached unit spheres (plain / selected) shared by all the markers
+	vsg::ref_ptr<vsg::Node> m_markerSphere;
+	vsg::ref_ptr<vsg::Node> m_markerSphereSelected;
 
 	//! Textured shader set, used by the image overlay
 	vsg::ref_ptr<vsg::ShaderSet> m_texturedShaderSet;

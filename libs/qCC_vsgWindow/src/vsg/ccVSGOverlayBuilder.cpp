@@ -89,6 +89,56 @@ namespace
 		return true;
 	}
 
+	//! Radius (in pixels) of the 3D marker of a cc2DLabel
+	/** TODO(M5.3): read it from ccGui::Parameters().labelMarkerSize **/
+	constexpr float LabelMarkerRadiusPx = 5.0f;
+
+	//! Appends a unit sphere (radius 1) as a flat triangle list
+	/** \param verts  output positions
+	    \param norms  output normals (equal to the positions for a unit sphere) **/
+	void appendSphere(PointList& verts, std::vector<vsg::vec3>& norms, int rings, int sectors)
+	{
+		constexpr float Pi = 3.14159265f;
+
+		auto onSphere = [](float phi, float theta)
+		{
+			return vsg::vec3(std::sin(phi) * std::cos(theta),
+			                 std::sin(phi) * std::sin(theta),
+			                 std::cos(phi));
+		};
+
+		for (int r = 0; r < rings; ++r)
+		{
+			const float phi0 = static_cast<float>(r) / rings * Pi;
+			const float phi1 = static_cast<float>(r + 1) / rings * Pi;
+
+			for (int s = 0; s < sectors; ++s)
+			{
+				const float th0 = static_cast<float>(s) / sectors * 2.0f * Pi;
+				const float th1 = static_cast<float>(s + 1) / sectors * 2.0f * Pi;
+
+				const vsg::vec3 a = onSphere(phi0, th0);
+				const vsg::vec3 b = onSphere(phi1, th0);
+				const vsg::vec3 c = onSphere(phi1, th1);
+				const vsg::vec3 d = onSphere(phi0, th1);
+
+				const vsg::vec3 tri1[3] = {a, b, c};
+				const vsg::vec3 tri2[3] = {a, c, d};
+
+				for (const auto& p : tri1)
+				{
+					verts.push_back(p);
+					norms.push_back(p);
+				}
+				for (const auto& p : tri2)
+				{
+					verts.push_back(p);
+					norms.push_back(p);
+				}
+			}
+		}
+	}
+
 	//! Collects the visible 2D labels of a ccHObject tree
 	void collectLabels(ccHObject*                          obj,
 	                   std::vector<const cc2DLabel*>&      labels2D,
@@ -811,6 +861,37 @@ vsg::ref_ptr<vsg::Node> ccVSGOverlayBuilder::createImageQuad(const ccImage* imag
 	return stateGroup;
 }
 
+vsg::ref_ptr<vsg::Node> ccVSGOverlayBuilder::createLabelMarker(const ccColor::Rgba& color)
+{
+	PointList              verts;
+	std::vector<vsg::vec3> norms;
+	appendSphere(verts, norms, 12, 12);
+
+	if (verts.empty())
+	{
+		return {};
+	}
+
+	auto v = vsg::vec3Array::create(verts.size());
+	auto c = vsg::ubvec4Array::create(verts.size());
+
+	for (std::size_t i = 0; i < verts.size(); ++i)
+	{
+		(*v)[i] = verts[i];
+
+		// cheap headlight from +Z, baked into the vertex colors
+		const float shade = 0.35f + 0.65f * std::max(0.0f, norms[i].z);
+
+		const vsg::ubvec4 base = toColor(color);
+		(*c)[i] = vsg::ubvec4(static_cast<uint8_t>(std::min(255.0f, base.r * shade)),
+		                      static_cast<uint8_t>(std::min(255.0f, base.g * shade)),
+		                      static_cast<uint8_t>(std::min(255.0f, base.b * shade)),
+		                      base.a);
+	}
+
+	return buildGeometry(m_triangleShaderSet, m_sharedObjects, v, c);
+}
+
 bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
                                       const vsg::dmat4& viewMatrix,
                                       const vsg::dmat4& projectionMatrix,
@@ -853,11 +934,17 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 		m_labelsNode = nullptr;
 		m_2DLabels.clear();
 		m_2DLabelTransforms.clear();
+		m_markerLabels.clear();
+		m_markerPointIndex.clear();
+		m_markerTransforms.clear();
 
 		auto group = vsg::Group::create();
 
 		// TODO(M5.3): use ccGui::Parameters().textDefaultCol
 		const ccColor::Rgba labelColor(255, 255, 255, 255);
+
+		// TODO(M5.3): use ccGui::Parameters().labelDefaultMarkerCol
+		const ccColor::Rgba defaultMarkerColor(255, 255, 0, 255);
 
 		// offset between the 3D anchor and its name
 		constexpr float LeaderDX = 10.0f;
@@ -899,6 +986,35 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 			group->addChild(transform);
 			m_2DLabels.push_back(label);
 			m_2DLabelTransforms.push_back(transform);
+
+			// ---- 3D marker: one sphere per picked point ----
+			// (mirrors cc2DLabel::drawMeOnly3D(), case 1 - the sphere is drawn
+			// in screen space, so its size stays constant)
+			if (!m_markerSphere)
+			{
+				m_markerSphere = createLabelMarker(defaultMarkerColor);
+			}
+
+			if (label->isSelected() && !m_markerSphereSelected)
+			{
+				m_markerSphereSelected = createLabelMarker(ccColor::Rgba(255, 0, 0, 255));
+			}
+
+			vsg::ref_ptr<vsg::Node> markerNode = (label->isSelected() ? m_markerSphereSelected : m_markerSphere);
+
+			if (markerNode)
+			{
+				for (unsigned p = 0; p < label->size(); ++p)
+				{
+					auto marker = vsg::MatrixTransform::create();
+					marker->addChild(markerNode);
+
+					group->addChild(marker);
+					m_markerLabels.push_back(label);
+					m_markerPointIndex.push_back(p);
+					m_markerTransforms.push_back(marker);
+				}
+			}
 		}
 
 		// ---- the ROI rectangles, drawn as dashed line loops ----
@@ -987,6 +1103,34 @@ bool ccVSGOverlayBuilder::updateLabels(ccHObject*         root,
 		{
 			// behind the camera (or no point): park it far outside the viewport
 			m_2DLabelTransforms[i]->matrix = vsg::translate(1.0e6, 1.0e6, 0.0);
+		}
+	}
+
+	// ---- and the 3D markers ----
+	for (std::size_t i = 0; i < m_markerTransforms.size() && i < m_markerLabels.size(); ++i)
+	{
+		const cc2DLabel* label = m_markerLabels[i];
+		const unsigned   p     = (i < m_markerPointIndex.size() ? m_markerPointIndex[i] : 0);
+
+		double ox = 0.0;
+		double oy = 0.0;
+		bool   ok = false;
+
+		if (p < label->size())
+		{
+			const CCVector3 P = label->getPickedPoint(p).getPointPosition();
+			ok = projectToOverlay(projectionMatrix, viewMatrix, vsg::dvec3(P.x, P.y, P.z), width, height, ox, oy);
+		}
+
+		const vsg::dmat4 markerScale = vsg::scale(static_cast<double>(LabelMarkerRadiusPx));
+
+		if (ok)
+		{
+			m_markerTransforms[i]->matrix = vsg::translate(ox, oy, 0.0) * markerScale;
+		}
+		else
+		{
+			m_markerTransforms[i]->matrix = vsg::translate(1.0e6, 1.0e6, 0.0) * markerScale;
 		}
 	}
 
