@@ -666,6 +666,54 @@ void ccVSGWindowInterface::setInteractionMode(INTERACTION_FLAGS flags)
 	m_interactionFlags = flags;
 }
 
+void ccVSGWindowInterface::setUnclosable(bool state)
+{
+	m_unclosable = state;
+}
+
+void ccVSGWindowInterface::addToOwnDB(ccHObject* obj, bool noDependency /*=true*/)
+{
+	if (!obj)
+	{
+		assert(false);
+		return;
+	}
+
+	if (m_winDBRoot)
+	{
+		m_winDBRoot->addChild(obj, noDependency ? ccHObject::DP_NONE : ccHObject::DP_PARENT_OF_OTHER);
+		obj->setDisplay(this);
+	}
+	else
+	{
+		ccLog::Error("[ccVSGWindowInterface::addToOwnDB] Window has no DB!");
+	}
+}
+
+void ccVSGWindowInterface::removeFromOwnDB(ccHObject* obj)
+{
+	if (m_winDBRoot)
+	{
+		m_winDBRoot->removeChild(obj);
+	}
+}
+
+void ccVSGWindowInterface::displayNewMessage(const QString& message,
+                                             MessagePosition pos,
+                                             bool            append /*=false*/,
+                                             int             displayMaxDelay_sec /*=2*/,
+                                             MessageType     type /*=CUSTOM_MESSAGE*/)
+{
+	// TODO(M5): the VSG backend has no 2D text overlay yet (vsg::Text + SDF
+	// font), so on-screen messages are dropped for now. The interactive tools
+	// call this (e.g. "Segmentation [ON]"), which is why it must exist.
+	Q_UNUSED(message);
+	Q_UNUSED(pos);
+	Q_UNUSED(append);
+	Q_UNUSED(displayMaxDelay_sec);
+	Q_UNUSED(type);
+}
+
 void ccVSGWindowInterface::aboutToBeRemoved(ccDrawableObject* obj)
 {
 	Q_UNUSED(obj);

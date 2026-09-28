@@ -28,12 +28,38 @@
 
 // Qt
 #include <QSize>
+#include <QtCore/qnamespace.h>
 
 // system
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+
+namespace
+{
+	//! Converts a VSG button mask to the Qt one (M6.6: mouseMoved())
+	/** VSG: BUTTON_MASK_1 = left, _2 = middle, _3 = right. **/
+	Qt::MouseButtons toQtMouseButtons(vsg::ButtonMask mask)
+	{
+		Qt::MouseButtons buttons = Qt::NoButton;
+
+		if (mask & vsg::BUTTON_MASK_1)
+		{
+			buttons |= Qt::LeftButton;
+		}
+		if (mask & vsg::BUTTON_MASK_2)
+		{
+			buttons |= Qt::MiddleButton;
+		}
+		if (mask & vsg::BUTTON_MASK_3)
+		{
+			buttons |= Qt::RightButton;
+		}
+
+		return buttons;
+	}
+} // namespace
 
 ccVSGCameraManipulator::ccVSGCameraManipulator(ccVSGWindowInterface* view)
     : m_view(view)
@@ -210,6 +236,36 @@ void ccVSGCameraManipulator::apply(vsg::ButtonPressEvent& event)
 	m_mode       = modeForMask(event.mask);
 	m_mouseMoved = false;
 
+	// M6.6: mirror the OpenGL backend's interaction signals, so that the
+	// interactive tools (which derive from ccOverlayDialog) can be driven by a
+	// VSG view. Same gating as ccGLWindowInterface::processMousePressEvent()
+	if (m_view)
+	{
+		const ccViewInterface::INTERACTION_FLAGS flags = m_view->getInteractionMode();
+
+		if (event.button == 1)
+		{
+			if (flags & ccViewInterface::INTERACT_SIG_LB_CLICKED)
+			{
+				Q_EMIT m_view->signalEmitter()->leftButtonClicked(event.x, event.y);
+			}
+		}
+		else if (event.button == 2)
+		{
+			if (flags & ccViewInterface::INTERACT_SIG_MB_CLICKED)
+			{
+				Q_EMIT m_view->signalEmitter()->middleButtonClicked(event.x, event.y);
+			}
+		}
+		else if (event.button == 3)
+		{
+			if (flags & ccViewInterface::INTERACT_SIG_RB_CLICKED)
+			{
+				Q_EMIT m_view->signalEmitter()->rightButtonClicked(event.x, event.y);
+			}
+		}
+	}
+
 	if (m_mode == Mode::Rotate)
 	{
 		m_lastOrientation = convertMousePositionToOrientation(event.x, event.y);
@@ -239,6 +295,13 @@ void ccVSGCameraManipulator::apply(vsg::ButtonReleaseEvent& event)
 		m_view->requestPicking(event.x, event.y);
 	}
 
+	// M6.6: mirror the OpenGL backend (same gating, and not emitted for the
+	// release of a double click, which returns above)
+	if (m_view && (m_view->getInteractionMode() & ccViewInterface::INTERACT_SIG_BUTTON_RELEASED))
+	{
+		Q_EMIT m_view->signalEmitter()->buttonReleased();
+	}
+
 	m_mode = Mode::None;
 }
 
@@ -247,6 +310,13 @@ void ccVSGCameraManipulator::apply(vsg::MoveEvent& event)
 	if (!m_view)
 	{
 		return;
+	}
+
+	// M6.6: mirror the OpenGL backend, which emits mouseMoved() on every move
+	// (hover included), before any button test
+	if (m_view->getInteractionMode() & ccViewInterface::INTERACT_SIG_MOUSE_MOVED)
+	{
+		Q_EMIT m_view->signalEmitter()->mouseMoved(event.x, event.y, toQtMouseButtons(event.mask));
 	}
 
 	// hover (no button pressed): feed the cursor coordinate display, but do

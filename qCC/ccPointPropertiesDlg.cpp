@@ -81,11 +81,11 @@ ccPointPropertiesDlg::~ccPointPropertiesDlg()
 	m_rect2DLabel = nullptr;
 }
 
-bool ccPointPropertiesDlg::linkWith(ccGLWindowInterface* win)
+bool ccPointPropertiesDlg::linkWith(ccViewInterface* win)
 {
 	assert(m_label && m_rect2DLabel);
 
-	ccGLWindowInterface* oldWin = m_associatedWin;
+	ccViewInterface* oldWin = m_associatedWin;
 
 	if (!ccPointPickingGenericInterface::linkWith(win))
 	{
@@ -110,9 +110,9 @@ bool ccPointPropertiesDlg::linkWith(ccGLWindowInterface* win)
 	{
 		m_associatedWin->addToOwnDB(m_label);
 		m_associatedWin->addToOwnDB(m_rect2DLabel);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::mouseMoved, this, &ccPointPropertiesDlg::update2DZone);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::leftButtonClicked, this, &ccPointPropertiesDlg::processClickedPoint);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::buttonReleased, this, &ccPointPropertiesDlg::close2DZone);
+		connect(qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter()), &ccViewSignalEmitter::mouseMoved, this, &ccPointPropertiesDlg::update2DZone);
+		connect(qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter()), &ccViewSignalEmitter::leftButtonClicked, this, &ccPointPropertiesDlg::processClickedPoint);
+		connect(qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter()), &ccViewSignalEmitter::buttonReleased, this, &ccPointPropertiesDlg::close2DZone);
 	}
 
 	return true;
@@ -305,7 +305,7 @@ void ccPointPropertiesDlg::processPickedPoint(const PickedItem& picked)
 	m_label->displayPointLegend(m_label->size() == 3); // we need to display 'A', 'B' and 'C' for 3-points labels
 	if (m_label->size() == 1 && m_associatedWin)
 	{
-		m_label->setPosition(static_cast<float>(picked.clickPoint.x() + 20) / m_associatedWin->glWidth(), static_cast<float>(picked.clickPoint.y() + 20) / m_associatedWin->glHeight());
+		m_label->setPosition(static_cast<float>(picked.clickPoint.x() + 20) / glWin()->glWidth(), static_cast<float>(picked.clickPoint.y() + 20) / glWin()->glHeight());
 	}
 
 	// output info to Console
@@ -335,7 +335,7 @@ void ccPointPropertiesDlg::processClickedPoint(int x, int y)
 		return;
 	}
 
-	QPointF pos2D = m_associatedWin->toCenteredGLCoordinates(x, y);
+	QPointF pos2D = glWin()->toCenteredGLCoordinates(x, y);
 
 	if (m_rect2DLabel->isSelected()) // already closed? we start a new label
 	{
@@ -388,7 +388,7 @@ void ccPointPropertiesDlg::update2DZone(int x, int y, Qt::MouseButtons buttons)
 		return;
 	}
 
-	QPointF pos2D = m_associatedWin->toCenteredGLCoordinates(x, y);
+	QPointF pos2D = glWin()->toCenteredGLCoordinates(x, y);
 
 	cc2DViewportLabel::ROI roi{m_rect2DLabel->roi()[0],
 	                           m_rect2DLabel->roi()[1],

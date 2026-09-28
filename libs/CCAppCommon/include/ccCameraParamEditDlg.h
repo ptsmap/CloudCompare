@@ -32,6 +32,7 @@
 
 class QMdiSubWindow;
 class ccGLWindowInterface;
+class ccViewInterface;
 class ccHObject;
 class ccPickingHub;
 
@@ -61,7 +62,7 @@ class CCAPPCOMMON_LIB_API ccCameraParamEditDlg : public ccOverlayDialog
 
 	// inherited from ccOverlayDialog
 	bool start() override;
-	bool linkWith(ccGLWindowInterface* win) override;
+	bool linkWith(ccViewInterface* win) override;
 
 	// inherited from ccPickingListener
 	void onItemPicked(const PickedItem& pi) override;
@@ -116,6 +117,13 @@ class CCAPPCOMMON_LIB_API ccCameraParamEditDlg : public ccOverlayDialog
 	void processPickedItem(ccHObject*, unsigned, int, int, const CCVector3&, const CCVector3d&);
 
   protected:
+	//! Returns the associated window, downcast to the OpenGL interface
+	/** The dialog edits camera parameters (f.o.v., clipping planes, base view
+	    matrix) that only the OpenGL backend exposes for now, so it stays an
+	    OpenGL only tool: this returns nullptr for any other backend (M6.6).
+	 **/
+	ccGLWindowInterface* glWindow() const;
+
 	//! Reflects any dialog parameter change
 	void reflectParamChange();
 

@@ -393,16 +393,16 @@ void ccPointListPickingDlg::startIndexChanged(int value)
 
 void ccPointListPickingDlg::markerSizeChanged(int size)
 {
-	if (size < 1 || !m_associatedWin)
+	if (size < 1 || !glWin())
 		return;
 
 	// display parameters
-	ccGui::ParamStruct guiParams = m_associatedWin->getDisplayParameters();
+	ccGui::ParamStruct guiParams = glWin()->getDisplayParameters();
 
 	if (guiParams.labelMarkerSize != static_cast<unsigned>(size))
 	{
 		guiParams.labelMarkerSize = static_cast<unsigned>(size);
-		m_associatedWin->setDisplayParameters(guiParams, m_associatedWin->hasOverriddenDisplayParameters());
+		glWin()->setDisplayParameters(guiParams, glWin()->hasOverriddenDisplayParameters());
 		m_associatedWin->redraw();
 	}
 }
@@ -537,7 +537,7 @@ void ccPointListPickingDlg::updateList()
 
 	// starting index
 	const int startIndex = startIndexSpinBox->value();
-	const int precision  = m_associatedWin ? static_cast<int>(m_associatedWin->getDisplayParameters().displayedNumPrecision) : 6;
+	const int precision  = glWin() ? static_cast<int>(glWin()->getDisplayParameters().displayedNumPrecision) : 6;
 
 	const bool showAbsolute = showGlobalCoordsCheckBox->isEnabled() && showGlobalCoordsCheckBox->isChecked();
 
@@ -623,7 +623,7 @@ void ccPointListPickingDlg::processPickedPoint(const PickedItem& picked)
 	if (clipboard)
 	{
 		CCVector3 P           = newLabel->getPickedPoint(0).getPointPosition();
-		int       precision   = m_associatedWin ? m_associatedWin->getDisplayParameters().displayedNumPrecision : 6;
+		int       precision   = glWin() ? glWin()->getDisplayParameters().displayedNumPrecision : 6;
 		int       indexInList = startIndexSpinBox->value() + static_cast<int>(m_orderedLabelsContainer->getChildrenNumber()) - 1;
 		clipboard->setText(QString("CC_POINT_#%0(%1;%2;%3)").arg(indexInList).arg(P.x, 0, 'f', precision).arg(P.y, 0, 'f', precision).arg(P.z, 0, 'f', precision));
 	}

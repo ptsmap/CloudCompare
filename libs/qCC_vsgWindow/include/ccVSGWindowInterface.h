@@ -134,6 +134,17 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 		return m_interactionFlags;
 	}
 
+	// M6.6: the interactive tools (ccOverlayDialog derivatives) need these,
+	// which is why they were lifted from ccGLWindowInterface to ccViewInterface
+	void setUnclosable(bool state) override;
+	void addToOwnDB(ccHObject* obj, bool noDependency = true) override;
+	void removeFromOwnDB(ccHObject* obj) override;
+	void displayNewMessage(const QString&  message,
+	                       MessagePosition pos,
+	                       bool            append              = false,
+	                       int             displayMaxDelay_sec = 2,
+	                       MessageType     type                = CUSTOM_MESSAGE) override;
+
 	const ccViewportParameters& getViewportParameters() const override
 	{
 		return m_viewportParams;
@@ -495,6 +506,9 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 	bool              m_pickingModeLocked = false;
 	INTERACTION_FLAGS m_interactionFlags   = MODE_TRANSFORM_CAMERA;
 	bool              m_shouldBeRefreshed  = false;
+
+	//! Whether the view can be closed by the user (M6.6, mirrors the GL backend)
+	bool m_unclosable = false;
 
 	// 3D coordinate display under the cursor (M6.6)
 	bool m_showCursorCoordinates = false;

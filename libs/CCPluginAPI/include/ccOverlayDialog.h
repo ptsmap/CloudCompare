@@ -23,6 +23,7 @@
 #include <QDialog>
 #include <QList>
 
+class ccViewInterface;
 class ccGLWindowInterface;
 
 //! Generic overlay dialog interface
@@ -39,9 +40,12 @@ class CCPLUGIN_LIB_API ccOverlayDialog : public QDialog
 
 	//! Links the overlay dialog with a MDI window
 	/** Warning: link can't be modified while dialog is displayed/process is running!
+
+	    \note It used to take a ccGLWindowInterface*, which made every
+	    interactive tool OpenGL only. It now accepts any backend (M6.6).
 	    \return success
 	**/
-	virtual bool linkWith(ccGLWindowInterface* win);
+	virtual bool linkWith(ccViewInterface* win);
 
 	//! Starts process
 	/** \return success
@@ -85,14 +89,23 @@ class CCPLUGIN_LIB_API ccOverlayDialog : public QDialog
 
   protected:
 	//! Slot called when the linked window is deleted (calls 'onClose')
-	virtual void onLinkedWindowDeletion(ccGLWindowInterface* object = nullptr);
+	virtual void onLinkedWindowDeletion(ccViewInterface* object = nullptr);
 
   protected:
 	// inherited from QObject
 	bool eventFilter(QObject* obj, QEvent* e) override;
 
 	//! Associated (MDI) window
-	ccGLWindowInterface* m_associatedWin;
+	ccViewInterface* m_associatedWin;
+
+	//! Returns m_associatedWin, downcast to the OpenGL interface
+	/** Most interactive tools still rely on OpenGL only APIs (mouse grabbing,
+	    toCenteredGLCoordinates(), glWidth()/glHeight(), display parameters,
+	    ...), so they remain OpenGL ones for now: this returns nullptr when the
+	    associated window uses another backend (M6.6). Guarding a call with it
+	    is the safe way to keep such a tool working.
+	 **/
+	ccGLWindowInterface* glWin() const;
 
 	//! Running/processing state
 	bool m_processing;

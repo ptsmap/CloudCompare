@@ -6588,22 +6588,14 @@ ccViewInterface* MainWindow::new3DViewInternal(bool allowEntitySelection, bool w
 
 				connect(emitter, &ccViewSignalEmitter::newLabel, this, &MainWindow::handleNewLabel);
 
-				// same as MainWindow::prepareWindowDeletion(), but for a VSG view
-				connect(emitter, &ccVSGWindowSignalEmitter::aboutToClose, this, [this](ccVSGWindowInterface* view)
-				{
-					if (m_ccRoot)
-					{
-						m_ccRoot->hidePropertiesView();
-						m_ccRoot->getRootEntity()->removeFromDisplay_recursive(view);
-						m_ccRoot->updatePropertiesView();
-					}
-				});
+				// 'aboutToClose' now lives in the backend agnostic emitter, so
+				// the VSG view uses the very same slots as the OpenGL one (M6.6)
+				connect(emitter, &ccViewSignalEmitter::aboutToClose, this, &MainWindow::prepareWindowDeletion);
 
 				if (m_pickingHub)
 				{
 					// we must notify the picking hub as well if the window is destroyed
-					connect(emitter, &ccVSGWindowSignalEmitter::aboutToClose, this, [this](ccVSGWindowInterface* view)
-					        { m_pickingHub->onActiveWindowDeleted(view); });
+					connect(emitter, &ccViewSignalEmitter::aboutToClose, m_pickingHub, &ccPickingHub::onActiveWindowDeleted);
 				}
 
 				// the VSG view has no in-scene text overlay yet, so the 3D
@@ -6639,15 +6631,15 @@ ccViewInterface* MainWindow::new3DViewInternal(bool allowEntitySelection, bool w
 	return view3D;
 }
 
-void MainWindow::prepareWindowDeletion(ccGLWindowInterface* glWindow)
+void MainWindow::prepareWindowDeletion(ccViewInterface* view)
 {
 	if (!m_ccRoot)
 		return;
 
-	if (glWindow)
+	if (view)
 	{
 		m_ccRoot->hidePropertiesView();
-		m_ccRoot->getRootEntity()->removeFromDisplay_recursive(glWindow);
+		m_ccRoot->getRootEntity()->removeFromDisplay_recursive(view);
 		m_ccRoot->updatePropertiesView();
 	}
 	else

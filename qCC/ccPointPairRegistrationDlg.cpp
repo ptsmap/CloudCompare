@@ -194,9 +194,9 @@ void ccPointPairRegistrationDlg::clear()
 	m_referenceEntities.clear();
 }
 
-bool ccPointPairRegistrationDlg::linkWith(ccGLWindowInterface* win)
+bool ccPointPairRegistrationDlg::linkWith(ccViewInterface* win)
 {
-	ccGLWindowInterface* oldWin = m_associatedWin;
+	ccViewInterface* oldWin = m_associatedWin;
 	if (oldWin)
 	{
 		if (oldWin != win)
@@ -223,7 +223,7 @@ bool ccPointPairRegistrationDlg::linkWith(ccGLWindowInterface* win)
 
 	if (oldWin && MainWindow::TheInstance())
 	{
-		QMdiSubWindow* subWindow = MainWindow::TheInstance()->getMDISubWindow(oldWin);
+		QMdiSubWindow* subWindow = MainWindow::TheInstance()->getMDISubWindow(dynamic_cast<ccGLWindowInterface*>(oldWin));
 		if (subWindow)
 			subWindow->close();
 	}
@@ -395,7 +395,7 @@ bool ccPointPairRegistrationDlg::init(ccGLWindowInterface*        win,
 	showReferenceCheckBox->setEnabled(!m_referenceEntities.empty());
 	showAlignedCheckBox->setChecked(true);
 
-	m_associatedWin->doShowMaximized();
+	if (glWin()) glWin()->doShowMaximized();
 	resetTitle();
 
 	if (hasOriginViewportParams)
@@ -800,7 +800,7 @@ bool ccPointPairRegistrationDlg::addAlignedPoint(CCVector3d& Pin, ccHObject* ent
 			}
 		}
 
-		cc2DLabel* label = CreateLabel(&m_alignedPoints, newPointIndex, pointName, m_associatedWin);
+		cc2DLabel* label = CreateLabel(&m_alignedPoints, newPointIndex, pointName, glWin());
 		if (originLabel)
 		{
 			// remember the associated label
@@ -921,7 +921,7 @@ void ccPointPairRegistrationDlg::removeAlignedPoint(int index, bool autoRemoveDu
 			{
 				cc2DLabel* label = static_cast<cc2DLabel*>(child);
 				label->clear();
-				CreateLabel(label, &m_alignedPoints, static_cast<unsigned>(i - 1), pointName, m_associatedWin);
+				CreateLabel(label, &m_alignedPoints, static_cast<unsigned>(i - 1), pointName, glWin());
 			}
 			else // probably a sphere
 			{
@@ -1062,7 +1062,7 @@ bool ccPointPairRegistrationDlg::addReferencePoint(CCVector3d& Pin, ccHObject* e
 			}
 		}
 
-		cc2DLabel* label = CreateLabel(&m_refPoints, newPointIndex, pointName, m_associatedWin);
+		cc2DLabel* label = CreateLabel(&m_refPoints, newPointIndex, pointName, glWin());
 		if (originLabel)
 		{
 			// remember the associated label
@@ -1154,7 +1154,7 @@ void ccPointPairRegistrationDlg::removeRefPoint(int index, bool autoRemoveDualPo
 			{
 				cc2DLabel* label = static_cast<cc2DLabel*>(child);
 				label->clear();
-				CreateLabel(label, &m_refPoints, static_cast<unsigned>(i - 1), pointName, m_associatedWin);
+				CreateLabel(label, &m_refPoints, static_cast<unsigned>(i - 1), pointName, glWin());
 			}
 			else // probably a sphere
 			{
@@ -1633,7 +1633,7 @@ void ccPointPairRegistrationDlg::align()
 		// force clouds visibility
 		{
 			// we don't want the window zoom to change or the window to be be redrawn
-			ccGLWindowInterface* associatedWin = nullptr;
+			ccViewInterface* associatedWin = nullptr;
 			std::swap(m_associatedWin, associatedWin);
 			if (!showAlignedCheckBox->isChecked())
 				showAlignedCheckBox->setChecked(true);

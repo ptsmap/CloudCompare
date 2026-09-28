@@ -1129,10 +1129,10 @@ commandGraph->addChild(overlayGraph);
 - [x] 实体拾取（R32_UINT + CopyImageToBuffer）—— 见 D.15
 - [x] 矩形框选（复用同一 ID pass）
 - [x] 点/三角拾取（复用 CPU 八叉树）
-- [ ] 深度反投影（双击设 pivot，M6.4）
+- [x] 深度反投影（双击设 pivot，M6.4）
 - [x] `renderToImage()` / 高清截图
-- [ ] `ccPickingHub` / `ccOverlayDialog` 对接与交互工具端到端验证
-- [ ] sensor 的拾取节点（`buildSensor()` 目前返回空 `ids`）
+- [x] `ccPickingHub` / `ccOverlayDialog` 对接（**基础设施**，见 D.18；工具本身仍依赖若干 GL 专属 API）
+- [x] sensor 的拾取节点（原返回空 `ids`，见 D.17.3）
 
 **M7**
 - [ ] 后处理框架
@@ -1986,3 +1986,64 @@ ccDBRoot::changeSelection(QItemSelection const&, QItemSelection const&)
 - `MainWindow::new3DViewInternal` 把该信号接到状态栏 `statusBar()->showMessage("3D (x ; y ; z)")`；`toggleActiveWindowShowCursorCoords()` 也改为对 VSG 视图调用 `showCursorCoordinates()`（原为 GL 专属）。
 
 > 注意：VSG 尚无场景内文本叠层（字体/文本里程碑），故坐标显示在状态栏而非视图左下角。性能上仍是全屏离屏深度 pass（见 D.16.6），仅开关打开时启用。
+
+---
+
+## 附录 D.18 — M6.6：`ccOverlayDialog` / `ccPickingHub` 后端无关化
+
+### D.18.1 信号提升到 `ccViewSignalEmitter`
+
+交互工具（`ccOverlayDialog` 的派生类）原先只能接 GL 窗口：`ccOverlayDialog::linkWith()` 吃 `ccGLWindowInterface*`，而 `aboutToClose` 在两个后端各声明一次（参数分别是 `ccGLWindowInterface*` / `ccVSGWindowInterface*`），签名不同 ⇒ 后端无关代码无法 connect。按 D.15.4 / D.17.4 的一贯做法提升：
+
+- `aboutToClose(ccViewInterface*)`
+- `leftButtonClicked(int,int)` / `rightButtonClicked(int,int)` / `middleButtonClicked(int,int)`
+- `mouseMoved(int,int,Qt::MouseButtons)` / `buttonReleased()`
+
+GL 侧删掉重复声明（`Q_EMIT m_signalEmitter->xxx()` 的发射点不用改，名字解析到基类信号即可）。
+
+### D.18.2 VSG 发射这些信号
+
+`ccVSGCameraManipulator` 按 GL 的语义发射（同样的 `INTERACT_SIG_*` 门控）：
+
+| 事件 | 位置 | 门控 |
+|---|---|---|
+| 左/中/右点击 | `apply(ButtonPressEvent)`，`event.button` = 1/2/3 | `INTERACT_SIG_LB/MB/RB_CLICKED` |
+| `mouseMoved` | `apply(MoveEvent)`，悬停与拖拽都发（GL 在 button 判定之前发） | `INTERACT_SIG_MOUSE_MOVED` |
+| `buttonReleased` | `apply(ButtonReleaseEvent)`，双击的第二次 release 不发 | `INTERACT_SIG_BUTTON_RELEASED` |
+
+VSG 的 `ButtonMask`（`BUTTON_MASK_1/2/3` = 左/中/右）用 `toQtMouseButtons()` 转成 `Qt::MouseButtons`。
+
+### D.18.3 `ccViewInterface` 补齐工具所需方法
+
+工具里到处用到的四个 GL 专属方法提升为纯虚（GL 已有实现，加 `override` 即可；VSG 实现）：
+
+- `setUnclosable(bool)` —— VSG 存 `m_unclosable`
+- `addToOwnDB()` / `removeFromOwnDB()` —— 与 GL 同构（`m_winDBRoot` + `setDisplay(this)`）
+- `displayNewMessage(...)` —— VSG **无文本叠层，暂为空实现**（见 M5）
+
+`MainWindow::prepareWindowDeletion()` 也顺带改成吃 `ccViewInterface*`（它只调 `removeFromDisplay_recursive()`），VSG 侧不再需要另写一份 lambda。
+
+### D.18.4 工具仍依赖 GL 专属 API（未完成部分）
+
+`ccOverlayDialog` 新增 `glWin()`（`dynamic_cast<ccGLWindowInterface*>(m_associatedWin)`），工具里真正 OpenGL 才有的调用都改走它并在必要时判空 —— 这样 GL 行为完全不变，VSG 下安全降级。仍需 GL 的部分：
+
+- `ccCameraParamEditDlg`：fov、near/far、`setBaseViewMat` 等相机参数（GL 专属）→ 整个对话框走 `glWin()`
+- `ccGraphicalSegmentationTool`：`doGrabMouse` / `doReleaseMouse` / `doMapFromGlobal` / `toCenteredGLCoordinates` / `qtWidth` / `qtHeight`
+- `ccSectionExtractionTool`：`setView` / `setPerspectiveState` / `updateConstellationCenterAndZoom` / `computeActualPixelSize`
+- `ccTracePolylineTool`：`setWindowCursor` / `toCenteredGLCoordinates` / `SegmentGLParams(ccGenericGLDisplay*)`
+- `ccPointPropertiesDlg` / `ccPointListPickingDlg`：`glWidth` / `glHeight` / `toCenteredGLCoordinates` / 显示参数（`getDisplayParameters` 等）
+- `ccPointPairRegistrationDlg`：`doShowMaximized` / `CreateLabel(..., ccGenericGLDisplay*)`
+- `ccClippingBoxTool`：裁剪平面开关、预定义视角
+- `ccGraphicalTransformationTool`：`rotation` / `translation` 信号（GL 相机/实体变换回显）
+
+要真正"端到端"，还需把这些也搬进 `ccViewInterface`（或 VSG 提供等价实现）。
+
+### D.18.5 VSG 窗口关闭时发出 `aboutToClose`
+
+原先 VSG 只是**声明**了 `aboutToClose`，从未发射 ⇒ 关闭 VSG 视图时工具/枢纽不会被通知。现 `ccVSGWindow::closeEvent()` 按 GL 的 `QEvent::Close` 处理：`m_unclosable` 则 ignore，否则 `Q_EMIT aboutToClose(this)`。
+
+### D.18.6 验证状态
+
+- 全量构建通过（`CloudCompare` + 全部已启用目标）。
+- qCompass / qMPlane / qCloudLayers 只**调用** `linkWith(getActiveGLWindow())`（向上转型即可），未覆写，不受影响；它们未参与本机构建。
+- **运行时待 GUI 验证**：VSG 视图上打开分割/裁剪工具是否能正常接收点击与移动信号。

@@ -122,17 +122,17 @@ void ccSectionExtractionTool::setVertDimension(int dim)
 	switch (dim)
 	{
 	case 0:
-		m_associatedWin->setView(CC_RIGHT_VIEW);
+		glWin()->setView(CC_RIGHT_VIEW);
 		break;
 	case 1:
-		m_associatedWin->setView(CC_FRONT_VIEW);
+		glWin()->setView(CC_FRONT_VIEW);
 		break;
 	case 2:
 	default:
-		m_associatedWin->setView(CC_TOP_VIEW);
+		glWin()->setView(CC_TOP_VIEW);
 		break;
 	}
-	m_associatedWin->updateConstellationCenterAndZoom();
+	glWin()->updateConstellationCenterAndZoom();
 }
 
 void ccSectionExtractionTool::onShortcutTriggered(int key)
@@ -157,9 +157,9 @@ void ccSectionExtractionTool::onShortcutTriggered(int key)
 	}
 }
 
-bool ccSectionExtractionTool::linkWith(ccGLWindowInterface* win)
+bool ccSectionExtractionTool::linkWith(ccViewInterface* win)
 {
-	ccGLWindowInterface* oldWin = m_associatedWin;
+	ccViewInterface* oldWin = m_associatedWin;
 
 	if (!ccOverlayDialog::linkWith(win))
 	{
@@ -200,7 +200,7 @@ bool ccSectionExtractionTool::linkWith(ccGLWindowInterface* win)
 		// auto-close formerly associated window
 		if (MainWindow::TheInstance())
 		{
-			QMdiSubWindow* subWindow = MainWindow::TheInstance()->getMDISubWindow(oldWin);
+			QMdiSubWindow* subWindow = MainWindow::TheInstance()->getMDISubWindow(dynamic_cast<ccGLWindowInterface*>(oldWin));
 			if (subWindow)
 			{
 				subWindow->close();
@@ -210,10 +210,10 @@ bool ccSectionExtractionTool::linkWith(ccGLWindowInterface* win)
 
 	if (m_associatedWin)
 	{
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::leftButtonClicked, this, &ccSectionExtractionTool::addPointToPolyline);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::rightButtonClicked, this, &ccSectionExtractionTool::closePolyLine);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::mouseMoved, this, &ccSectionExtractionTool::updatePolyLine);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::entitySelectionChanged, this, &ccSectionExtractionTool::entitySelected);
+		connect(qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter()), &ccViewSignalEmitter::leftButtonClicked, this, &ccSectionExtractionTool::addPointToPolyline);
+		connect(qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter()), &ccViewSignalEmitter::rightButtonClicked, this, &ccSectionExtractionTool::closePolyLine);
+		connect(qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter()), &ccViewSignalEmitter::mouseMoved, this, &ccSectionExtractionTool::updatePolyLine);
+		connect(qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter()), &ccViewSignalEmitter::entitySelectionChanged, this, &ccSectionExtractionTool::entitySelected);
 
 		// import sections in current display
 		for (auto& section : m_sections)
@@ -250,7 +250,7 @@ bool ccSectionExtractionTool::linkWith(ccGLWindowInterface* win)
 		setVertDimension(m_UI->vertAxisComboBox->currentIndex());
 
 		// section extraction only works in orthoraphic mode!
-		m_associatedWin->setPerspectiveState(false, true);
+		glWin()->setPerspectiveState(false, true);
 	}
 
 	return true;
@@ -367,7 +367,7 @@ bool ccSectionExtractionTool::start()
 
 	// the user must not close this window!
 	m_associatedWin->setUnclosable(true);
-	m_associatedWin->updateConstellationCenterAndZoom();
+	glWin()->updateConstellationCenterAndZoom();
 	updateCloudsBox();
 
 	enableSectionEditingMode(true);
@@ -569,7 +569,7 @@ bool ccSectionExtractionTool::addPolyline(ccPolyline* inputPoly, bool alreadyInD
 	{
 		// viewing parameters (for conversion from 2D to 3D)
 		ccGLCameraParameters camera;
-		m_associatedWin->getGLCameraParameters(camera);
+		glWin()->getGLCameraParameters(camera);
 		const double half_w = camera.viewport[2] / 2.0;
 		const double half_h = camera.viewport[3] / 2.0;
 
@@ -710,7 +710,7 @@ void ccSectionExtractionTool::updatePolyLine(int x, int y, Qt::MouseButtons butt
 	if (vertCount < 2)
 		return;
 
-	QPointF   pos2D = m_associatedWin->toCenteredGLCoordinates(x, y);
+	QPointF   pos2D = glWin()->toCenteredGLCoordinates(x, y);
 	CCVector3 P(static_cast<PointCoordinateType>(pos2D.x()),
 	            static_cast<PointCoordinateType>(pos2D.y()),
 	            0);
@@ -756,7 +756,7 @@ void ccSectionExtractionTool::addPointToPolyline(int x, int y)
 	unsigned vertCount = m_editedPolyVertices->size();
 
 	// clicked point (2D)
-	QPointF   pos2D = m_associatedWin->toCenteredGLCoordinates(x, y);
+	QPointF   pos2D = glWin()->toCenteredGLCoordinates(x, y);
 	CCVector3 P(static_cast<PointCoordinateType>(pos2D.x()),
 	            static_cast<PointCoordinateType>(pos2D.y()),
 	            0);
@@ -1038,7 +1038,7 @@ void          ccSectionExtractionTool::generateOrthoSections()
 		const CCVector3*    lastQ            = poly->getPoint(vertCount - 2);
 		const CCVector3*    lastP            = poly->getPoint(vertCount - 1);
 		PointCoordinateType tipLength        = (*lastQ - *lastP).norm();
-		PointCoordinateType defaultArrowSize = m_associatedWin->computeActualPixelSize() * s_defaultArrowSize;
+		PointCoordinateType defaultArrowSize = glWin()->computeActualPixelSize() * s_defaultArrowSize;
 		defaultArrowSize                     = std::min(defaultArrowSize, tipLength / 2);
 		poly->showArrow(true, poly->size() - 1, defaultArrowSize);
 		m_associatedWin->redraw();

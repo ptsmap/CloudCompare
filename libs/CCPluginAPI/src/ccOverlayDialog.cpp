@@ -20,7 +20,11 @@
 // qCC_db
 #include <ccLog.h>
 
-// qCC_glWindow
+// qCC_renderCore
+#include <ccViewInterface.h>
+#include <ccViewSignalEmitter.h>
+
+// qCC_glWindow (glWin(): the tools still rely on OpenGL only APIs)
 #include <ccGLWindowInterface.h>
 
 // Qt
@@ -47,7 +51,13 @@ ccOverlayDialog::~ccOverlayDialog()
 	onLinkedWindowDeletion();
 }
 
-bool ccOverlayDialog::linkWith(ccGLWindowInterface* win)
+ccGLWindowInterface* ccOverlayDialog::glWin() const
+{
+	// the interactive tools still rely on OpenGL only APIs (M6.6)
+	return dynamic_cast<ccGLWindowInterface*>(m_associatedWin);
+}
+
+bool ccOverlayDialog::linkWith(ccViewInterface* win)
 {
 	if (m_processing)
 	{
@@ -83,13 +93,20 @@ bool ccOverlayDialog::linkWith(ccGLWindowInterface* win)
 		{
 			widget->installEventFilter(this);
 		}
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::aboutToClose, this, &ccOverlayDialog::onLinkedWindowDeletion);
+		// signalEmitter() returns a QObject* in the backend agnostic interface:
+		// qobject_cast gets the concrete type back, which is what QObject::connect
+		// needs to resolve the signal pointer
+		auto* emitter = qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter());
+		if (emitter)
+		{
+			connect(emitter, &ccViewSignalEmitter::aboutToClose, this, &ccOverlayDialog::onLinkedWindowDeletion);
+		}
 	}
 
 	return true;
 }
 
-void ccOverlayDialog::onLinkedWindowDeletion(ccGLWindowInterface* object /*=nullptr*/)
+void ccOverlayDialog::onLinkedWindowDeletion(ccViewInterface* object /*=nullptr*/)
 {
 	if (m_associatedWin == object)
 	{

@@ -73,6 +73,14 @@ class CCVSGWINDOW_LIB_API ccVSGWindow : public QWidget, public ccVSGWindowInterf
 	void deprecate3DLayer() override;
 
   protected:
+	//! Emits 'aboutToClose' before the view goes away
+	/** Mirrors the OpenGL backend's QEvent::Close handling (M6.6): the
+	    interactive tools (ccOverlayDialog), MainWindow and ccPickingHub all
+	    rely on that signal to unlink themselves from a closing view. A view
+	    flagged as 'unclosable' simply ignores the event.
+	 **/
+	void closeEvent(QCloseEvent* event) override;
+
 	//! Defers an action to the next event loop iteration
 	/** The picking and the double click both need an extra (offscreen) frame
 	    and are triggered by a VSG event handler: they must not be run from

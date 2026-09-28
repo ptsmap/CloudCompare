@@ -35,6 +35,7 @@
 class ccPolyline;
 class ccPointCloud;
 class ccGLWindowInterface;
+class ccViewInterface;
 class ccMainAppInterface;
 
 //! Graphical segmentation mechanism (with polyline)
@@ -77,7 +78,7 @@ class ccGraphicalSegmentationTool : public ccOverlayDialog
 	}
 
 	// inherited from ccOverlayDialog
-	virtual bool linkWith(ccGLWindowInterface* win) override;
+	virtual bool linkWith(ccViewInterface* win) override;
 	virtual bool start() override;
 	virtual void stop(bool accepted) override;
 
@@ -100,6 +101,14 @@ class ccGraphicalSegmentationTool : public ccOverlayDialog
 	void currentScalarFieldUpdated();
 
   protected:
+	//! Returns the associated window, downcast to the OpenGL interface
+	/** The interactive polyline still relies on OpenGL only helpers (mouse
+	    grabbing, toCenteredGLCoordinates(), qtWidth()/qtHeight()), so this tool
+	    remains an OpenGL one for now: this returns nullptr for any other
+	    backend (M6.6).
+	 **/
+	ccGLWindowInterface* glWin() const;
+
 	void        segmentIn();
 	void        segmentOut();
 	void        exportSelection();

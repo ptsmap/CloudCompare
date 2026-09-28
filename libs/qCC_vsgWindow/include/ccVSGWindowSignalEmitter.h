@@ -41,8 +41,8 @@ class CCVSGWINDOW_LIB_API ccVSGWindowSignalEmitter : public ccViewSignalEmitter
 
 Q_SIGNALS:
 
-	//! Signal emitted when the associated view is about to close
-	void aboutToClose(ccVSGWindowInterface* view);
+	// (aboutToClose now lives in the backend agnostic ccViewSignalEmitter, so
+	// that ccOverlayDialog can connect to any backend - M6.6)
 
 	//! Signal emitted with the 3D coordinate under the mouse cursor
 	/** Emitted by ccVSGWindowInterface::processMouseMove() when the cursor

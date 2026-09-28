@@ -164,6 +164,39 @@ class CC_RENDER_CORE_LIB_API ccViewInterface
 	//! Returns current picking mode
 	virtual PICKING_MODE getPickingMode() const = 0;
 
+	//! Specify whether this 3D view can be closed by the user or not
+	/** \note It used to be a ccGLWindowInterface method only (M6.6): the
+	    interactive tools call it, so any backend has to provide it.
+	 **/
+	virtual void setUnclosable(bool state) = 0;
+
+	//! Adds an entity to the view own DB
+	/** By default no dependency link is established between the entity and the
+	    view (DB). (M6.6: used to be ccGLWindowInterface only.)
+	 **/
+	virtual void addToOwnDB(ccHObject* obj, bool noDependency = true) = 0;
+
+	//! Removes an entity from the view own DB (M6.6)
+	virtual void removeFromOwnDB(ccHObject* obj) = 0;
+
+	//! Displays a message on the view (2D overlay)
+	/** \param pos                  message position on screen
+	    \param append               whether to append the message or to replace
+	                                existing one(s) (only messages of the same
+	                                type are impacted)
+	    \param displayMaxDelay_sec  minimum display duration
+	    \param type                 message type (if not custom, only one
+	                                message of this type at a time is accepted)
+
+	    \note It used to be a ccGLWindowInterface method only (M6.6). A backend
+	    without a text overlay (the VSG one, for now) simply ignores it.
+	 **/
+	virtual void displayNewMessage(const QString&  message,
+	                               MessagePosition pos,
+	                               bool            append              = false,
+	                               int             displayMaxDelay_sec = 2,
+	                               MessageType     type                = CUSTOM_MESSAGE) = 0;
+
 	//! Sets current interaction flags
 	virtual void setInteractionMode(INTERACTION_FLAGS flags) = 0;
 

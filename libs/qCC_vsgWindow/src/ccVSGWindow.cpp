@@ -114,6 +114,20 @@ ccVSGWindow::~ccVSGWindow()
 	m_viewer = {};
 }
 
+void ccVSGWindow::closeEvent(QCloseEvent* event)
+{
+	// mirrors ccGLWindowInterface's QEvent::Close handling (M6.6)
+	if (m_unclosable)
+	{
+		event->ignore();
+		return;
+	}
+
+	Q_EMIT m_signalEmitter->aboutToClose(this);
+
+	QWidget::closeEvent(event);
+}
+
 void ccVSGWindow::scheduleDeferredAction(std::function<void()> action)
 {
 	if (!action)

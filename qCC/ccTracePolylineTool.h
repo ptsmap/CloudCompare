@@ -30,6 +30,7 @@
 class ccPolyline;
 class ccPointCloud;
 class ccGLWindowInterface;
+class ccViewInterface;
 class ccPickingHub;
 
 namespace Ui
@@ -50,7 +51,7 @@ class ccTracePolylineTool : public ccOverlayDialog
 	virtual ~ccTracePolylineTool();
 
 	// inherited from ccOverlayDialog
-	virtual bool linkWith(ccGLWindowInterface* win) override;
+	virtual bool linkWith(ccViewInterface* win) override;
 	virtual bool start() override;
 	virtual void stop(bool accepted) override;
 

@@ -157,48 +157,48 @@ void ccCameraParamEditDlg::dPhiValueChanged(double val)
 
 void ccCameraParamEditDlg::cameraCenterChanged()
 {
-	if (!m_associatedWin)
+	if (!glWindow())
 		return;
 
-	m_associatedWin->signalEmitter()->blockSignals(true);
-	m_associatedWin->setCameraPos(CCVector3d(m_ui->exDoubleSpinBox->value(),
+	glWindow()->signalEmitter()->blockSignals(true);
+	glWindow()->setCameraPos(CCVector3d(m_ui->exDoubleSpinBox->value(),
 	                                         m_ui->eyDoubleSpinBox->value(),
 	                                         m_ui->ezDoubleSpinBox->value()));
-	m_associatedWin->signalEmitter()->blockSignals(false);
+	glWindow()->signalEmitter()->blockSignals(false);
 
-	m_associatedWin->redraw();
+	glWindow()->redraw();
 }
 
 void ccCameraParamEditDlg::pivotChanged()
 {
-	if (!m_associatedWin)
+	if (!glWindow())
 		return;
 
-	m_associatedWin->signalEmitter()->blockSignals(true);
-	m_associatedWin->setPivotPoint(
+	glWindow()->signalEmitter()->blockSignals(true);
+	glWindow()->setPivotPoint(
 	    CCVector3d(m_ui->rcxDoubleSpinBox->value(),
 	               m_ui->rcyDoubleSpinBox->value(),
 	               m_ui->rczDoubleSpinBox->value()));
-	m_associatedWin->signalEmitter()->blockSignals(false);
+	glWindow()->signalEmitter()->blockSignals(false);
 
-	m_associatedWin->redraw();
+	glWindow()->redraw();
 }
 
 void ccCameraParamEditDlg::fovChanged(double value)
 {
-	if (!m_associatedWin)
+	if (!glWindow())
 		return;
 
-	m_associatedWin->setFov(static_cast<float>(value));
-	m_associatedWin->redraw();
+	glWindow()->setFov(static_cast<float>(value));
+	glWindow()->redraw();
 }
 
 void ccCameraParamEditDlg::clippingPlanesToggled(bool state)
 {
-	if (m_associatedWin)
+	if (glWindow())
 	{
-		m_associatedWin->setClippingPlanesEnabled(state);
-		m_associatedWin->redraw();
+		glWindow()->setClippingPlanesEnabled(state);
+		glWindow()->redraw();
 	}
 
 	m_ui->clippingPlanesGroupBox->blockSignals(true);
@@ -208,16 +208,16 @@ void ccCameraParamEditDlg::clippingPlanesToggled(bool state)
 
 void ccCameraParamEditDlg::nearClippingDepthChanged(double depth)
 {
-	if (!m_associatedWin)
+	if (!glWindow())
 		return;
 
-	if (m_associatedWin->setNearClippingPlaneDepth(depth))
+	if (glWindow()->setNearClippingPlaneDepth(depth))
 	{
-		m_associatedWin->redraw();
+		glWindow()->redraw();
 	}
 	else
 	{
-		updateNearClippingDepth(m_associatedWin->getViewportParameters().nearClippingDepth);
+		updateNearClippingDepth(glWindow()->getViewportParameters().nearClippingDepth);
 	}
 }
 
@@ -227,10 +227,10 @@ void ccCameraParamEditDlg::nearClippingCheckBoxToggled(bool state)
 	{
 		if (m_ui->nearClippingCheckBox->isChecked())
 		{
-			if (m_associatedWin && m_ui->nearClippingDepthDoubleSpinBox->value() <= 0)
+			if (glWindow() && m_ui->nearClippingDepthDoubleSpinBox->value() <= 0)
 			{
 				// auto set the near clipping depth the first time
-				m_ui->nearClippingDepthDoubleSpinBox->setValue(m_associatedWin->getViewportParameters().zNear);
+				m_ui->nearClippingDepthDoubleSpinBox->setValue(glWindow()->getViewportParameters().zNear);
 			}
 			else
 			{
@@ -248,16 +248,16 @@ void ccCameraParamEditDlg::nearClippingCheckBoxToggled(bool state)
 
 void ccCameraParamEditDlg::farClippingDepthChanged(double depth)
 {
-	if (!m_associatedWin)
+	if (!glWindow())
 		return;
 
-	if (m_associatedWin->setFarClippingPlaneDepth(depth))
+	if (glWindow()->setFarClippingPlaneDepth(depth))
 	{
-		m_associatedWin->redraw();
+		glWindow()->redraw();
 	}
 	else
 	{
-		updateFarClippingDepth(m_associatedWin->getViewportParameters().farClippingDepth);
+		updateFarClippingDepth(glWindow()->getViewportParameters().farClippingDepth);
 	}
 }
 
@@ -267,10 +267,10 @@ void ccCameraParamEditDlg::farClippingCheckBoxToggled(bool state)
 	{
 		if (m_ui->farClippingCheckBox->isChecked())
 		{
-			if (m_associatedWin && m_ui->farClippingDepthDoubleSpinBox->value() >= 1.0e6)
+			if (glWindow() && m_ui->farClippingDepthDoubleSpinBox->value() >= 1.0e6)
 			{
 				// auto set the far clipping depth the first time
-				m_ui->farClippingDepthDoubleSpinBox->setValue(m_associatedWin->getViewportParameters().zFar);
+				m_ui->farClippingDepthDoubleSpinBox->setValue(glWindow()->getViewportParameters().zFar);
 			}
 			else
 			{
@@ -288,13 +288,13 @@ void ccCameraParamEditDlg::farClippingCheckBoxToggled(bool state)
 
 void ccCameraParamEditDlg::pushCurrentMatrix()
 {
-	if (!m_associatedWin)
+	if (!glWindow())
 		return;
 
-	ccGLMatrixd mat = m_associatedWin->getBaseViewMat();
+	ccGLMatrixd mat = glWindow()->getBaseViewMat();
 
 	std::pair<PushedMatricesMapType::iterator, bool> ret;
-	ret = pushedMatrices.insert(PushedMatricesMapElement(m_associatedWin, mat));
+	ret = pushedMatrices.insert(PushedMatricesMapElement(glWindow(), mat));
 	if (ret.second == false) // already exists
 		ret.first->second = mat;
 
@@ -303,15 +303,15 @@ void ccCameraParamEditDlg::pushCurrentMatrix()
 
 void ccCameraParamEditDlg::revertToPushedMatrix()
 {
-	PushedMatricesMapType::iterator it = pushedMatrices.find(m_associatedWin);
+	PushedMatricesMapType::iterator it = pushedMatrices.find(glWindow());
 	if (it == pushedMatrices.end())
 		return;
 
 	initWithMatrix(it->second);
-	m_associatedWin->signalEmitter()->blockSignals(true);
-	m_associatedWin->setBaseViewMat(it->second);
-	m_associatedWin->signalEmitter()->blockSignals(false);
-	m_associatedWin->redraw();
+	glWindow()->signalEmitter()->blockSignals(true);
+	glWindow()->setBaseViewMat(it->second);
+	glWindow()->signalEmitter()->blockSignals(false);
+	glWindow()->redraw();
 }
 
 void ccCameraParamEditDlg::pickPointAsPivot(bool state)
@@ -331,17 +331,17 @@ void ccCameraParamEditDlg::pickPointAsPivot(bool state)
 			m_pickingHub->removeListener(this);
 		}
 	}
-	else if (m_associatedWin)
+	else if (glWindow())
 	{
 		if (state)
 		{
-			m_associatedWin->setPickingMode(ccGLWindowInterface::POINT_OR_TRIANGLE_PICKING);
-			connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::itemPicked, this, &ccCameraParamEditDlg::processPickedItem);
+			glWindow()->setPickingMode(ccGLWindowInterface::POINT_OR_TRIANGLE_PICKING);
+			connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::itemPicked, this, &ccCameraParamEditDlg::processPickedItem);
 		}
 		else
 		{
-			m_associatedWin->setPickingMode(ccGLWindowInterface::DEFAULT_PICKING);
-			disconnect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::itemPicked, this, &ccCameraParamEditDlg::processPickedItem);
+			glWindow()->setPickingMode(ccGLWindowInterface::DEFAULT_PICKING);
+			disconnect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::itemPicked, this, &ccCameraParamEditDlg::processPickedItem);
 		}
 	}
 
@@ -353,21 +353,21 @@ void ccCameraParamEditDlg::pickPointAsPivot(bool state)
 void ccCameraParamEditDlg::onItemPicked(const PickedItem& pi)
 {
 	// with picking hub (CloudCompare)
-	if (!m_associatedWin || !m_pickingHub)
+	if (!glWindow() || !m_pickingHub)
 	{
 		assert(false);
 		return;
 	}
 
-	if (m_associatedWin != m_pickingHub->activeWindow())
+	if (glWindow() != m_pickingHub->activeWindow())
 	{
 		assert(false);
 		ccLog::Warning("Point has been picked in the wrong window");
 		return;
 	}
 
-	m_associatedWin->setPivotPoint(pi.P3D);
-	m_associatedWin->redraw();
+	glWindow()->setPivotPoint(pi.P3D);
+	glWindow()->redraw();
 
 	pickPointAsPivot(false);
 }
@@ -375,7 +375,7 @@ void ccCameraParamEditDlg::onItemPicked(const PickedItem& pi)
 void ccCameraParamEditDlg::processPickedItem(ccHObject* entity, unsigned, int, int, const CCVector3& P, const CCVector3d& uvw)
 {
 	// without picking hub (ccViewer)
-	if (!m_associatedWin)
+	if (!glWindow())
 	{
 		assert(false);
 		return;
@@ -386,20 +386,20 @@ void ccCameraParamEditDlg::processPickedItem(ccHObject* entity, unsigned, int, i
 		return;
 	}
 
-	m_associatedWin->setPivotPoint(P);
-	m_associatedWin->redraw();
+	glWindow()->setPivotPoint(P);
+	glWindow()->redraw();
 
 	pickPointAsPivot(false);
 }
 
 void ccCameraParamEditDlg::setView(CC_VIEW_ORIENTATION orientation)
 {
-	if (!m_associatedWin)
+	if (!glWindow())
 	{
 		return;
 	}
 
-	PushedMatricesMapType::iterator it = pushedMatrices.find(m_associatedWin);
+	PushedMatricesMapType::iterator it = pushedMatrices.find(glWindow());
 	if (it == pushedMatrices.end())
 	{
 		return;
@@ -407,10 +407,10 @@ void ccCameraParamEditDlg::setView(CC_VIEW_ORIENTATION orientation)
 
 	ccGLMatrixd mat = ccGLUtils::GenerateViewMat(orientation) * (it->second);
 	initWithMatrix(mat);
-	m_associatedWin->signalEmitter()->blockSignals(true);
-	m_associatedWin->setBaseViewMat(mat);
-	m_associatedWin->signalEmitter()->blockSignals(false);
-	m_associatedWin->redraw();
+	glWindow()->signalEmitter()->blockSignals(true);
+	glWindow()->setBaseViewMat(mat);
+	glWindow()->signalEmitter()->blockSignals(false);
+	glWindow()->redraw();
 }
 
 void ccCameraParamEditDlg::setTopView()
@@ -471,16 +471,22 @@ void ccCameraParamEditDlg::linkWith(QMdiSubWindow* qWin)
 	linkWith(associatedWin);
 }
 
-bool ccCameraParamEditDlg::linkWith(ccGLWindowInterface* win)
+ccGLWindowInterface* ccCameraParamEditDlg::glWindow() const
 {
-	ccGLWindowInterface* oldWin = m_associatedWin;
+	// the camera parameters edited by this dialog are OpenGL only for now
+	return dynamic_cast<ccGLWindowInterface*>(glWindow());
+}
+
+bool ccCameraParamEditDlg::linkWith(ccViewInterface* win)
+{
+	ccViewInterface* oldWin = glWindow();
 
 	if (!ccOverlayDialog::linkWith(win))
 	{
 		return false;
 	}
 
-	if (oldWin != m_associatedWin && m_ui->pivotPickingToolButton->isChecked())
+	if (oldWin != glWindow() && m_ui->pivotPickingToolButton->isChecked())
 	{
 		// automatically disable picking mode when changing th
 		pickPointAsPivot(false);
@@ -491,24 +497,24 @@ bool ccCameraParamEditDlg::linkWith(ccGLWindowInterface* win)
 		oldWin->signalEmitter()->disconnect(this);
 	}
 
-	if (m_associatedWin)
+	if (glWindow())
 	{
-		initWith(m_associatedWin);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::baseViewMatChanged, this, &ccCameraParamEditDlg::initWithMatrix);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::cameraPosChanged, this, &ccCameraParamEditDlg::updateCameraCenter);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::pivotPointChanged, this, &ccCameraParamEditDlg::updatePivotPoint);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::perspectiveStateChanged, this, &ccCameraParamEditDlg::updateViewMode);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::aboutToClose, this, &QWidget::hide);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::fovChanged, this, &ccCameraParamEditDlg::updateWinFov);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::nearClippingDepthChanged, this, &ccCameraParamEditDlg::updateNearClippingDepth);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::farClippingDepthChanged, this, &ccCameraParamEditDlg::updateFarClippingDepth);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::clippingPlanesToggled, this, &ccCameraParamEditDlg::clippingPlanesToggled);
+		initWith(glWindow());
+		connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::baseViewMatChanged, this, &ccCameraParamEditDlg::initWithMatrix);
+		connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::cameraPosChanged, this, &ccCameraParamEditDlg::updateCameraCenter);
+		connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::pivotPointChanged, this, &ccCameraParamEditDlg::updatePivotPoint);
+		connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::perspectiveStateChanged, this, &ccCameraParamEditDlg::updateViewMode);
+		connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::aboutToClose, this, &QWidget::hide);
+		connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::fovChanged, this, &ccCameraParamEditDlg::updateWinFov);
+		connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::nearClippingDepthChanged, this, &ccCameraParamEditDlg::updateNearClippingDepth);
+		connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::farClippingDepthChanged, this, &ccCameraParamEditDlg::updateFarClippingDepth);
+		connect(glWindow()->signalEmitter(), &ccGLWindowSignalEmitter::clippingPlanesToggled, this, &ccCameraParamEditDlg::clippingPlanesToggled);
 
-		double increment = m_associatedWin->computeActualPixelSize();
+		double increment = glWindow()->computeActualPixelSize();
 		m_ui->nearClippingDepthDoubleSpinBox->setSingleStep(increment);
 		m_ui->farClippingDepthDoubleSpinBox->setSingleStep(increment);
 
-		if (m_associatedWin->isRotationAxisLocked())
+		if (glWindow()->isRotationAxisLocked())
 		{
 			m_ui->matrixStoreFrame->setVisible(false);
 			m_ui->matrixStoreFrame->setEnabled(false);
@@ -527,7 +533,7 @@ bool ccCameraParamEditDlg::linkWith(ccGLWindowInterface* win)
 		}
 		else // standard mode
 		{
-			PushedMatricesMapType::iterator it = pushedMatrices.find(m_associatedWin);
+			PushedMatricesMapType::iterator it = pushedMatrices.find(glWindow());
 			m_ui->buttonsFrame->setEnabled(it != pushedMatrices.end());
 			m_ui->matrixStoreFrame->setVisible(true);
 			m_ui->matrixStoreFrame->setEnabled(true);
@@ -548,31 +554,31 @@ bool ccCameraParamEditDlg::linkWith(ccGLWindowInterface* win)
 
 void ccCameraParamEditDlg::reflectParamChange()
 {
-	if (!m_associatedWin)
+	if (!glWindow())
 		return;
 
-	m_associatedWin->signalEmitter()->blockSignals(true);
-	if (m_associatedWin->isRotationAxisLocked())
+	glWindow()->signalEmitter()->blockSignals(true);
+	if (glWindow()->isRotationAxisLocked())
 	{
 		double lockedRotationAngle_rad      = CCCoreLib::DegreesToRadians(m_ui->phiSpinBox->value());
 		double lockedRotationOrthoAngle_rad = CCCoreLib::DegreesToRadians(m_ui->psiSpinBox->value());
-		m_associatedWin->setLockedRotationAngles(lockedRotationAngle_rad, lockedRotationOrthoAngle_rad);
+		glWindow()->setLockedRotationAngles(lockedRotationAngle_rad, lockedRotationOrthoAngle_rad);
 	}
 	else
 	{
 		ccGLMatrixd mat = getMatrix();
-		m_associatedWin->setBaseViewMat(mat);
+		glWindow()->setBaseViewMat(mat);
 	}
-	m_associatedWin->signalEmitter()->blockSignals(false);
-	m_associatedWin->redraw();
+	glWindow()->signalEmitter()->blockSignals(false);
+	glWindow()->redraw();
 }
 
 void ccCameraParamEditDlg::updateViewMode()
 {
-	if (m_associatedWin)
+	if (glWindow())
 	{
 		bool objectBased = true;
-		bool perspective = m_associatedWin->getPerspectiveState(objectBased);
+		bool perspective = glWindow()->getPerspectiveState(objectBased);
 
 		QString modeDescription;
 		if (!perspective)
@@ -584,7 +590,7 @@ void ccCameraParamEditDlg::updateViewMode()
 			modeDescription = (objectBased ? tr("object") : tr("viewer")) + tr("-based perspective");
 		}
 
-		if (m_associatedWin->isRotationAxisLocked())
+		if (glWindow()->isRotationAxisLocked())
 		{
 			modeDescription += " " + tr("(rotation axis locked)");
 		}
@@ -602,9 +608,9 @@ void ccCameraParamEditDlg::initWithMatrix(const ccGLMatrixd& mat)
 	double theta = 0;
 	double phi   = 0;
 
-	if (m_associatedWin->isRotationAxisLocked())
+	if (glWindow()->isRotationAxisLocked())
 	{
-		m_associatedWin->getLockedRotationAngles(phi, psi);
+		glWindow()->getLockedRotationAngles(phi, psi);
 	}
 	else
 	{
@@ -612,8 +618,9 @@ void ccCameraParamEditDlg::initWithMatrix(const ccGLMatrixd& mat)
 		mat.getParameters(phi, theta, psi, trans);
 	}
 
-	// to avoid retro-action
-	ccGLWindowInterface* win = m_associatedWin;
+	// to avoid retro-action (m_associatedWin is protected, so it can be
+	// temporarily nulled here)
+	ccGLWindowInterface* win = glWindow();
 	m_associatedWin          = nullptr;
 
 	m_ui->psiSpinBox->blockSignals(true);
@@ -643,7 +650,7 @@ void ccCameraParamEditDlg::initWith(ccGLWindowInterface* win)
 	// update matrix (angles)
 	initWithMatrix(win->getBaseViewMat());
 
-	const ccViewportParameters& params = m_associatedWin->getViewportParameters();
+	const ccViewportParameters& params = glWindow()->getViewportParameters();
 
 	// update view mode
 	updateViewMode();

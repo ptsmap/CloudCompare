@@ -237,11 +237,17 @@ void ccGraphicalSegmentationTool::onShortcutTriggered(int key)
 	}
 }
 
-bool ccGraphicalSegmentationTool::linkWith(ccGLWindowInterface* win)
+ccGLWindowInterface* ccGraphicalSegmentationTool::glWin() const
+{
+	// the interactive polyline still needs OpenGL only helpers (M6.6)
+	return dynamic_cast<ccGLWindowInterface*>(m_associatedWin);
+}
+
+bool ccGraphicalSegmentationTool::linkWith(ccViewInterface* win)
 {
 	assert(m_segmentationPoly);
 
-	ccGLWindowInterface* oldWin = m_associatedWin;
+	ccViewInterface* oldWin = m_associatedWin;
 
 	if (!ccOverlayDialog::linkWith(win))
 	{
@@ -259,10 +265,16 @@ bool ccGraphicalSegmentationTool::linkWith(ccGLWindowInterface* win)
 
 	if (m_associatedWin)
 	{
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::leftButtonClicked, this, &ccGraphicalSegmentationTool::addPointToPolyline);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::rightButtonClicked, this, &ccGraphicalSegmentationTool::closePolyLine);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::mouseMoved, this, &ccGraphicalSegmentationTool::updatePolyLine);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::buttonReleased, this, &ccGraphicalSegmentationTool::closeRectangle);
+		// these signals now live in the backend agnostic emitter (M6.6), so the
+		// tool can be driven by a VSG view as well
+		auto* emitter = qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter());
+		if (emitter)
+		{
+			connect(emitter, &ccViewSignalEmitter::leftButtonClicked, this, &ccGraphicalSegmentationTool::addPointToPolyline);
+			connect(emitter, &ccViewSignalEmitter::rightButtonClicked, this, &ccGraphicalSegmentationTool::closePolyLine);
+			connect(emitter, &ccViewSignalEmitter::mouseMoved, this, &ccGraphicalSegmentationTool::updatePolyLine);
+			connect(emitter, &ccViewSignalEmitter::buttonReleased, this, &ccGraphicalSegmentationTool::closeRectangle);
+		}
 
 		if (m_segmentationPoly)
 		{
@@ -410,7 +422,7 @@ void ccGraphicalSegmentationTool::reset()
 	if (m_associatedWin)
 	{
 		m_associatedWin->redraw(false);
-		m_associatedWin->doReleaseMouse();
+		glWin()->doReleaseMouse();
 	}
 	razButton->setEnabled(false);
 	validButton->setEnabled(false);
@@ -629,7 +641,7 @@ void ccGraphicalSegmentationTool::updatePolyLine(int x, int y, Qt::MouseButtons 
 	unsigned vertCount = m_polyVertices->size();
 
 	// new point (expressed relatively to the screen center)
-	QPointF   pos2D = m_associatedWin->toCenteredGLCoordinates(x, y);
+	QPointF   pos2D = glWin()->toCenteredGLCoordinates(x, y);
 	CCVector3 P(static_cast<PointCoordinateType>(pos2D.x()),
 	            static_cast<PointCoordinateType>(pos2D.y()),
 	            0);
@@ -685,7 +697,7 @@ void ccGraphicalSegmentationTool::addPointToPolylineExt(int x, int y, bool allow
 	}
 
 	if (!allowClicksOutside
-	    && (x < 0 || y < 0 || x >= m_associatedWin->qtWidth() || y >= m_associatedWin->qtHeight()))
+	    && (x < 0 || y < 0 || x >= glWin()->qtWidth() || y >= glWin()->qtHeight()))
 	{
 		// ignore clicks outside of the 3D view
 		return;
@@ -704,7 +716,7 @@ void ccGraphicalSegmentationTool::addPointToPolylineExt(int x, int y, bool allow
 	}
 
 	// new point
-	QPointF   pos2D = m_associatedWin->toCenteredGLCoordinates(x, y);
+	QPointF   pos2D = glWin()->toCenteredGLCoordinates(x, y);
 	CCVector3 P(static_cast<PointCoordinateType>(pos2D.x()),
 	            static_cast<PointCoordinateType>(pos2D.y()),
 	            0);
@@ -798,7 +810,7 @@ void ccGraphicalSegmentationTool::addPointToPolylineExt(int x, int y, bool allow
 	// DGM: to increase the poll rate of the mouse movements in ccGLWindow::mouseMoveEvent
 	// we have to completely grab the mouse focus!
 	//(the only way to take back the control is to right-click now...)
-	m_associatedWin->doGrabMouse();
+	glWin()->doGrabMouse();
 	m_associatedWin->redraw(true, false);
 }
 
@@ -829,7 +841,7 @@ void ccGraphicalSegmentationTool::closeRectangle()
 
 	if (m_associatedWin)
 	{
-		m_associatedWin->doReleaseMouse();
+		glWin()->doReleaseMouse();
 		m_associatedWin->redraw(true, false);
 	}
 }
@@ -842,7 +854,7 @@ void ccGraphicalSegmentationTool::closePolyLine(int, int)
 
 	if (m_associatedWin)
 	{
-		m_associatedWin->doReleaseMouse();
+		glWin()->doReleaseMouse();
 	}
 
 	assert(m_segmentationPoly);
@@ -910,14 +922,14 @@ void ccGraphicalSegmentationTool::segment(bool keepPointsInside, ScalarType clas
 	// we must close the polyline if we are in RUNNING mode
 	if ((m_state & POLYLINE) != 0 && (m_state & RUNNING) != 0)
 	{
-		QPoint mousePos = m_associatedWin->doMapFromGlobal(QCursor::pos());
+		QPoint mousePos = glWin()->doMapFromGlobal(QCursor::pos());
 		ccLog::Warning(QString("Polyline was not closed - we'll close it with the current mouse cursor position: (%1 ; %2)").arg(mousePos.x()).arg(mousePos.y()));
 		addPointToPolylineExt(mousePos.x(), mousePos.y(), true);
 		closePolyLine(0, 0);
 	}
 
 	ccGLCameraParameters camera;
-	m_associatedWin->getGLCameraParameters(camera);
+	glWin()->getGLCameraParameters(camera);
 	const double half_w = camera.viewport[2] / 2.0;
 	const double half_h = camera.viewport[3] / 2.0;
 
@@ -1179,7 +1191,7 @@ void ccGraphicalSegmentationTool::pauseSegmentationMode(bool state)
 
 		if (m_associatedWin)
 		{
-			m_associatedWin->doReleaseMouse();
+			glWin()->doReleaseMouse();
 		}
 
 		m_associatedWin->setInteractionMode(ccGLWindowInterface::MODE_TRANSFORM_CAMERA);
@@ -1311,7 +1323,7 @@ void ccGraphicalSegmentationTool::doActionUseExistingPolyline()
 
 			// viewing parameters (for conversion from 3D to 2D)
 			ccGLCameraParameters camera;
-			m_associatedWin->getGLCameraParameters(camera);
+			glWin()->getGLCameraParameters(camera);
 			const double half_w = camera.viewport[2] / 2.0;
 			const double half_h = camera.viewport[3] / 2.0;
 
@@ -1412,7 +1424,7 @@ void            ccGraphicalSegmentationTool::doExportSegmentationPolyline()
 		{
 			// get current display parameters
 			ccGLCameraParameters camera;
-			m_associatedWin->getGLCameraParameters(camera);
+			glWin()->getGLCameraParameters(camera);
 			const double half_w = camera.viewport[2] / 2.0;
 			const double half_h = camera.viewport[3] / 2.0;
 

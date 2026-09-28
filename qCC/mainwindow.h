@@ -233,7 +233,8 @@ class MainWindow : public QMainWindow
 	//! Updates entities display target when a gl sub-window is deleted
 	/** \param glWindow the window that is going to be delete
 	 **/
-	void prepareWindowDeletion(ccGLWindowInterface* glWindow);
+	//! Called when a 3D view (any backend) is about to close: unlinks its entities
+	void prepareWindowDeletion(ccViewInterface* view);
 
 	//! Slot called when the exclusive fullscreen mode is toggled on a window
 	void onExclusiveFullScreenToggled(bool);

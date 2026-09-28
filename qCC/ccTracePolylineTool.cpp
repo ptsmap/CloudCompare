@@ -285,12 +285,12 @@ ccPolyline* ccTracePolylineTool::polylineOverSampling(unsigned steps) const
 	return newPoly;
 }
 
-bool ccTracePolylineTool::linkWith(ccGLWindowInterface* win)
+bool ccTracePolylineTool::linkWith(ccViewInterface* win)
 {
 	assert(m_polyTip);
 	assert(!m_poly3D || !win);
 
-	ccGLWindowInterface* oldWin = m_associatedWin;
+	ccViewInterface* oldWin = m_associatedWin;
 
 	if (!ccOverlayDialog::linkWith(win))
 	{
@@ -308,8 +308,8 @@ bool ccTracePolylineTool::linkWith(ccGLWindowInterface* win)
 
 	if (m_associatedWin)
 	{
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::rightButtonClicked, this, &ccTracePolylineTool::closePolyLine);
-		connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::mouseMoved, this, &ccTracePolylineTool::updatePolyLineTip);
+		connect(qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter()), &ccViewSignalEmitter::rightButtonClicked, this, &ccTracePolylineTool::closePolyLine);
+		connect(qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter()), &ccViewSignalEmitter::mouseMoved, this, &ccTracePolylineTool::updatePolyLineTip);
 	}
 
 	return true;
@@ -339,7 +339,7 @@ bool       ccTracePolylineTool::start()
 	                                    | ccGLWindowInterface::INTERACT_SIG_RB_CLICKED
 	                                    | ccGLWindowInterface::INTERACT_CTRL_PAN
 	                                    | ccGLWindowInterface::INTERACT_SIG_MOUSE_MOVED);
-	m_associatedWin->setWindowCursor(Qt::CrossCursor);
+	glWin()->setWindowCursor(Qt::CrossCursor);
 
 	m_ui->snapSizeSpinBox->blockSignals(true);
 	m_ui->snapSizeSpinBox->setValue(s_defaultPickingRadius);
@@ -374,7 +374,7 @@ void ccTracePolylineTool::stop(bool accepted)
 		m_associatedWin->setUnclosable(false);
 		m_associatedWin->removeFromOwnDB(m_polyTip);
 		m_associatedWin->setInteractionMode(ccGLWindowInterface::MODE_TRANSFORM_CAMERA);
-		m_associatedWin->setWindowCursor(Qt::ArrowCursor);
+		glWin()->setWindowCursor(Qt::ArrowCursor);
 	}
 
 	s_defaultPickingRadius = m_ui->snapSizeSpinBox->value();
@@ -418,7 +418,7 @@ void ccTracePolylineTool::updatePolyLineTip(int x, int y, Qt::MouseButtons butto
 
 	// we replace the last point by the new one
 	{
-		QPointF   pos2D = m_associatedWin->toCenteredGLCoordinates(x, y);
+		QPointF   pos2D = glWin()->toCenteredGLCoordinates(x, y);
 		CCVector3 P2D(static_cast<PointCoordinateType>(pos2D.x()),
 		              static_cast<PointCoordinateType>(pos2D.y()),
 		              0);
@@ -433,7 +433,7 @@ void ccTracePolylineTool::updatePolyLineTip(int x, int y, Qt::MouseButtons butto
 		const CCVector3* P3D = m_poly3DVertices->getPoint(m_poly3DVertices->size() - 1);
 
 		ccGLCameraParameters camera;
-		m_associatedWin->getGLCameraParameters(camera);
+		glWin()->getGLCameraParameters(camera);
 
 		CCVector3d A2D;
 		camera.project(*P3D, A2D);
@@ -508,11 +508,11 @@ void ccTracePolylineTool::onItemPicked(const PickedItem& pi)
 
 	m_poly3DVertices->addPoint(pi.P3D);
 	m_poly3D->addPointIndex(m_poly3DVertices->size() - 1);
-	m_segmentParams.emplace_back(m_associatedWin, pi.clickPoint.x(), pi.clickPoint.y());
+	m_segmentParams.emplace_back(glWin(), pi.clickPoint.x(), pi.clickPoint.y());
 
 	// we replace the first point of the tip by this new point
 	{
-		QPointF   pos2D = m_associatedWin->toCenteredGLCoordinates(pi.clickPoint.x(), pi.clickPoint.y());
+		QPointF   pos2D = glWin()->toCenteredGLCoordinates(pi.clickPoint.x(), pi.clickPoint.y());
 		CCVector3 P2D(static_cast<PointCoordinateType>(pos2D.x()),
 		              static_cast<PointCoordinateType>(pos2D.y()),
 		              0);

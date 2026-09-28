@@ -34,6 +34,7 @@
 class ccGenericPointCloud;
 class ccGenericGLDisplay;
 class ccGLWindowInterface;
+class ccViewInterface;
 class cc2DLabel;
 class ccPickingHub;
 
@@ -49,7 +50,7 @@ class ccPointPairRegistrationDlg : public ccOverlayDialog
 	explicit ccPointPairRegistrationDlg(ccPickingHub* pickingHub, ccMainAppInterface* app, QWidget* parent = nullptr);
 
 	// inherited from ccOverlayDialog
-	bool linkWith(ccGLWindowInterface* win) override;
+	bool linkWith(ccViewInterface* win) override;
 	bool start() override;
 	void stop(bool state) override;
 

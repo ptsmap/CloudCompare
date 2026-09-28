@@ -41,7 +41,7 @@ class ccPointPropertiesDlg : public ccPointPickingGenericInterface
 	// inherited from ccPointPickingGenericInterface
 	virtual bool start() override;
 	virtual void stop(bool state) override;
-	virtual bool linkWith(ccGLWindowInterface* win) override;
+	virtual bool linkWith(ccViewInterface* win) override;
 
   protected:
 	void onClose();

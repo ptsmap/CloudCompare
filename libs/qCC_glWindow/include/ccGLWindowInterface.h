@@ -181,7 +181,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	                       MessagePosition pos,
 	                       bool            append              = false,
 	                       int             displayMaxDelay_sec = 2,
-	                       MessageType     type                = CUSTOM_MESSAGE);
+	                       MessageType     type                = CUSTOM_MESSAGE) override;
 
 	//! Activates sun light
 	void setSunLight(bool state);
@@ -387,7 +387,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	}
 
 	//! Specify whether this 3D window can be closed by the user or not
-	inline void setUnclosable(bool state)
+	inline void setUnclosable(bool state) override
 	{
 		m_unclosable = state;
 	}
@@ -430,9 +430,9 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	//! Adds an entity to window own DB
 	/** By default no dependency link is established between the entity and the window (DB).
 	 **/
-	void addToOwnDB(ccHObject* obj, bool noDependency = true);
+	void addToOwnDB(ccHObject* obj, bool noDependency = true) override;
 	//! Removes an entity from window own DB
-	void removeFromOwnDB(ccHObject* obj);
+	void removeFromOwnDB(ccHObject* obj) override;
 
 	//! Sets viewport parameters (all at once)
 	void setViewportParameters(const ccViewportParameters& params);

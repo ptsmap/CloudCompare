@@ -25,6 +25,7 @@
 #include <CCGeom.h>
 
 class ccGLWindowInterface;
+class ccViewInterface;
 class ccPointCloud;
 class ccHObject;
 class ccPickingHub;
@@ -43,7 +44,7 @@ class ccPointPickingGenericInterface : public ccOverlayDialog
 	~ccPointPickingGenericInterface() override = default;
 
 	// inherited from ccOverlayDialog
-	bool linkWith(ccGLWindowInterface* win) override;
+	bool linkWith(ccViewInterface* win) override;
 	bool start() override;
 	void stop(bool state) override;
 

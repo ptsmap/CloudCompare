@@ -286,12 +286,16 @@ unsigned ccClippingBoxTool::getNumberOfAssociatedEntity() const
 	return m_clipBox ? m_clipBox->getContainer().getChildrenNumber() : 0;
 }
 
-bool ccClippingBoxTool::linkWith(ccGLWindowInterface* win)
+bool ccClippingBoxTool::linkWith(ccViewInterface* win)
 {
 	if (m_associatedWin && m_clipBox)
 	{
 		// restore the the clipping planes
-		m_associatedWin->setClippingPlanesEnabled(true);
+		// TODO(M6): clipping planes are OpenGL only for now
+		if (auto* glWin = dynamic_cast<ccGLWindowInterface*>(m_associatedWin))
+		{
+			glWin->setClippingPlanesEnabled(true);
+		}
 
 		// remove clipping box from previous window
 		m_associatedWin->removeFromOwnDB(m_clipBox);
@@ -319,7 +323,11 @@ bool ccClippingBoxTool::linkWith(ccGLWindowInterface* win)
 
 		// the clipping box tool doesn't tak the clipping planes into account
 		// so we'll disable them temporarily
-		m_associatedWin->setClippingPlanesEnabled(false);
+		// TODO(M6): clipping planes are OpenGL only for now
+		if (auto* glWin = dynamic_cast<ccGLWindowInterface*>(m_associatedWin))
+		{
+			glWin->setClippingPlanesEnabled(false);
+		}
 
 		m_associatedWin->addToOwnDB(m_clipBox);
 	}
@@ -1891,7 +1899,11 @@ void ccClippingBoxTool::setView(CC_VIEW_ORIENTATION orientation)
 		return;
 
 	// m_associatedWin->blockSignals(true);
-	m_associatedWin->setView(orientation, false);
+	// TODO(M6): the predefined views are OpenGL only for now
+	if (auto* glWin = dynamic_cast<ccGLWindowInterface*>(m_associatedWin))
+	{
+		glWin->setView(orientation, false);
+	}
 	if (m_clipBox && m_clipBox->isGLTransEnabled())
 	{
 		ccViewportParameters params = m_associatedWin->getViewportParameters();

@@ -97,31 +97,10 @@ class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public ccViewSignalEmitter
 	 **/
 	void rotation(const ccGLMatrixd& rotMat);
 
-	//! Signal emitted when the left mouse button is clicked on the window
-	/** See INTERACT_SIG_LB_CLICKED.
-	    Arguments correspond to the clicked point coordinates (x,y) in
-	    pixels relative to the window corner!
-	**/
-	void leftButtonClicked(int x, int y);
-
-	//! Signal emitted when the right mouse button is clicked on the window
-	/** See INTERACT_SIG_RB_CLICKED.
-	    Arguments correspond to the clicked point coordinates (x,y) in
-	    pixels relative to the window corner!
-	**/
-	void rightButtonClicked(int x, int y);
-
-	//! Signal emitted when the mouse is moved
-	/** See INTERACT_SIG_MOUSE_MOVED.
-	    The two first arguments correspond to the current cursor coordinates (x,y)
-	    relative to the window corner!
-	**/
-	void mouseMoved(int x, int y, Qt::MouseButtons buttons);
-
-	//! Signal emitted when a mouse button is released (cursor on the window)
-	/** See INTERACT_SIG_BUTTON_RELEASED.
-	 **/
-	void buttonReleased();
+	// NOTE: leftButtonClicked() / rightButtonClicked() / middleButtonClicked() /
+	// mouseMoved() / buttonReleased() (M6.6) now live in ccViewSignalEmitter
+	// (the backend agnostic base class) so that the interactive tools, which
+	// derive from ccOverlayDialog, can be driven by a VSG view as well.
 
 	//! Signal emitted during 3D pass of OpenGL display process
 	/** Any object connected to this slot can draw additional stuff in 3D.
@@ -137,15 +116,8 @@ class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public ccViewSignalEmitter
 	//! Signal emitted when the exclusive fullscreen is toggled
 	void exclusiveFullScreenToggled(bool exclusive);
 
-	//! Signal emitted when the middle mouse button is clicked on the window
-	/** See INTERACT_SIG_MB_CLICKED.
-	    Arguments correspond to the clicked point coordinates (x,y) in
-	    pixels relative to the window corner!
-	**/
-	void middleButtonClicked(int x, int y);
-
-	//! Signal emitted when the associated window is about to close
-	void aboutToClose(ccGLWindowInterface*);
+	// (aboutToClose now lives in the backend agnostic ccViewSignalEmitter, so
+	// that ccOverlayDialog can connect to any backend - M6.6)
 
   protected:
 	ccGLWindowInterface* m_associatedWindow;

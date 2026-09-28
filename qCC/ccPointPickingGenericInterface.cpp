@@ -37,14 +37,14 @@ ccPointPickingGenericInterface::ccPointPickingGenericInterface(ccPickingHub* pic
 	assert(m_pickingHub);
 }
 
-bool ccPointPickingGenericInterface::linkWith(ccGLWindowInterface* win)
+bool ccPointPickingGenericInterface::linkWith(ccViewInterface* win)
 {
 	if (win == m_associatedWin)
 	{
 		// nothing to do
 		return false;
 	}
-	ccGLWindowInterface* oldWin = m_associatedWin;
+	ccViewInterface* oldWin = m_associatedWin;
 
 	// just in case
 	if (m_pickingHub)

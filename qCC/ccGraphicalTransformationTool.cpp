@@ -734,7 +734,7 @@ unsigned ccGraphicalTransformationTool::getNumberOfValidEntities() const
 	return m_toTransform.getChildrenNumber();
 }
 
-bool ccGraphicalTransformationTool::linkWith(ccGLWindowInterface* win)
+bool ccGraphicalTransformationTool::linkWith(ccViewInterface* win)
 {
 	if (!ccOverlayDialog::linkWith(win))
 	{
@@ -786,8 +786,14 @@ bool ccGraphicalTransformationTool::start()
 	m_associatedWin->setPickingMode(ccGLWindowInterface::NO_PICKING, Qt::OpenHandCursor);
 	// the user must not close this window!
 	m_associatedWin->setUnclosable(true);
-	connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::rotation, this, &ccGraphicalTransformationTool::glRotate);
-	connect(m_associatedWin->signalEmitter(), &ccGLWindowSignalEmitter::translation, this, &ccGraphicalTransformationTool::glTranslate);
+	// TODO(M6): 'rotation' / 'translation' are still OpenGL only (they echo the
+	// GL camera/entity transforms)
+	auto* glEmitter = qobject_cast<ccGLWindowSignalEmitter*>(m_associatedWin->signalEmitter());
+	if (glEmitter)
+	{
+		connect(glEmitter, &ccGLWindowSignalEmitter::rotation, this, &ccGraphicalTransformationTool::glRotate);
+		connect(glEmitter, &ccGLWindowSignalEmitter::translation, this, &ccGraphicalTransformationTool::glTranslate);
+	}
 	m_associatedWin->displayNewMessage(QString(), ccGLWindowInterface::UPPER_CENTER_MESSAGE); // clear the area
 	pauseButton->setChecked(false);
 	m_advancedModeObjectList.clear();

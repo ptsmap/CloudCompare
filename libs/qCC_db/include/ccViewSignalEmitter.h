@@ -92,4 +92,45 @@ Q_SIGNALS:
 	/** \note It used to be declared by ccGLWindowSignalEmitter only (M6.5).
 	 **/
 	void newLabel(ccHObject* obj);
+
+	//! Signal emitted when the associated view is about to close
+	/** \note It used to be declared by ccGLWindowSignalEmitter (with a
+	    ccGLWindowInterface* argument) and by ccVSGWindowSignalEmitter
+	    (with a ccVSGWindowInterface* one), which made it impossible for
+	    backend agnostic code (ccOverlayDialog, ...) to connect to it. It now
+	    lives here so that both backends expose the very same signal (M6.6).
+	 **/
+	void aboutToClose(ccViewInterface* view);
+
+	//! Signal emitted when the left mouse button is clicked on the view
+	/** See ccViewInterface::INTERACT_SIG_LB_CLICKED.
+
+	    \note It used to be declared by ccGLWindowSignalEmitter only (M6.6) so
+	    that the interactive tools could only be driven by an OpenGL window.
+	 **/
+	void leftButtonClicked(int x, int y);
+
+	//! Signal emitted when the right mouse button is clicked on the view
+	/** See ccViewInterface::INTERACT_SIG_RB_CLICKED (M6.6).
+	 **/
+	void rightButtonClicked(int x, int y);
+
+	//! Signal emitted when the middle mouse button is clicked on the view
+	/** See ccViewInterface::INTERACT_SIG_MB_CLICKED (M6.6).
+	 **/
+	void middleButtonClicked(int x, int y);
+
+	//! Signal emitted when the mouse is moved
+	/** See ccViewInterface::INTERACT_SIG_MOUSE_MOVED (M6.6).
+
+	    \param x       cursor x position (relative to the view corner)
+	    \param y       cursor y position (relative to the view corner)
+	    \param buttons currently pressed buttons
+	 **/
+	void mouseMoved(int x, int y, Qt::MouseButtons buttons);
+
+	//! Signal emitted when a mouse button is released (cursor on the view)
+	/** See ccViewInterface::INTERACT_SIG_BUTTON_RELEASED (M6.6).
+	 **/
+	void buttonReleased();
 };
