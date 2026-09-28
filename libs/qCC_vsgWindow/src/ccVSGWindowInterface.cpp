@@ -157,6 +157,28 @@ namespace
 
 		return {};
 	}
+
+	//! M7.5: resource hints shared by every viewer->compile() so that large
+	//! point clouds and scenes with many entities get generous preallocation.
+	//! The default 16 MB minimums of vsg::ResourceHints are far too small for
+	//! tens of millions of points (the billboard-quad expansion blows up the
+	//! per-instance buffers), which made the first compile stutter / over-commit.
+	vsg::ref_ptr<vsg::ResourceHints> ccVSGResourceHints()
+	{
+		auto hints = vsg::ResourceHints::create();
+
+		hints->minimumBufferSize        = 256 * 1024 * 1024;
+		hints->minimumDeviceMemorySize  = 1024 * 1024 * 1024;
+		hints->minimumStagingBufferSize = 128 * 1024 * 1024;
+
+		// Reserve a generous minimum number of descriptor sets. The per-type
+		// descriptor counts are still computed by VSG from the scene graph
+		// (descriptorPoolSizes is intentionally left empty), so this only lifts
+		// the pool's maxSets floor and never starves any descriptor type.
+		hints->numDescriptorSets = 8192;
+
+		return hints;
+	}
 } // namespace
 
 ccVSGWindowInterface::ccVSGWindowInterface()
@@ -288,7 +310,7 @@ bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, 
 
 	updateCamera();
 
-	m_viewer->compile();
+	m_viewer->compile(ccVSGResourceHints());
 
 	// Render continuously (a QTimer drives the frames)
 	m_viewer->continuousUpdate = true;
@@ -636,7 +658,7 @@ void ccVSGWindowInterface::setSceneDB(ccHObject* root)
 	// the new nodes have to be compiled before they can be rendered
 	if (m_sceneBuilder.update() && m_viewer)
 	{
-		m_viewer->compile();
+		m_viewer->compile(ccVSGResourceHints());
 	}
 
 	// keep the member in sync with the (persistent) builder root group
@@ -1096,7 +1118,7 @@ bool ccVSGWindowInterface::renderOffscreen(const OffscreenRequest& request, std:
 	offscreenGraph->addChild(copyImage);
 
 	m_viewer->assignRecordAndSubmitTaskAndPresentation({offscreenGraph});
-	m_viewer->compile();
+	m_viewer->compile(ccVSGResourceHints());
 
 	bool ok = false;
 
@@ -1138,7 +1160,7 @@ bool ccVSGWindowInterface::renderOffscreen(const OffscreenRequest& request, std:
 	if (m_commandGraph)
 	{
 		m_viewer->assignRecordAndSubmitTaskAndPresentation({m_commandGraph});
-		m_viewer->compile();
+		m_viewer->compile(ccVSGResourceHints());
 	}
 
 	return ok;

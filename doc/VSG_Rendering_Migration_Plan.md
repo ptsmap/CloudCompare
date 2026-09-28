@@ -841,7 +841,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
 | M5 | 2D 覆盖层 | 🟡 子项全部落地：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.3 2D 标签、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加（视觉验证待 GUI）；细节完善见 D.13.10 | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 基本完成：`renderToImage()`、点/三角 CPU 拾取、**实体/框选拾取（D.15）**、**深度反投影（D.16）**、**sensor 拾取 / `LABEL_PICKING` / `ccPickingHub` 接线 / 两处崩溃修复（D.17）** 已实现；交互工具端到端的 GUI 验证未做 | 3 | 24 |
-| M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
+| M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；**M7.5 性能调优已起步**：4× MSAA（`WindowTraits::samples`，M7.5）+ `ResourceHints`（256MB 缓冲 / 1GB 显存 / 8192 descriptor sets，`viewer->compile(hints)`，M7.5）；后处理框架(M7.1)、SSAO(M7.2)、移动时降细节(M7.3)、PagedLOD 分页(M7.4)未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
 | **合计** | | | **26~32 PW** | ≈ **6~8 人月** |
 

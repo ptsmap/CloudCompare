@@ -48,6 +48,15 @@ ccVSGWindow::ccVSGWindow(QWidget* parent /*=nullptr*/, bool silentInitialization
 	traits->height      = static_cast<uint32_t>(std::max(height(), 480));
 	traits->decoration  = false; // the window is embedded in a Qt widget
 
+	// M7.5: 4x MSAA for antialiasing. Metal / MoltenVK supports it, and VSG
+	// resolves the multisampled window framebuffer to the swapchain
+	// automatically (createCommandGraphForView + the window-attached
+	// RenderGraph create the resolve pass). The offscreen passes (picking /
+	// screenshot, M6) build their own VK_SAMPLE_COUNT_1_BIT framebuffers, so
+	// they stay single-sampled. If a driver rejects it, drop to
+	// VK_SAMPLE_COUNT_1_BIT.
+	traits->samples = VK_SAMPLE_COUNT_4_BIT;
+
 	// The shipped VSG is built with VSG_MAX_DEVICES = 1 (see
 	// vsg/core/Version.h): a second vsg::Window would try to allocate a second
 	// vsg::Device and throw "Number of vsg:Device allocated exceeds number
