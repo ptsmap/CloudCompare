@@ -6605,9 +6605,20 @@ ccViewInterface* MainWindow::new3DViewInternal(bool allowEntitySelection, bool w
 					connect(emitter, &ccVSGWindowSignalEmitter::aboutToClose, this, [this](ccVSGWindowInterface* view)
 					        { m_pickingHub->onActiveWindowDeleted(view); });
 				}
-			}
-		}
-#endif
+
+				// the VSG view has no in-scene text overlay yet, so the 3D
+				// coordinate under the cursor is shown in the status bar (M6.6)
+				connect(emitter, &ccVSGWindowSignalEmitter::cursorCoordinates, this, [this](const CCVector3d& P)
+				        {
+					        QMainWindow::statusBar()->showMessage(tr("3D (%1 ; %2 ; %3)")
+					                                         .arg(P.x, 0, 'f', 3)
+					                                         .arg(P.y, 0, 'f', 3)
+					                                         .arg(P.z, 0, 'f', 3));
+				        });
+				}
+				}
+				#endif
+
 
 		// The VSG view does not yet mirror all the OpenGL specific signals
 		// (mouse wheel echo, camera 'echo' mode, ...); those are connected
@@ -10314,11 +10325,16 @@ void MainWindow::toggleActiveWindowAutoPickRotCenter(bool state)
 
 void MainWindow::toggleActiveWindowShowCursorCoords(bool state)
 {
-	ccGLWindowInterface* win = getActiveGLWindow();
-	if (win)
+	if (ccGLWindowInterface* win = getActiveGLWindow())
 	{
 		win->showCursorCoordinates(state);
 	}
+#ifdef CC_RENDER_VSG_ENABLED
+	else if (auto* vsgWin = dynamic_cast<ccVSGWindowInterface*>(getActiveViewWindow()))
+	{
+		vsgWin->showCursorCoordinates(state);
+	}
+#endif
 }
 
 void MainWindow::toggleActiveWindowStereoVision(bool state)

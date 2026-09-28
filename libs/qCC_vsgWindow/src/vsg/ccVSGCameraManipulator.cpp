@@ -244,8 +244,19 @@ void ccVSGCameraManipulator::apply(vsg::ButtonReleaseEvent& event)
 
 void ccVSGCameraManipulator::apply(vsg::MoveEvent& event)
 {
-	if (!m_view || m_mode == Mode::None)
+	if (!m_view)
 	{
+		return;
+	}
+
+	// hover (no button pressed): feed the cursor coordinate display, but do
+	// not touch the camera. The depth read is deferred by the view (it needs
+	// an extra offscreen frame), so it is safe to call from here
+	if (m_mode == Mode::None)
+	{
+		m_view->processMouseMove(event.x, event.y);
+		m_lastX = event.x;
+		m_lastY = event.y;
 		return;
 	}
 

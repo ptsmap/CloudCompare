@@ -308,6 +308,24 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   //! Queues a double click request (see scheduleDeferredAction)
   void requestMouseDoubleClick(int x, int y);
 
+  //! Handles a hover (no button) mouse move: shows the 3D point under cursor
+  /** Called by ccVSGCameraManipulator for MOVE events with no button pressed
+      (VSG has no "hover" concept of its own). When the cursor coordinate
+      display is enabled (see showCursorCoordinates()) the depth under the
+      cursor is read (deferred, like the picking) and unprojected, then emitted
+      through ccVSGWindowSignalEmitter::cursorCoordinates (M6.6).
+   **/
+  void processMouseMove(int x, int y);
+
+  //! Enables/disables the 3D coordinate display under the mouse cursor
+  /** Mirrors ccGLWindowInterface::showCursorCoordinates(). Off by default, so
+      the (relatively expensive) offscreen depth read is only run on demand.
+   **/
+  void showCursorCoordinates(bool state);
+
+  //! Whether the 3D coordinate display under the mouse cursor is enabled
+  bool showCursorCoordinates() const;
+
   // ----------------------------------------------------------------------
   // Signals
   // ----------------------------------------------------------------------
@@ -477,4 +495,9 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 	bool              m_pickingModeLocked = false;
 	INTERACTION_FLAGS m_interactionFlags   = MODE_TRANSFORM_CAMERA;
 	bool              m_shouldBeRefreshed  = false;
+
+	// 3D coordinate display under the cursor (M6.6)
+	bool m_showCursorCoordinates = false;
+	//! coalescing flag: at most one deferred depth read per event loop turn
+	bool m_cursorCoordScheduled  = false;
 };

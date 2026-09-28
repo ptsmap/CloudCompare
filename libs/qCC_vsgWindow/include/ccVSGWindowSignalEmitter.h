@@ -44,6 +44,13 @@ Q_SIGNALS:
 	//! Signal emitted when the associated view is about to close
 	void aboutToClose(ccVSGWindowInterface* view);
 
+	//! Signal emitted with the 3D coordinate under the mouse cursor
+	/** Emitted by ccVSGWindowInterface::processMouseMove() when the cursor
+	    coordinate display is enabled (see showCursorCoordinates()): the
+	    backend reads the depth under the cursor and unprojects it (M6.6).
+	 **/
+	void cursorCoordinates(const CCVector3d& P3D);
+
   protected:
 	ccVSGWindowInterface* m_associatedView = nullptr;
 };

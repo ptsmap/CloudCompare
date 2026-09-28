@@ -1425,11 +1425,56 @@ bool ccVSGWindowInterface::getClick3DPos(int x, int y, CCVector3d& P3D)
 	// space (see the OpenGL backend)
 	const uint32_t yUp = imgHeight - 1 - static_cast<uint32_t>(y);
 
-	const float depth = depths[static_cast<std::size_t>(yUp) * imgWidth + static_cast<uint32_t>(x)];
+	// the cursor may land one pixel off a thin surface (a point cloud edge, a
+	// wireframe), so a small neighborhood is searched and the nearest valid
+	// (non background) pixel to the cursor is kept - mirroring the tolerance of
+	// the entity picking (M6.6). The exact pixel wins when it is valid (d2 = 0)
+	constexpr int kPickRadius = 1; // 3x3; widen for more tolerance
 
-	// reverse depth: 0 is the far plane, i.e. nothing was drawn there (the
-	// OpenGL backend tests the very same thing with its INVALID_DEPTH = 1.0)
-	if (depth <= 0.0f)
+	int      bestD2  = -1;
+	float    bestVk  = 0.0f;
+	uint32_t bestX   = 0;
+	uint32_t bestYUp = 0;
+
+	for (int j = -kPickRadius; j <= kPickRadius; ++j)
+	{
+		const int yy = y + j;
+		if (yy < 0 || yy >= static_cast<int>(imgHeight))
+		{
+			continue;
+		}
+		const uint32_t yU = static_cast<uint32_t>(imgHeight - 1 - yy);
+
+		for (int i = -kPickRadius; i <= kPickRadius; ++i)
+		{
+			const int xx = x + i;
+			if (xx < 0 || xx >= static_cast<int>(imgWidth))
+			{
+				continue;
+			}
+
+			const float d = depths[static_cast<std::size_t>(yU) * imgWidth + static_cast<uint32_t>(xx)];
+
+			// reverse depth: 0 is the far plane, i.e. nothing was drawn there
+			// (the OpenGL backend tests the very same thing with its
+			// INVALID_DEPTH = 1.0)
+			if (d <= 0.0f)
+			{
+				continue;
+			}
+
+			const int d2 = i * i + j * j;
+			if (bestD2 < 0 || d2 < bestD2)
+			{
+				bestD2  = d2;
+				bestVk  = d;
+				bestX   = static_cast<uint32_t>(xx);
+				bestYUp = yU;
+			}
+		}
+	}
+
+	if (bestD2 < 0)
 	{
 		return false;
 	}
@@ -1437,7 +1482,7 @@ bool ccVSGWindowInterface::getClick3DPos(int x, int y, CCVector3d& P3D)
 	// ccGLCameraParameters::unproject() expects an OpenGL window depth:
 	// 0 on the near plane and 1 on the far one - exactly the opposite of the
 	// Vulkan reverse depth
-	CCVector3d P2D(static_cast<double>(x), static_cast<double>(yUp), 1.0 - static_cast<double>(depth));
+	CCVector3d P2D(static_cast<double>(bestX), static_cast<double>(bestYUp), 1.0 - static_cast<double>(bestVk));
 
 	ccGLCameraParameters camera;
 	getGLCameraParameters(camera);
@@ -1452,6 +1497,40 @@ void ccVSGWindowInterface::processMouseDoubleClick(int x, int y)
 	{
 		setPivotPoint(P, true, true);
 	}
+}
+
+void ccVSGWindowInterface::showCursorCoordinates(bool state)
+{
+	m_showCursorCoordinates = state;
+}
+
+bool ccVSGWindowInterface::showCursorCoordinates() const
+{
+	return m_showCursorCoordinates;
+}
+
+void ccVSGWindowInterface::processMouseMove(int x, int y)
+{
+	// the offscreen depth read is relatively expensive, so it is deferred (like
+	// the picking) and coalesced: at most one read per event loop turn, even
+	// though MOVE events arrive at a much higher rate
+	if (!m_showCursorCoordinates || m_cursorCoordScheduled)
+	{
+		return;
+	}
+
+	m_cursorCoordScheduled = true;
+
+	scheduleDeferredAction([this, x, y]()
+	                       {
+		                       m_cursorCoordScheduled = false;
+
+		                       CCVector3d P;
+		                       if (getClick3DPos(x, y, P))
+		                       {
+			                       Q_EMIT m_signalEmitter->cursorCoordinates(P);
+		                       }
+	                       });
 }
 
 void ccVSGWindowInterface::doEntityPicking(int x, int y)

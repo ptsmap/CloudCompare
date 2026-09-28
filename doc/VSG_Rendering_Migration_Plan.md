@@ -1906,7 +1906,7 @@ VSG **没有双击事件**（Qt 有；VSG 只有 ButtonPress / Release / Move / 
 
 ### D.16.6 仍未做
 
-- 鼠标移动时显示光标 3D 坐标（`m_showCursorCoordinates`）：现在每次都会触发一次**全屏**离屏 pass，需先做小区域（scissor + 小 attachment）优化。
+- 鼠标移动时显示光标 3D 坐标（`m_showCursorCoordinates`）：**数据通路已实现**（M6.6，见 D.17.7），但每次仍触发一次**全屏**离屏深度 pass —— 仅当该开关打开时才运行，且已用 `scheduleDeferredAction()` + 合并标志限到每帧最多一次。要做成无感还需先做小区域（scissor + 小 attachment，或直接复用主帧已保留的可读深度图）优化。
 - （sensor 拾取、`LABEL_PICKING`、`ccPickingHub` 接线已在 **D.17** 补齐。）
 
 ---
@@ -1974,4 +1974,15 @@ ccDBRoot::changeSelection(QItemSelection const&, QItemSelection const&)
 
 - 全量构建通过（`QCC_VSG_LIB` + `CloudCompare`）。
 - **运行时待 GUI 验证**：双击设 pivot 是否取到合理深度、sensor 是否可点选、shift+click 是否生成标签。
-- `getClick3DPos()` 目前也只取单像素；OpenGL 后端在深度无效时可向 3×3 邻域扩展（`getGLDepth(..., extendToNeighbors)`），VSG 侧尚未实现。
+- `getClick3DPos()` 现已实现 3×3 邻域扩展（M6.6）：深度无效时向 ±1 像素邻域搜最近的有效深度像素，与 entity 拾取的容差一致；光标恰好命中点云边缘/线框也能解析到 3D 坐标。
+
+### D.17.7 鼠标悬停显示光标下 3D 坐标（M6.6）
+
+对齐 `ccGLWindowInterface` 的 `m_showCursorCoordinates` 行为：
+
+- `ccVSGWindowInterface` 新增 `showCursorCoordinates(bool)` / `showCursorCoordinates()`（默认关）与 `processMouseMove(int x, int y)`。
+- 操控器 `apply(vsg::MoveEvent&)` 在 `Mode::None`（无按键悬停）时改调 `m_view->processMouseMove()`，不再直接 return。
+- `processMouseMove()` 用 `scheduleDeferredAction()`（Qt 侧 = `QTimer::singleShot(0)`）把离屏深度回读排到下一轮事件循环，并用 `m_cursorCoordScheduled` 合并：无论 MOVE 事件多密集，每帧最多一次 `getClick3DPos()`，避免重入崩溃与重复回读。解析成功则 `Q_EMIT cursorCoordinates(P3D)`（`ccVSGWindowSignalEmitter` 新信号）。
+- `MainWindow::new3DViewInternal` 把该信号接到状态栏 `statusBar()->showMessage("3D (x ; y ; z)")`；`toggleActiveWindowShowCursorCoords()` 也改为对 VSG 视图调用 `showCursorCoordinates()`（原为 GL 专属）。
+
+> 注意：VSG 尚无场景内文本叠层（字体/文本里程碑），故坐标显示在状态栏而非视图左下角。性能上仍是全屏离屏深度 pass（见 D.16.6），仅开关打开时启用。
