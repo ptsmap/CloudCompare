@@ -48,12 +48,35 @@ ccVSGWindow::ccVSGWindow(QWidget* parent /*=nullptr*/, bool silentInitialization
 	traits->height      = static_cast<uint32_t>(std::max(height(), 480));
 	traits->decoration  = false; // the window is embedded in a Qt widget
 
+	// The shipped VSG is built with VSG_MAX_DEVICES = 1 (see
+	// vsg/core/Version.h): a second vsg::Window would try to allocate a second
+	// vsg::Device and throw "Number of vsg:Device allocated exceeds number
+	// supported". CloudCompare is an MDI application, so several 3D views must
+	// be able to coexist: the device created by the first window is shared with
+	// all the following ones, which is exactly what WindowTraits::device is for
+	// (Vulkan happily serves several surfaces/swapchains from one device).
+	static vsg::ref_ptr<vsg::Device> s_sharedDevice;
+	static int                       s_windowCount = 0;
+	fprintf(stderr, "[VSG][trace] ccVSGWindow #%d (sharedDevice=%d)\n", ++s_windowCount, s_sharedDevice ? 1 : 0);
+	fflush(stderr);
+
+	if (s_sharedDevice)
+	{
+		traits->device = s_sharedDevice;
+	}
+
 	vsg::ref_ptr<vsgQt::Viewer> viewer = vsgQt::Viewer::create();
 
 	// vsgQt::Window is a QWindow: it is owned by Qt (createWindowContainer
 	// reparents it), hence the raw pointer (no vsg::ref_ptr here).
 	vsgQt::Window* vsgWindow = new vsgQt::Window(viewer, traits);
 	vsgWindow->initializeWindow();
+
+	// remember the device of the very first window for the following ones
+	if (!s_sharedDevice && vsgWindow->windowAdapter)
+	{
+		s_sharedDevice = vsgWindow->windowAdapter->getOrCreateDevice();
+	}
 
 	m_container = QWidget::createWindowContainer(vsgWindow, this);
 	// The container's default size policy is derived from the embedded QWindow

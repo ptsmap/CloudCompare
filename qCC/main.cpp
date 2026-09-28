@@ -38,6 +38,12 @@
 
 // local
 #include "ccApplication.h"
+
+// VSG
+#include <vsg/core/Exception.h>
+
+// system
+#include <exception>
 #include "ccCommandLineParser.h"
 #include "ccGuiParameters.h"
 #include "ccPersistentSettings.h"
@@ -332,7 +338,28 @@ int main(int argc, char** argv)
 			fprintf(stderr, "[VSG] CC_VSG_VIEW is set: creating a VSG 3D view\n");
 			fflush(stderr);
 
-			mainWindow->createVSGViewDebug();
+			// a VSG/Vulkan failure must not abort the whole application: report
+			// it, so that the smoke tests (and the user) can see what happened.
+			// Note: vsg::Exception is a plain struct, it does *not* derive from
+			// std::exception and has to be caught by itself.
+			try
+			{
+				mainWindow->createVSGViewDebug();
+			}
+			catch (const vsg::Exception& e)
+			{
+				fprintf(stderr, "[VSG] createVSGViewDebug failed: %s (result=%d)\n", e.message.c_str(), e.result);
+			}
+			catch (const std::exception& e)
+			{
+				fprintf(stderr, "[VSG] createVSGViewDebug failed: %s\n", e.what());
+			}
+			catch (...)
+			{
+				fprintf(stderr, "[VSG] createVSGViewDebug failed (unknown exception)\n");
+			}
+			fflush(stderr);
+
 			QCoreApplication::processEvents();
 
 			if (ccViewInterface* view = mainWindow->getActiveViewWindow())
@@ -389,6 +416,8 @@ int main(int argc, char** argv)
 
 			mainWindow->addToDB(filenames);
 		}
+		fprintf(stderr, "[VSG][trace] files loaded\n");
+		fflush(stderr);
 
 #ifdef CC_RENDER_VSG_ENABLED
 		// Automated testing: render the active view, save the image and quit.
@@ -489,6 +518,8 @@ int main(int argc, char** argv)
 		QDir::setCurrent(workingDir.absolutePath());
 
 		// let's rock!
+		fprintf(stderr, "[VSG][trace] entering the event loop\n");
+		fflush(stderr);
 		try
 		{
 			result = QApplication::exec();
