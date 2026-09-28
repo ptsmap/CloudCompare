@@ -794,6 +794,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M6.4 | 深度反投影（双击设 pivot）；depth image 回读与 [0,1] 换算 |
 | M6.5 | `renderToImage()` / 高清截图（离屏大尺寸 RenderGraph + 回读 + 保存为 QImage） |
 | M6.6 | `ccPickingHub` / `ccOverlayDialog` 对接；交互工具（分割、裁剪、变换）端到端验证 |
+| M6.7 | sensor 拾取（ID 节点）+ `LABEL_PICKING`（shift+click 生成标签）+ 离屏 pass 的两处崩溃修复（见 **D.17**） |
 
 **验收**：所有拾取模式与交互工具（点选、框选、分割、裁剪、配准交互）功能等价于 OpenGL 后端。
 
@@ -839,7 +840,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M3 | 点云渲染 | ✅ 已完成（**2026-09-27 实测 Metal 下出图**，见 D.10）；点大小 billboard quad 已补齐（见 D.14） | 3~4 | 14 |
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
 | M5 | 2D 覆盖层 | 🟡 子项全部落地：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.3 2D 标签、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加（视觉验证待 GUI）；细节完善见 D.13.10 | 3 | 21 |
-| M6 | 拾取与离屏 | 🟡 大部分完成：`renderToImage()`、点/三角 CPU 拾取、**实体/框选拾取（离屏 R32_UINT ID pass，见 D.15）**、**深度反投影（双击设 pivot，见 D.16）** 已实现；`LABEL_PICKING`、`ccPickingHub` 端到端验证未做 | 3 | 24 |
+| M6 | 拾取与离屏 | 🟡 基本完成：`renderToImage()`、点/三角 CPU 拾取、**实体/框选拾取（D.15）**、**深度反投影（D.16）**、**sensor 拾取 / `LABEL_PICKING` / `ccPickingHub` 接线 / 两处崩溃修复（D.17）** 已实现；交互工具端到端的 GUI 验证未做 | 3 | 24 |
 | M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；后处理、SSAO、PagedLOD 分页、性能调优未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
 | **合计** | | | **26~32 PW** | ≈ **6~8 人月** |
@@ -1905,6 +1906,72 @@ VSG **没有双击事件**（Qt 有；VSG 只有 ButtonPress / Release / Move / 
 
 ### D.16.6 仍未做
 
-- sensor 拾取、`LABEL_PICKING`、`ccPickingHub` / `ccOverlayDialog` 端到端（M6.6）。
 - 鼠标移动时显示光标 3D 坐标（`m_showCursorCoordinates`）：现在每次都会触发一次**全屏**离屏 pass，需先做小区域（scissor + 小 attachment）优化。
+- （sensor 拾取、`LABEL_PICKING`、`ccPickingHub` 接线已在 **D.17** 补齐。）
+
+---
+
+### D.17 M6 收尾：两处崩溃修复 + sensor 拾取 + `LABEL_PICKING` + hub 接线
+
+> 实践反馈：M6.4 之后"双击视图上的点"会崩溃。查系统崩溃报告（`~/Library/Logs/DiagnosticReports/CloudCompare-*.ips`）得到两类栈，根因都不在"深度反投影的算法"上，而在**离屏 pass 的执行时机**和**实体持有的 display 裸指针**上。
+
+### D.17.1 崩溃一：离屏 pass 不能在 VSG 事件回调里同步跑
+
+**栈（历史一次，从 Qt 定时器触发）**：
+
+```
+vsg::RecordAndSubmitTask::start()
+vsg::RecordAndSubmitTask::submit(vsg::ref_ptr<vsg::FrameStamp>)
+vsg::Viewer::recordAndSubmit()
+ccVSGWindowInterface::renderToImage()
+```
+
+两个独立缺陷：
+
+1. **空 fence 解引用**：`RecordAndSubmitTask::fence()` 在索引未初始化时返回 `nullptr`，而 `start()` 直接 `current_fence->hasDependencies()`。索引只有 `Viewer::advanceToNextFrame()`（→ `task->advance()`）才会推进；`advanceToNextFrame()` 在窗口不可见、`acquireNextFrame()` 失败时返回 **false 且不 advance**。原代码忽略了返回值，照样 `recordAndSubmit()` → SIGSEGV。
+2. **事件队列被清空（重入）**：拾取/双击都由 VSG 事件回调发起，即处在 `Viewer::handleEvents()` 的 `for (auto& vsg_event : _events)` 迭代中；`renderOffscreen()` 里的 `advanceToNextFrame()` 会先 `pollEvents(true)` → `_events.clear()`，范围 for 的 end 迭代器只求值一次，于是后续迭代访问**已析构**的事件对象（use-after-free）。
+
+**修复**：
+
+- `renderOffscreen()` 检查 `advanceToNextFrame()` 返回值：失败就跳过 `recordAndSubmit()`，只告警；无论走哪条路径都在末尾恢复主 `commandGraph`（`assignRecordAndSubmitTaskAndPresentation({m_commandGraph})` + `compile()`）。
+- 新增 `ccVSGWindowInterface::scheduleDeferredAction(std::function<void()>)`（默认实现：立即执行），由 `ccVSGWindow` 覆写为 `QTimer::singleShot(0, this, action)` —— 以 widget 作 context，视图先销毁则自动取消。拾取与双击改为 `requestPicking()` / `requestMouseDoubleClick()`，经它排到**下一轮事件循环**（两帧之间）执行，彻底离开 `handleEvents()` 的迭代。
+
+### D.17.2 崩溃二：悬垂 display → `__cxa_pure_virtual`
+
+**栈**：
+
+```
+__abort_message → __cxa_pure_virtual
+ccDrawableObject::prepareDisplayForRefresh()
+ccDBRoot::changeSelection(QItemSelection const&, QItemSelection const&)
+```
+
+实体只保存 `ccDrawableObject::m_currentDisplay` 这一个**裸指针**。`ccGLWindowInterface` 析构时会 `m_globalDBRoot->removeFromDisplay_recursive(this)` 解绑，VSG 侧**漏了这一步**：窗口关闭后实体仍指向它，任何 selection change 都会对它做虚调用。
+
+更糟的是 `ccVSGWindowInterface` 把 `redraw()` / `toBeRefreshed()` / `refresh()` 声明为纯虚：对象析构到基类阶段时 vtable 是**抽象**的，虚调用直接落到 `__cxa_pure_virtual` → `abort()`（不是普通的野指针 SIGSEGV）。
+
+**修复**：新增 `ccVSGWindowInterface::unlinkEntitiesFromDisplay()`（与 GL 同构），并在 **`~ccVSGWindow()`** 里调用 —— 必须是最外层析构，此时 vtable 仍是完整的 `ccVSGWindow`，解绑过程中的反向虚调用（`aboutToBeRemoved()`）才安全。
+
+### D.17.3 sensor 拾取
+
+`ccVSGMeshBuilder::buildSensor()` 原先返回 `{transform, {}}`（ID 节点为空）。sensor 的线框是"多个小几何（线段/环/方块边/四边形/三角形）的组合"，因此给这些 helper 各加一个 ID 版本（`buildSegmentsId` / `buildLoopId` / `buildBoxEdgesId` / `buildQuadId` / `buildTriangleId`，复用 `buildIdGeometry()`），并在 `buildSensor()` 里用 5 个 lambda（`addSegments` / `addLoop` / `addBox` / `addQuad` / `addTriangle`）同时往 `group` 与 `idGroup` 挂节点，最后返回两个同变换的 `MatrixTransform`。
+
+### D.17.4 `LABEL_PICKING`
+
+对齐 `ccGLWindowInterface::processPickingResult()` 的 `LABEL_PICKING` 分支：CPU 点/三角拾取命中后自动 `new cc2DLabel()`（`POINT_CLOUD` → `addPickedPoint(cloud, idx)`，`MESH` → 带重心坐标），挂到被拾取实体下，`setDisplay()` 后 `Q_EMIT newLabel()` 并 `redraw()`。顺带补齐 GL 的 **shift+click** 语义：`ENTITY_PICKING` + Shift 时改走 CPU 路径并当作 `LABEL_PICKING` 处理。
+
+`newLabel` 信号按 D.15.4 的做法提升到 **`ccViewSignalEmitter`**，GL 侧删掉重复声明。
+
+### D.17.5 `ccPickingHub` 端到端
+
+`ccPickingHub` 本身已经是后端无关的（`ccViewInterface::FromWidget()` + `ccViewSignalEmitter::itemPicked`），缺的是 **MainWindow 侧的接线**：原代码对非 GL 后端只打一条告警。现补上（包在 `#ifdef CC_RENDER_VSG_ENABLED` 内，`signalEmitter()` 返回 `QObject*` 需先 `qobject_cast<ccVSGWindowSignalEmitter*>` 才能被 `connect` 解析信号指针）：
+
+- `entitySelectionChanged` / `entitiesSelectionChanged` → `ccDBRoot::selectEntity()` / `selectEntities()`
+- `newLabel` → `MainWindow::handleNewLabel()`
+- `aboutToClose` → 解绑实体（`prepareWindowDeletion()` 的 VSG 等价物）+ 通知 `ccPickingHub::onActiveWindowDeleted()`
+
+### D.17.6 验证状态
+
+- 全量构建通过（`QCC_VSG_LIB` + `CloudCompare`）。
+- **运行时待 GUI 验证**：双击设 pivot 是否取到合理深度、sensor 是否可点选、shift+click 是否生成标签。
 - `getClick3DPos()` 目前也只取单像素；OpenGL 后端在深度无效时可向 3×3 邻域扩展（`getGLDepth(..., extendToNeighbors)`），VSG 侧尚未实现。

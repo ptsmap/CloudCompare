@@ -19,12 +19,14 @@
 #include "ccVSGWindowInterface.h"
 
 // qCC_db
+#include <cc2DLabel.h>
 #include <ccBBox.h>
 #include <ccDrawableObject.h>
 #include <ccGLMatrix.h>
 #include <ccGenericMesh.h>
 #include <ccGenericPointCloud.h>
 #include <ccHObject.h>
+#include <ccHObjectCaster.h>
 #include <ccImage.h>
 #include <ccLog.h>
 #include <ccPointCloud.h>
@@ -38,6 +40,10 @@
 
 // vsgQt
 #include <vsgQt/Window.h>
+
+// Qt
+#include <QApplication>
+#include <QCoreApplication>
 
 // system
 #include <algorithm>
@@ -937,34 +943,43 @@ bool ccVSGWindowInterface::renderOffscreen(const OffscreenRequest& request, std:
 	m_viewer->assignRecordAndSubmitTaskAndPresentation({offscreenGraph});
 	m_viewer->compile();
 
-	// same order as vsgQt::Viewer::render() - advanceToNextFrame() is required,
-	// otherwise the frame fences are not ready and RecordAndSubmitTask crashes
-	m_viewer->advanceToNextFrame();
-	m_viewer->update();
-	m_viewer->recordAndSubmit();
-	m_viewer->deviceWaitIdle();
-
 	bool ok = false;
 
-	// read the pixels back
-	if (vsg::DeviceMemory* memory = buffer->getDeviceMemory(0))
+	// same order as vsgQt::Viewer::render(). advanceToNextFrame() is what
+	// advances the tasks (and therefore assigns their fences): submitting
+	// without it crashes in RecordAndSubmitTask::start(), and it returns
+	// false when the frame could not be acquired (window not visible, lost
+	// device, ...) - in which case there is nothing to submit at all.
+	if (m_viewer->advanceToNextFrame())
 	{
-		void* data = nullptr;
-		if (memory->map(buffer->getMemoryOffset(0), bufferSize, 0, &data) == VK_SUCCESS && data)
-		{
-			pixels.resize(static_cast<std::size_t>(bufferSize));
-			std::memcpy(pixels.data(), data, static_cast<std::size_t>(bufferSize));
-			ok = true;
+		m_viewer->update();
+		m_viewer->recordAndSubmit();
+		m_viewer->deviceWaitIdle();
 
-			memory->unmap();
-		}
-		else
+		// read the pixels back
+		if (vsg::DeviceMemory* memory = buffer->getDeviceMemory(0))
 		{
-			ccLog::Warning("[VSG] renderOffscreen: failed to map the output buffer");
+			void* data = nullptr;
+			if (memory->map(buffer->getMemoryOffset(0), bufferSize, 0, &data) == VK_SUCCESS && data)
+			{
+				pixels.resize(static_cast<std::size_t>(bufferSize));
+				std::memcpy(pixels.data(), data, static_cast<std::size_t>(bufferSize));
+				ok = true;
+
+				memory->unmap();
+			}
+			else
+			{
+				ccLog::Warning("[VSG] renderOffscreen: failed to map the output buffer");
+			}
 		}
 	}
+	else
+	{
+		ccLog::Warning("[VSG] renderOffscreen: could not advance to the next frame");
+	}
 
-	// restore the on screen rendering
+	// restore the on screen rendering (whatever happened above)
 	if (m_commandGraph)
 	{
 		m_viewer->assignRecordAndSubmitTaskAndPresentation({m_commandGraph});
@@ -1017,6 +1032,49 @@ QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
 	return result;
 }
 
+void ccVSGWindowInterface::scheduleDeferredAction(std::function<void()> action)
+{
+	// the plain interface has no Qt context (see ccVSGWindow, which overrides
+	// this with a QTimer::singleShot): the action is simply run right away
+	if (action)
+	{
+		action();
+	}
+}
+
+void ccVSGWindowInterface::requestPicking(int x, int y)
+{
+	scheduleDeferredAction([this, x, y]()
+	{
+		doPicking(x, y);
+	});
+}
+
+void ccVSGWindowInterface::requestMouseDoubleClick(int x, int y)
+{
+	scheduleDeferredAction([this, x, y]()
+	{
+		processMouseDoubleClick(x, y);
+	});
+}
+
+void ccVSGWindowInterface::unlinkEntitiesFromDisplay()
+{
+	// as ccGLWindowInterface does: the entities only keep a raw pointer to
+	// their display, so they have to be unlinked before this object is
+	// destroyed (see scheduleDeferredAction() for the reentrancy warning and
+	// ccDrawableObject::prepareDisplayForRefresh() for the symptom: a virtual
+	// call on a half destroyed display is a __cxa_pure_virtual abort)
+	if (m_globalDBRoot)
+	{
+		m_globalDBRoot->removeFromDisplay_recursive(this);
+	}
+	if (m_winDBRoot)
+	{
+		m_winDBRoot->removeFromDisplay_recursive(this);
+	}
+}
+
 void ccVSGWindowInterface::doPicking(int x, int y)
 {
 	if (m_pickingMode == NO_PICKING || !m_signalEmitter)
@@ -1024,12 +1082,17 @@ void ccVSGWindowInterface::doPicking(int x, int y)
 		return;
 	}
 
+	// shift+click = spawn a label on the clicked point or triangle (M6.5), as
+	// the OpenGL backend does in its mouse release event
+	const bool shiftPressed = (QApplication::keyboardModifiers() & Qt::ShiftModifier) != 0;
+
 	// M6.1 / M6.2: the entity based modes are answered by an offscreen pass
 	// that renders the entity IDs (see renderIdPass()). The point / triangle
 	// modes keep using the historical CPU routines below.
-	if (m_pickingMode == ENTITY_PICKING
-	    || m_pickingMode == ENTITY_RECT_PICKING
-	    || m_pickingMode == FAST_PICKING)
+	if (!shiftPressed
+	    && (m_pickingMode == ENTITY_PICKING
+	        || m_pickingMode == ENTITY_RECT_PICKING
+	        || m_pickingMode == FAST_PICKING))
 	{
 		doEntityPicking(x, y);
 		return;
@@ -1161,7 +1224,10 @@ void ccVSGWindowInterface::doPicking(int x, int y)
 		ccLog::Warning("[Picking][VSG] Not enough memory!");
 	}
 
-	switch (m_pickingMode)
+	// shift+click turns the entity picking into a label spawning (M6.5)
+	const PICKING_MODE mode = (m_pickingMode == ENTITY_PICKING && shiftPressed) ? LABEL_PICKING : m_pickingMode;
+
+	switch (mode)
 	{
 	case POINT_PICKING:
 	case TRIANGLE_PICKING:
@@ -1177,9 +1243,43 @@ void ccVSGWindowInterface::doPicking(int x, int y)
 		break;
 
 	case LABEL_PICKING:
+		// mirrors ccGLWindowInterface::processPickingResult(): the picked
+		// point (or triangle) automatically spawns a label
+		if (m_globalDBRoot && nearestEntity && nearestElementIndex >= 0)
+		{
+			cc2DLabel* label = nullptr;
+
+			if (nearestEntity->isKindOf(CC_TYPES::POINT_CLOUD))
+			{
+				label = new cc2DLabel();
+				label->addPickedPoint(ccHObjectCaster::ToGenericPointCloud(nearestEntity), nearestElementIndex);
+				nearestEntity->addChild(label);
+			}
+			else if (nearestEntity->isKindOf(CC_TYPES::MESH))
+			{
+				label = new cc2DLabel();
+				label->addPickedPoint(ccHObjectCaster::ToGenericMesh(nearestEntity),
+				                      nearestElementIndex,
+				                      CCVector2d(nearestPointBC.x, nearestPointBC.y));
+				nearestEntity->addChild(label);
+			}
+
+			if (label)
+			{
+				label->setVisible(true);
+				label->setDisplay(nearestEntity->getDisplay());
+				label->setPosition(static_cast<float>(x + 20) / std::max(1, screenSize.width()),
+				                   static_cast<float>(y + 20) / std::max(1, screenSize.height()));
+
+				Q_EMIT m_signalEmitter->newLabel(static_cast<ccHObject*>(label));
+				QCoreApplication::processEvents();
+
+				redraw(false, false);
+			}
+		}
+		break;
+
 	default:
-		// TODO(M6): LABEL_PICKING still needs a CPU ray/entity intersection.
-		//
 		// NOTE: the entity based modes (ENTITY_PICKING / ENTITY_RECT_PICKING /
 		// FAST_PICKING) are answered by doEntityPicking() and never reach this
 		// switch.

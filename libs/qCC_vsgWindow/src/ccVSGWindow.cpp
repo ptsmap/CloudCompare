@@ -100,6 +100,11 @@ ccVSGWindow::ccVSGWindow(QWidget* parent /*=nullptr*/, bool silentInitialization
 
 ccVSGWindow::~ccVSGWindow()
 {
+	// the entities of the DB only keep a raw pointer to their display: they
+	// must be unlinked while this object is still complete (i.e. here, and
+	// not in ~ccVSGWindowInterface, whose vtable is the abstract one)
+	unlinkEntitiesFromDisplay();
+
 	if (m_viewer && m_window && m_window->windowAdapter)
 	{
 		m_viewer->deviceWaitIdle();
@@ -107,6 +112,18 @@ ccVSGWindow::~ccVSGWindow()
 	}
 
 	m_viewer = {};
+}
+
+void ccVSGWindow::scheduleDeferredAction(std::function<void()> action)
+{
+	if (!action)
+	{
+		return;
+	}
+
+	// 'this' is used as the context object: Qt drops the call if this widget
+	// is destroyed before the timer fires
+	QTimer::singleShot(0, this, std::move(action));
 }
 
 QSize ccVSGWindow::getScreenSize() const

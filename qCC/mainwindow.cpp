@@ -6568,10 +6568,51 @@ ccViewInterface* MainWindow::new3DViewInternal(bool allowEntitySelection, bool w
 	}
 	else
 	{
-		// VSG (or any other non-GL backend): minimal wiring only. The VSG view
-		// does not yet mirror all the OpenGL-specific signals (entity selection
-		// echo, camera echo, ...); those are connected progressively as the VSG
-		// backend matures (see doc/VSG_Rendering_Migration_Plan.md).
+#ifdef CC_RENDER_VSG_ENABLED
+		// VSG (or any other non-GL backend): the signals declared by the
+		// backend agnostic ccViewSignalEmitter are wired exactly as the
+		// OpenGL ones (M6.5).
+		if (auto* vsgView = dynamic_cast<ccVSGWindowInterface*>(view3D))
+		{
+			// signalEmitter() returns a QObject* in the backend agnostic
+			// interface: qobject_cast gets the concrete type back, which is
+			// what QObject::connect needs to resolve the signal pointer
+			auto* emitter = qobject_cast<ccVSGWindowSignalEmitter*>(vsgView->signalEmitter());
+			if (emitter)
+			{
+				connect(emitter, &ccViewSignalEmitter::entitySelectionChanged, this, [=](ccHObject* entity)
+				        { m_ccRoot->selectEntity(entity); });
+
+				connect(emitter, &ccViewSignalEmitter::entitiesSelectionChanged, this, [=](std::unordered_set<int> entities)
+				        { m_ccRoot->selectEntities(entities); });
+
+				connect(emitter, &ccViewSignalEmitter::newLabel, this, &MainWindow::handleNewLabel);
+
+				// same as MainWindow::prepareWindowDeletion(), but for a VSG view
+				connect(emitter, &ccVSGWindowSignalEmitter::aboutToClose, this, [this](ccVSGWindowInterface* view)
+				{
+					if (m_ccRoot)
+					{
+						m_ccRoot->hidePropertiesView();
+						m_ccRoot->getRootEntity()->removeFromDisplay_recursive(view);
+						m_ccRoot->updatePropertiesView();
+					}
+				});
+
+				if (m_pickingHub)
+				{
+					// we must notify the picking hub as well if the window is destroyed
+					connect(emitter, &ccVSGWindowSignalEmitter::aboutToClose, this, [this](ccVSGWindowInterface* view)
+					        { m_pickingHub->onActiveWindowDeleted(view); });
+				}
+			}
+		}
+#endif
+
+		// The VSG view does not yet mirror all the OpenGL specific signals
+		// (mouse wheel echo, camera 'echo' mode, ...); those are connected
+		// progressively as the VSG backend matures
+		// (see doc/VSG_Rendering_Migration_Plan.md).
 		ccLog::Warning(tr("Created a %1 3D view (limited MainWindow integration)").arg(backend->name()));
 	}
 

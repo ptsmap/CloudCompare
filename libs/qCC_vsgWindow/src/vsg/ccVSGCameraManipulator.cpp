@@ -193,7 +193,9 @@ void ccVSGCameraManipulator::apply(vsg::ButtonPressEvent& event)
 
 		if (m_view)
 		{
-			m_view->processMouseDoubleClick(event.x, event.y);
+			// not run from here: the double click needs an extra (offscreen)
+			// frame, which must not be rendered from within an event handler
+			m_view->requestMouseDoubleClick(event.x, event.y);
 		}
 	}
 
@@ -232,7 +234,9 @@ void ccVSGCameraManipulator::apply(vsg::ButtonReleaseEvent& event)
 	    && !m_mouseMoved
 	    && m_view->getPickingMode() != ccViewInterface::NO_PICKING)
 	{
-		m_view->doPicking(event.x, event.y);
+		// not run from here: the entity picking needs an extra (offscreen)
+		// frame, which must not be rendered from within an event handler
+		m_view->requestPicking(event.x, event.y);
 	}
 
 	m_mode = Mode::None;

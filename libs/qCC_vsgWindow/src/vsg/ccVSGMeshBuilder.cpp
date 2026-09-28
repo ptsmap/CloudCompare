@@ -371,6 +371,127 @@ namespace
 		return buildGeometry(triSet, sharedObjects, verts, {}, colors, false, true);
 	}
 
+	// ---------------------------------------------------------------------
+	// Picking counterparts (M6.1 / M6.5)
+	// The wire geometry of the sensors is built out of the small helpers
+	// above, which all need an ID version so that a sensor can be picked.
+	// ---------------------------------------------------------------------
+
+	//! Picking counterpart of buildSegments()
+	vsg::ref_ptr<vsg::Node> buildSegmentsId(vsg::ref_ptr<vsg::ShaderSet>     lineIdSet,
+	                                        vsg::ref_ptr<vsg::SharedObjects> sharedObjects,
+	                                        const PointList&                 pts,
+	                                        uint32_t                         entityId)
+	{
+		const std::size_t count = pts.size();
+		if (count < 2)
+		{
+			return {};
+		}
+
+		auto verts = vsg::vec3Array::create(count);
+		for (std::size_t i = 0; i < count; ++i)
+		{
+			(*verts)[i] = pts[i];
+		}
+
+		return buildIdGeometry(lineIdSet, sharedObjects, verts, entityId);
+	}
+
+	//! Picking counterpart of buildLoop()
+	vsg::ref_ptr<vsg::Node> buildLoopId(vsg::ref_ptr<vsg::ShaderSet>     lineIdSet,
+	                                    vsg::ref_ptr<vsg::SharedObjects> sharedObjects,
+	                                    const PointList&                 pts,
+	                                    uint32_t                         entityId,
+	                                    bool                             closed)
+	{
+		const std::size_t n = pts.size();
+		if (n < 2)
+		{
+			return {};
+		}
+
+		const std::size_t segCount = closed ? n : n - 1;
+
+		PointList loopPts;
+		loopPts.reserve(segCount * 2);
+
+		for (std::size_t i = 0; i < segCount; ++i)
+		{
+			loopPts.push_back(pts[i]);
+			loopPts.push_back(pts[(i + 1) % n]);
+		}
+
+		return buildSegmentsId(lineIdSet, sharedObjects, loopPts, entityId);
+	}
+
+	//! Picking counterpart of buildBoxEdges()
+	vsg::ref_ptr<vsg::Node> buildBoxEdgesId(vsg::ref_ptr<vsg::ShaderSet>     lineIdSet,
+	                                        vsg::ref_ptr<vsg::SharedObjects> sharedObjects,
+	                                        const vsg::vec3&                 minC,
+	                                        const vsg::vec3&                 maxC,
+	                                        uint32_t                         entityId)
+	{
+		const float x0 = minC.x, y0 = minC.y, z0 = minC.z;
+		const float x1 = maxC.x, y1 = maxC.y, z1 = maxC.z;
+
+		const vsg::vec3 corners[8] = {vsg::vec3(x0, y0, z0), vsg::vec3(x1, y0, z0), vsg::vec3(x1, y1, z0), vsg::vec3(x0, y1, z0),
+		                              vsg::vec3(x0, y0, z1), vsg::vec3(x1, y0, z1), vsg::vec3(x1, y1, z1), vsg::vec3(x0, y1, z1)};
+
+		static const int edges[12][2] = {{0, 1}, {1, 2}, {2, 3}, {3, 0},
+		                                {4, 5}, {5, 6}, {6, 7}, {7, 4},
+		                                {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+
+		PointList pts;
+		pts.reserve(24);
+		for (const auto& edge : edges)
+		{
+			pts.push_back(corners[edge[0]]);
+			pts.push_back(corners[edge[1]]);
+		}
+
+		return buildSegmentsId(lineIdSet, sharedObjects, pts, entityId);
+	}
+
+	//! Picking counterpart of buildQuad()
+	vsg::ref_ptr<vsg::Node> buildQuadId(vsg::ref_ptr<vsg::ShaderSet>     triIdSet,
+	                                    vsg::ref_ptr<vsg::SharedObjects> sharedObjects,
+	                                    const vsg::vec3&                 p0,
+	                                    const vsg::vec3&                 p1,
+	                                    const vsg::vec3&                 p2,
+	                                    const vsg::vec3&                 p3,
+	                                    uint32_t                         entityId)
+	{
+		auto verts = vsg::vec3Array::create(6);
+
+		const vsg::vec3 tri[6] = {p0, p1, p2, p0, p2, p3};
+		for (unsigned i = 0; i < 6; ++i)
+		{
+			(*verts)[i] = tri[i];
+		}
+
+		return buildIdGeometry(triIdSet, sharedObjects, verts, entityId);
+	}
+
+	//! Picking counterpart of buildTriangle()
+	vsg::ref_ptr<vsg::Node> buildTriangleId(vsg::ref_ptr<vsg::ShaderSet>     triIdSet,
+	                                        vsg::ref_ptr<vsg::SharedObjects> sharedObjects,
+	                                        const vsg::vec3&                 p0,
+	                                        const vsg::vec3&                 p1,
+	                                        const vsg::vec3&                 p2,
+	                                        uint32_t                         entityId)
+	{
+		auto verts = vsg::vec3Array::create(3);
+
+		const vsg::vec3 tri[3] = {p0, p1, p2};
+		for (unsigned i = 0; i < 3; ++i)
+		{
+			(*verts)[i] = tri[i];
+		}
+
+		return buildIdGeometry(triIdSet, sharedObjects, verts, entityId);
+	}
+
 	//! Returns a unit vector perpendicular to 'dir'
 	CCVector3 perpendicularTo(const CCVector3& dir)
 	{
@@ -770,7 +891,77 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 		return {};
 	}
 
-	auto group = vsg::Group::create();
+	auto group   = vsg::Group::create();
+	auto idGroup = vsg::Group::create();
+
+	// Every piece of the sensor wireframe is built twice: once for the display
+	// and once for the picking pass (M6.5).
+	auto addSegments = [&](const PointList& pts, const ColorList& cols)
+	{
+		if (auto node = buildSegments(m_flatLineListShaderSet, m_sharedObjects, pts, cols))
+		{
+			group->addChild(node);
+		}
+		if (auto node = buildSegmentsId(m_lineListIdShaderSet, m_sharedObjects, pts, entityId))
+		{
+			idGroup->addChild(node);
+		}
+	};
+
+	auto addLoop = [&](const PointList& pts, const ccColor::Rgba& color, bool closed)
+	{
+		if (auto node = buildLoop(m_flatLineListShaderSet, m_sharedObjects, pts, color, closed))
+		{
+			group->addChild(node);
+		}
+		if (auto node = buildLoopId(m_lineListIdShaderSet, m_sharedObjects, pts, entityId, closed))
+		{
+			idGroup->addChild(node);
+		}
+	};
+
+	auto addBox = [&](const vsg::vec3& minC, const vsg::vec3& maxC, const ccColor::Rgba& color)
+	{
+		if (auto node = buildBoxEdges(m_flatLineListShaderSet, m_sharedObjects, minC, maxC, color))
+		{
+			group->addChild(node);
+		}
+		if (auto node = buildBoxEdgesId(m_lineListIdShaderSet, m_sharedObjects, minC, maxC, entityId))
+		{
+			idGroup->addChild(node);
+		}
+	};
+
+	auto addQuad = [&](const vsg::vec3& p0,
+	                   const vsg::vec3& p1,
+	                   const vsg::vec3& p2,
+	                   const vsg::vec3& p3,
+	                   const ccColor::Rgba& color)
+	{
+		if (auto node = buildQuad(m_flatTriangleShaderSet, m_sharedObjects, p0, p1, p2, p3, color))
+		{
+			group->addChild(node);
+		}
+		if (auto node = buildQuadId(m_triangleIdShaderSet, m_sharedObjects, p0, p1, p2, p3, entityId))
+		{
+			idGroup->addChild(node);
+		}
+	};
+
+	auto addTriangle = [&](const vsg::vec3& p0,
+	                       const vsg::vec3& p1,
+	                       const vsg::vec3& p2,
+	                       const ccColor::Rgba& color)
+	{
+		if (auto node = buildTriangle(m_flatTriangleShaderSet, m_sharedObjects, p0, p1, p2, color))
+		{
+			group->addChild(node);
+		}
+		if (auto node = buildTriangleId(m_triangleIdShaderSet, m_sharedObjects, p0, p1, p2, entityId))
+		{
+			idGroup->addChild(node);
+		}
+	};
 
 	if (auto* gbl = dynamic_cast<ccGBLSensor*>(sensor))
 	{
@@ -803,23 +994,13 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 				cols.push_back(axisColors[k]);
 			}
 
-			if (auto node = buildSegments(m_flatLineListShaderSet, m_sharedObjects, pts, cols))
-			{
-				group->addChild(node);
-			}
+			addSegments(pts, cols);
 		}
 
 		// sensor head (wireframe box)
 		{
 			const float hs = static_cast<float>(halfHeadSize * scale);
-			if (auto node = buildBoxEdges(m_flatLineListShaderSet,
-			                              m_sharedObjects,
-			                              vsg::vec3(-hs, -hs, -hs),
-			                              vsg::vec3(hs, hs, hs),
-			                              col))
-			{
-				group->addChild(node);
-			}
+			addBox(vsg::vec3(-hs, -hs, -hs), vsg::vec3(hs, hs, hs), col);
 		}
 
 		// sensor legs
@@ -842,10 +1023,7 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 				cols.push_back(col);
 			}
 
-			if (auto node = buildSegments(m_flatLineListShaderSet, m_sharedObjects, pts, cols))
-			{
-				group->addChild(node);
-			}
+			addSegments(pts, cols);
 		}
 	}
 	else if (auto* cam = dynamic_cast<ccCameraSensor*>(sensor))
@@ -867,10 +1045,7 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 		// near plane (the OpenGL backend used a LINE_LOOP)
 		{
 			PointList pts(nearCorners, nearCorners + 4);
-			if (auto node = buildLoop(m_flatLineListShaderSet, m_sharedObjects, pts, col, true))
-			{
-				group->addChild(node);
-			}
+			addLoop(pts, col, true);
 		}
 
 		// side lines: from the optical center to the 4 corners
@@ -885,10 +1060,7 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 				cols.push_back(col);
 			}
 
-			if (auto node = buildSegments(m_flatLineListShaderSet, m_sharedObjects, pts, cols))
-			{
-				group->addChild(node);
-			}
+			addSegments(pts, cols);
 		}
 
 		// base
@@ -896,16 +1068,11 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 			const float baseHeight    = 6.0f * uly / 5.0f;
 			const float baseHalfWidth = ulx / 5.0f;
 
-			if (auto node = buildQuad(m_flatTriangleShaderSet,
-			                          m_sharedObjects,
-			                          vsg::vec3(-baseHalfWidth, uly, -ulz),
-			                          vsg::vec3(baseHalfWidth, uly, -ulz),
-			                          vsg::vec3(baseHalfWidth, baseHeight, -ulz),
-			                          vsg::vec3(-baseHalfWidth, baseHeight, -ulz),
-			                          col))
-			{
-				group->addChild(node);
-			}
+			addQuad(vsg::vec3(-baseHalfWidth, uly, -ulz),
+			        vsg::vec3(baseHalfWidth, uly, -ulz),
+			        vsg::vec3(baseHalfWidth, baseHeight, -ulz),
+			        vsg::vec3(-baseHalfWidth, baseHeight, -ulz),
+			        col);
 		}
 
 		// arrow
@@ -914,15 +1081,10 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 			const float baseHeight     = 6.0f * uly / 5.0f;
 			const float arrowHalfWidth = 2.0f * ulx / 5.0f;
 
-			if (auto node = buildTriangle(m_flatTriangleShaderSet,
-			                              m_sharedObjects,
-			                              vsg::vec3(0.0f, arrowHeight, -ulz),
-			                              vsg::vec3(-arrowHalfWidth, baseHeight, -ulz),
-			                              vsg::vec3(arrowHalfWidth, baseHeight, -ulz),
-			                              col))
-			{
-				group->addChild(node);
-			}
+			addTriangle(vsg::vec3(0.0f, arrowHeight, -ulz),
+			            vsg::vec3(-arrowHalfWidth, baseHeight, -ulz),
+			            vsg::vec3(arrowHalfWidth, baseHeight, -ulz),
+			            col);
 		}
 
 		// frustum (6 faces, each drawn as a line loop - see drawMeOnly)
@@ -946,10 +1108,7 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 						pts.push_back(toVec3(corners[face[k]]));
 					}
 
-					if (auto node = buildLoop(m_flatLineListShaderSet, m_sharedObjects, pts, col, true))
-					{
-						group->addChild(node);
-					}
+					addLoop(pts, col, true);
 				}
 			}
 		}
@@ -976,10 +1135,7 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 				cols.push_back(axisColors[k]);
 			}
 
-			if (auto node = buildSegments(m_flatLineListShaderSet, m_sharedObjects, pts, cols))
-			{
-				group->addChild(node);
-			}
+			addSegments(pts, cols);
 		}
 	}
 	else
@@ -996,10 +1152,10 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildSensor(ccSensor* sensor, uint32_t entityI
 	transform->matrix = toVSG(sensorPos);
 	transform->addChild(group);
 
-	// TODO(M6): give the sensors a picking counterpart. Their wire geometry is
-	// a group of small sub geometries (lines, quads, triangles), each of which
-	// would need an ID node built alongside the displayed one.
-	(void)entityId;
+	// the picking counterpart mirrors the display one (same transform)
+	auto idTransform = vsg::MatrixTransform::create();
+	idTransform->matrix = toVSG(sensorPos);
+	idTransform->addChild(idGroup);
 
-	return {transform, {}};
+	return {transform, idTransform};
 }

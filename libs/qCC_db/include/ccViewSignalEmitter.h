@@ -87,4 +87,9 @@ Q_SIGNALS:
 	    both backends expose the very same signal (M6.4).
 	 **/
 	void pivotPointChanged(const CCVector3d&);
+
+	//! Signal emitted when a new label is created (LABEL_PICKING)
+	/** \note It used to be declared by ccGLWindowSignalEmitter only (M6.5).
+	 **/
+	void newLabel(ccHObject* obj);
 };

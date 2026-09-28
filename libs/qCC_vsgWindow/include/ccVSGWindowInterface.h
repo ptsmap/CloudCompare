@@ -51,6 +51,7 @@
 
 // system
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 class ccDrawableObject;
@@ -269,6 +270,13 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
    **/
   void doPicking(int x, int y);
 
+  //! Queues a picking request (see scheduleDeferredAction)
+  /** Same as doPicking(), but run once the VSG event handling is over: the
+      picking needs an extra frame, which must not be rendered from within an
+      event handler.
+   **/
+  void requestPicking(int x, int y);
+
   // ----------------------------------------------------------------------
   // Depth unprojection (M6.4)
   // ----------------------------------------------------------------------
@@ -297,6 +305,9 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
    **/
   void processMouseDoubleClick(int x, int y);
 
+  //! Queues a double click request (see scheduleDeferredAction)
+  void requestMouseDoubleClick(int x, int y);
+
   // ----------------------------------------------------------------------
   // Signals
   // ----------------------------------------------------------------------
@@ -315,6 +326,26 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
         is a Vulkan (reverse depth, Y flipped) matrix.
    **/
   void updateCamera();
+
+  //! Runs an action once the VSG event handling is over
+  /** Both the picking and the double click need an extra (offscreen) frame.
+      They are triggered from a VSG event handler, i.e. from
+      vsg::Viewer::handleEvents(): rendering there would re-enter the viewer
+      (advanceToNextFrame() clears the very event queue that is being
+      iterated) and would submit a frame within a frame.
+      The Qt based view overrides this with a QTimer::singleShot() so that the
+      action runs on the next event loop iteration, between two frames.
+   **/
+  virtual void scheduleDeferredAction(std::function<void()> action);
+
+  //! Unlinks every entity that points at this view (called before destruction)
+  /** The entities keep a raw pointer to their display (see
+      ccDrawableObject::m_currentDisplay): as the OpenGL backend does in its
+      own destructor, they have to be unlinked before this object is destroyed
+      (a dangling display is a virtual call on a half destroyed object, i.e.
+      __cxa_pure_virtual / a crash).
+   **/
+  void unlinkEntitiesFromDisplay();
 
   // ----------------------------------------------------------------------
   // Offscreen rendering (M6)

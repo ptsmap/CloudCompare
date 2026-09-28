@@ -73,6 +73,14 @@ class CCVSGWINDOW_LIB_API ccVSGWindow : public QWidget, public ccVSGWindowInterf
 	void deprecate3DLayer() override;
 
   protected:
+	//! Defers an action to the next event loop iteration
+	/** The picking and the double click both need an extra (offscreen) frame
+	    and are triggered by a VSG event handler: they must not be run from
+	    there (see ccVSGWindowInterface::scheduleDeferredAction()). Using this
+	    widget as the timer context also cancels the action if the view is
+	    destroyed before the timer fires. **/
+	void scheduleDeferredAction(std::function<void()> action) override;
+
 	//! Keep the embedded VSG (Vulkan/Metal) surface in sync with the widget.
 	/** On macOS MDI maximize/restore the QWindow hosted by createWindowContainer
 		does not reliably receive the new size, so the swapchain / window extent

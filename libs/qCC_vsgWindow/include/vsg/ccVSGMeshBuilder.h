@@ -78,9 +78,8 @@ class ccVSGMeshBuilder
 	    frustum (near plane, side lines, base, arrow and axes) - mirroring
 	    ccGBLSensor::drawMeOnly() and ccCameraSensor::drawMeOnly().
 
-	    \warning The sensor is currently **not pickable** (the returned `ids`
-	    node is null): its wire geometry is a group of small sub geometries
-	    that would each need an ID counterpart - see the TODO in the .cpp. **/
+	    Each piece of the wireframe (lines, quads, triangles) is built twice, so
+	    that the sensors are pickable as well (M6.5). **/
 	ccVSGBuiltNodes buildSensor(ccSensor* sensor, uint32_t entityId);
 
   private:

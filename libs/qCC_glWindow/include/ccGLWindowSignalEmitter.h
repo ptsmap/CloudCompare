@@ -132,8 +132,7 @@ class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public ccViewSignalEmitter
 	//! Signal emitted when files are dropped on the window
 	void filesDropped(const QStringList& filenames);
 
-	//! Signal emitted when a new label is created
-	void newLabel(ccHObject* obj);
+	//! (newLabel now lives in the backend agnostic ccViewSignalEmitter - M6.5)
 
 	//! Signal emitted when the exclusive fullscreen is toggled
 	void exclusiveFullScreenToggled(bool exclusive);
