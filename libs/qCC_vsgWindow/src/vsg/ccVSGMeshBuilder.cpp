@@ -17,6 +17,9 @@
 
 // Local
 #include <vsg/ccVSGMeshBuilder.h>
+
+// qCC_glWindow (only for ccGui::Parameters(): the persistent display params)
+#include <ccGuiParameters.h>
 #include <vsg/ccVSGShaders.h>
 
 // qCC_db
@@ -516,7 +519,8 @@ namespace
 } // namespace
 
 ccVSGMeshBuilder::ccVSGMeshBuilder()
-    : m_meshShaderSet(ccVSGShaders::createMeshShaderSet(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
+    : m_meshShaderSet(ccVSGShaders::createMeshShaderSet(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, true))
+    , m_meshShaderSetSingleSided(ccVSGShaders::createMeshShaderSet(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false))
     , m_flatTriangleShaderSet(ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST))
     , m_flatLineListShaderSet(ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_LINE_LIST))
     , m_flatLineStripShaderSet(ccVSGShaders::createFlatShaderSet(VK_PRIMITIVE_TOPOLOGY_LINE_STRIP))
@@ -687,6 +691,13 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildMesh(ccGenericMesh* mesh, const ccColor::
 	// ---------------------------------------------------------------------
 	// solid triangles
 	// ---------------------------------------------------------------------
+	// M4.6: the double sided lighting flag (Display Settings dialog) selects the
+	// shader variant. It also drives the back face culling: a two-sided mesh is
+	// not culled (so that its interior is visible and lit from both sides),
+	// while a single-sided mesh uses the standard back face culling.
+	const bool twoSided = ccGui::Parameters().lightDoubleSided;
+	vsg::ref_ptr<vsg::ShaderSet> solidShaderSet = twoSided ? m_meshShaderSet : m_meshShaderSetSingleSided;
+
 	auto verts  = vsg::vec3Array::create(tv.size());
 	auto norms  = vsg::vec3Array::create(tv.size());
 	auto colors = vsg::ubvec4Array::create(tv.size());
@@ -698,7 +709,7 @@ ccVSGBuiltNodes ccVSGMeshBuilder::buildMesh(ccGenericMesh* mesh, const ccColor::
 		(*colors)[i] = tc[i];
 	}
 
-	vsg::ref_ptr<vsg::Node> highRes = buildGeometry(m_meshShaderSet, m_sharedObjects, verts, norms, colors, anyTransparent, false);
+	vsg::ref_ptr<vsg::Node> highRes = buildGeometry(solidShaderSet, m_sharedObjects, verts, norms, colors, anyTransparent, twoSided);
 	// picking counterpart (M6.1): the LOD is not reproduced - the picking pass
 	// always uses the full resolution geometry
 	vsg::ref_ptr<vsg::Node> highResIds = buildIdGeometry(m_triangleIdShaderSet, m_sharedObjects, verts, entityId);

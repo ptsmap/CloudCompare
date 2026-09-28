@@ -83,8 +83,10 @@ class ccVSGMeshBuilder
 	ccVSGBuiltNodes buildSensor(ccSensor* sensor, uint32_t entityId);
 
   private:
-	//! Lit shader set: solid triangles with per vertex normals
+	//! Lit shader set: solid triangles with per vertex normals (two-sided, M4.6)
 	vsg::ref_ptr<vsg::ShaderSet>     m_meshShaderSet;
+	//! Lit shader set: solid triangles, front faces only (single-sided, M4.6)
+	vsg::ref_ptr<vsg::ShaderSet>     m_meshShaderSetSingleSided;
 	//! Unlit shader sets (lines / wireframes / quads / LOD points)
 	vsg::ref_ptr<vsg::ShaderSet>     m_flatTriangleShaderSet;
 	vsg::ref_ptr<vsg::ShaderSet>     m_flatLineListShaderSet;

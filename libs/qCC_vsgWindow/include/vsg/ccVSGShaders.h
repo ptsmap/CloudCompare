@@ -70,8 +70,13 @@ class ccVSGShaders
 	//! Returns the shader set used to render meshes
 	/** \param topology VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST (solid) or
 	                    VK_PRIMITIVE_TOPOLOGY_LINE_LIST (wireframe)
+	    \param twoSided when true the back faces are lit as well (the normal is
+	                    flipped, i.e. `abs(dot(N, L))`); when false only the
+	                    front faces are lit (`max(dot(N, L), 0.0)`). Mirrors
+	                    `ccGui::Parameters().lightDoubleSided` (M4.6).
 	 **/
-	static vsg::ref_ptr<vsg::ShaderSet> createMeshShaderSet(VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+	static vsg::ref_ptr<vsg::ShaderSet> createMeshShaderSet(VkPrimitiveTopology   topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+	                                                        bool                  twoSided  = true);
 
 	//! Returns an unlit "flat" shader set: the vertex color is passed through
 	/** Used for the entities that must not be lit: wireframes, sensor wire

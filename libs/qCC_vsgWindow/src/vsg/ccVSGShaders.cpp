@@ -208,7 +208,10 @@ void main()
 }
 )";
 
-	const char* s_meshFragmentSource = R"(
+	//! Mesh fragment shader, two-sided lighting (M4.6): the back faces are lit
+	//! as well by flipping the normal, i.e. `abs(dot(N, L))`. This mirrors
+	//! `ccGui::Parameters().lightDoubleSided == true` (GL_LIGHT_MODEL_TWO_SIDE).
+	const char* s_meshFragmentSourceTwoSided = R"(
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
@@ -218,9 +221,33 @@ layout(location = 0) out vec4 outColor;
 
 void main()
 {
-    // cheap two-sided lambert term so that meshes are readable
+    // cheap two-sided lambert term so that meshes are readable from both sides
     vec3  n     = normalize(normalDir);
     float light = abs(dot(n, vec3(0.0, 0.0, 1.0)));
+    light       = 0.35 + 0.65 * light;
+
+    outColor = vec4(vertexColor.rgb * light, vertexColor.a);
+}
+)";
+
+	//! Mesh fragment shader, single-sided lighting (M4.6): only the front faces
+	//! are lit (`max(dot(N, L), 0.0)`); the back faces stay dark. Mirrors
+	//! `ccGui::Parameters().lightDoubleSided == false` (GL_LIGHT_MODEL_TWO_SIDE
+	//! disabled). The light is a headlight along +Z in view space, matching the
+	//! OpenGL backend's sun light direction (m_sunLightPos = (0, 0, 1, 0)).
+	const char* s_meshFragmentSourceSingleSided = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) in vec4 vertexColor;
+layout(location = 1) in vec3 normalDir;
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+    // single-sided lambert: back faces (facing away) are not lit
+    vec3  n     = normalize(normalDir);
+    float light = max(dot(n, vec3(0.0, 0.0, 1.0)), 0.0);
     light       = 0.35 + 0.65 * light;
 
     outColor = vec4(vertexColor.rgb * light, vertexColor.a);
@@ -362,11 +389,13 @@ vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createPointSpriteShaderSet()
 	return shaderSet;
 }
 
-vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createMeshShaderSet(VkPrimitiveTopology topology)
+vsg::ref_ptr<vsg::ShaderSet> ccVSGShaders::createMeshShaderSet(VkPrimitiveTopology topology, bool twoSided)
 {
+	const char* fragmentSource = twoSided ? s_meshFragmentSourceTwoSided : s_meshFragmentSourceSingleSided;
+
 	vsg::ShaderStages stages{
 	    vsg::ShaderStage::create(VK_SHADER_STAGE_VERTEX_BIT, "main", s_meshVertexSource),
-	    vsg::ShaderStage::create(VK_SHADER_STAGE_FRAGMENT_BIT, "main", s_meshFragmentSource)};
+	    vsg::ShaderStage::create(VK_SHADER_STAGE_FRAGMENT_BIT, "main", fragmentSource)};
 
 	auto shaderSet = vsg::ShaderSet::create(stages);
 

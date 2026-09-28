@@ -18,6 +18,9 @@
 // Local
 #include <vsg/ccVSGSceneBuilder.h>
 
+// qCC_glWindow (only for ccGui::Parameters(): the persistent display params)
+#include <ccGuiParameters.h>
+
 // qCC_db
 #include <ccGLMatrix.h>
 #include <ccGenericMesh.h>
@@ -391,6 +394,9 @@ quint64 ccVSGSceneBuilder::computeSignature(ccHObject* obj)
 
 		hashCombine(hash, mesh->size());
 		hashCombine(hash, mesh->hasTriNormals() ? 29u : 31u);
+		// M4.6: the double sided lighting flag changes the mesh shader (and the
+		// back face culling), so a toggle must force the mesh to be rebuilt
+		hashCombine(hash, ccGui::Parameters().lightDoubleSided ? 61u : 67u);
 
 		if (ccGenericPointCloud* cloud = mesh->getAssociatedCloud())
 		{

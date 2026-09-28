@@ -1115,7 +1115,7 @@ commandGraph->addChild(overlayGraph);
 - [x] Polyline（`LINE_STRIP`；`getWidth()>1` 走 CPU quad 扩展）与 Sensor（GBL / Camera）；❌ Facet
 - [x] 半透明：`DepthSorted` + `Bin`（`CC_VSG_TRANSPARENT_BIN`，`DESCENDING`）
 - [x] LOD → `vsg::LOD`（>10 万三角面，按屏幕占比切换；见 D.11.4）
-- [ ] 双面光照 / 背面剔除开关（M4.6；着色器用 `abs(dot)` 做廉价双面，但无可配置开关）
+- [x] 双面光照 / 背面剔除开关（M4.6；`ccVSGShaders::createMeshShaderSet(topology, twoSided)` 选 `abs(dot)`(双面) 或 `max(dot,0)`(单面) 片元；开关接 `ccGui::Parameters().lightDoubleSided`，背面剔除随之耦合：双面→不剔除、单面→剔除背面；签名含该标志以便切换时重建网格）
 
 **M5**
 - [x] overlay RenderGraph + Orthographic（同一 RenderGraph 内第二个 `vsg::View`，深度测试关闭）
