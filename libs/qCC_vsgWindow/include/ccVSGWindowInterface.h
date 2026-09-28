@@ -349,6 +349,20 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   }
 
   protected:
+  //! (Re)builds the on screen command graph for the M7.1 post-processing
+  //! pipeline.
+  /** Structure (verified against the vsgrendertotexture example):
+        CommandGraph
+          ├─ rg3D    (OFFSCREEN, MSAA color+depth + resolve) -> 3D View
+          └─ rgPost   (WINDOW attached) -> full-screen post pass (samples the
+                       resolved 3D color) + overlay View on top
+
+      The 3D scene is therefore rendered into an offscreen target, which is
+      what lets a later pass (SSAO, EDL, ...) sample both color and depth
+      (M7.2). Called once at initialization and again on every window resize
+      (the offscreen framebuffer is sized to the window). **/
+  void buildCommandGraph();
+
   //! Updates the VSG camera from the (backend agnostic) viewport parameters
   /** Computes:
       - the view matrix from ccViewportParameters::computeViewMatrix()
@@ -511,6 +525,10 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 
 	//! Whether the view can be closed by the user (M6.6, mirrors the GL backend)
 	bool m_unclosable = false;
+
+	//! Cached extent of the offscreen 3D target (== window extent). Used to
+	//! detect a resize and rebuild the command graph (M7.1).
+	VkExtent2D m_postExtent = {0, 0};
 
 	// ----------------------------------------------------------------------
 	// On-screen messages (M5.4)

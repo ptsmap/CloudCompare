@@ -804,7 +804,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 
 | # | 任务 |
 |---|---|
-| M7.1 | 后处理框架：离屏 color+depth → 全屏三角形 pass → `CopyImageViewToWindow` |
+| M7.1 | 后处理框架：离屏 color+depth → 全屏三角形 pass → `CopyImageViewToWindow`（已落地：`ccVSGWindowInterface::buildCommandGraph`，离屏 MSAA+resolve，全屏三角形采样 color 写窗口，覆盖层叠加） |
 | M7.2 | SSAO 迁移（Vulkan shader）；EDL、Bilateral 排后（或仅在 OpenGL 后端保留） |
 | M7.3 | LOD：CC 现有渐进式 LOD 语义映射到 `vsg::LOD`（`minimumScreenHeightRatio`） |
 | M7.4 | 大规模点云分页（可选）：ccOctree → `vsg::PagedLOD` + `DatabasePager` + 自定义 `ReaderWriter`；`ResourceHints::numDatabasePagerReadThreads` |
@@ -841,7 +841,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
 | M5 | 2D 覆盖层 | 🟡 子项全部落地：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.3 2D 标签、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加（视觉验证待 GUI）；细节完善见 D.13.10 | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 基本完成：`renderToImage()`、点/三角 CPU 拾取、**实体/框选拾取（D.15）**、**深度反投影（D.16）**、**sensor 拾取 / `LABEL_PICKING` / `ccPickingHub` 接线 / 两处崩溃修复（D.17）** 已实现；交互工具端到端的 GUI 验证未做 | 3 | 24 |
-| M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；**M7.5 性能调优已起步**：4× MSAA（`WindowTraits::samples`，M7.5）+ `ResourceHints`（256MB 缓冲 / 1GB 显存 / 8192 descriptor sets，`viewer->compile(hints)`，M7.5）；后处理框架(M7.1)、SSAO(M7.2)、移动时降细节(M7.3)、PagedLOD 分页(M7.4)未开始 | 4 | 28 |
+| M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；**M7.5 性能调优**：4× MSAA + `ResourceHints`；**M7.1 后处理框架已落地**：3D 渲染进离屏 color+depth 目标（MSAA+resolve），全屏三角形 Pass 采样该 color 写窗口，2D 覆盖层叠加其上（`ccVSGWindowInterface::buildCommandGraph`，M7.1）；SSAO(M7.2)、移动时降细节(M7.3)、PagedLOD 分页(M7.4)未开始 | 4 | 28 |
 | M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
 | **合计** | | | **26~32 PW** | ≈ **6~8 人月** |
 
@@ -1135,7 +1135,7 @@ commandGraph->addChild(overlayGraph);
 - [x] sensor 的拾取节点（原返回空 `ids`，见 D.17.3）
 
 **M7**
-- [ ] 后处理框架
+- [x] 后处理框架（`ccVSGWindowInterface::buildCommandGraph`：离屏 color+depth MSAA+resolve → 全屏三角形采样写窗口 → 覆盖层叠加，M7.1）
 - [ ] SSAO 迁移
 - [ ] LOD → `vsg::LOD`
 - [ ] 分页：`PagedLOD` + `DatabasePager`（可选）
@@ -1406,7 +1406,7 @@ material      : （无 —— 顶点阶段 pointSize UBO 已移除；Metal 下�
 | **M6** 拾取与离屏 | `ccPickingHub` 后端无关化、`ccViewInterface`/`getActiveViewWindow`、VSG 侧 CPU 拾取、`zoomGlobal()` | ✅ 抽象层与相机 fit 已完成；❌ 实体/框选的**渲染期**拾取（R32_UINT + `CopyImageToBuffer`）、深度反投影、通用 `renderToImage()` 未做（仅冒烟截图钩子 `CC_VSG_SCREENSHOT` 可用） |
 | **M8** 插件收尾 | 视图抽象、枚举统一 | ✅ 部分；❌ 插件 `requiresBackends` metadata、GL-only 插件跳过、自定义 GL drawable→`ccRenderCommandSink`、`CCPluginAPI` 解耦、立体降级未做 |
 | **M5** 2D 覆盖层 | overlay View + 正交像素投影、方向轴 trihedron | 🟡 起步：**M5.1 与 M5.4 方向轴已实现并截图验证**（见 D.13）；❌ `vsg::Text`/SDF 字体（M5.2）、`cc2DLabel`/`cc2DViewportLabel`（M5.3）、比例尺与色标（M5.4/M5.5）、`ccImage`（M5.6） |
-| **M7** 后处理/LOD | 后处理框架、SSAO、LOD→`vsg::LOD`、PagedLOD 分页、性能调优 | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，按屏幕占比切换）；❌ 后处理、SSAO、PagedLOD 分页、性能调优未开始 |
+| **M7** 后处理/LOD | 后处理框架、SSAO、LOD→`vsg::LOD`、PagedLOD 分页、性能调优 | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，按屏幕占比切换）；**M7.5 性能调优（MSAA+ResourceHints）已落地**；**M7.1 后处理框架已落地**（离屏 color+depth MSAA+resolve → 全屏三角形采样写窗口 → 覆盖层叠加）；❌ SSAO、PagedLOD 分页未开始 |
 
 ### D.10.3 下一步优先级建议
 

@@ -36,6 +36,7 @@
 #include <CCConst.h>
 
 // VSG
+#include <iostream>
 #include <vsg/all.h>
 
 // vsgQt
@@ -57,32 +58,50 @@
 
 namespace
 {
-	//! Finds the vsg::View of a command graph (CommandGraph -> RenderGraph -> View)
-	vsg::ref_ptr<vsg::View> findView(vsg::ref_ptr<vsg::Node> node)
-	{
-		if (!node)
-		{
-			return {};
-		}
+	// M7.1: sample count of the offscreen 3D render target. The 3D scene is
+	// rendered into a multisampled offscreen color+depth target and resolved
+	// into a single-sample color image that the post-process pass samples, so
+	// antialiasing (M7.5) is preserved even though the 3D no longer renders
+	// straight into the (single-sample) swapchain. Drop to VK_SAMPLE_COUNT_1_BIT
+	// if a driver rejects the resolve.
+	constexpr VkSampleCountFlagBits CC_VSG_POST_SAMPLES = VK_SAMPLE_COUNT_4_BIT;
 
-		if (auto* view = dynamic_cast<vsg::View*>(node.get()))
-		{
-			return vsg::ref_ptr<vsg::View>(view);
-		}
+	// Full-screen post-process pass (M7.1): an oversized triangle covering the
+	// whole clip space, sampling the offscreen 3D color image. The vertex
+	// shader forwards the clip-space position (camera matrices are ignored)
+	// and the UVs. UV.y is flipped (v = 0 is the top of the offscreen image,
+	// matching Vulkan's framebuffer origin) so the image is not upside down.
+	const char* s_postVertexSource = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
 
-		if (auto* group = dynamic_cast<vsg::Group*>(node.get()))
-		{
-			for (auto& child : group->children)
-			{
-				if (auto found = findView(child))
-				{
-					return found;
-				}
-			}
-		}
+layout(location = 0) in vec3 vsg_Vertex;
+layout(location = 1) in vec2 vsg_TexCoord0;
 
-		return {};
-	}
+layout(location = 1) out vec2 uv;
+
+void main()
+{
+    gl_Position = vec4(vsg_Vertex, 1.0);
+    uv = vsg_TexCoord0;
+}
+)";
+
+	const char* s_postFragmentSource = R"(
+#version 450
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(binding = 0, set = 0) uniform sampler2D colorTexture;
+
+layout(location = 1) in vec2 uv;
+
+layout(location = 0) out vec4 outColor;
+
+void main()
+{
+    outColor = texture(colorTexture, uv);
+}
+)";
 
 	//! Collects the visible 2D images of the DB tree (M5.6)
 	/** CloudCompare draws all the visible images, one on top of the other. **/
@@ -129,33 +148,6 @@ namespace
 		}
 
 		return nullptr;
-	}
-
-	//! Finds the vsg::RenderGraph of a command graph (CommandGraph -> RenderGraph)
-	vsg::ref_ptr<vsg::RenderGraph> findRenderGraph(vsg::ref_ptr<vsg::Node> node)
-	{
-		if (!node)
-		{
-			return {};
-		}
-
-		if (auto* rg = dynamic_cast<vsg::RenderGraph*>(node.get()))
-		{
-			return vsg::ref_ptr<vsg::RenderGraph>(rg);
-		}
-
-		if (auto* group = dynamic_cast<vsg::Group*>(node.get()))
-		{
-			for (auto& child : group->children)
-			{
-				if (auto found = findRenderGraph(child))
-				{
-					return found;
-				}
-			}
-		}
-
-		return {};
 	}
 
 	//! M7.5: resource hints shared by every viewer->compile() so that large
@@ -257,52 +249,22 @@ bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, 
 	m_sceneRoot = m_sceneBuilder.sceneRoot();
 	assert(m_sceneRoot);
 
-	vsg::ref_ptr<vsg::CommandGraph> commandGraph = vsg::createCommandGraphForView(window, m_camera, m_sceneRoot);
-	m_commandGraph                               = commandGraph;
-
-	// Transparent entities are collected in a dedicated bin and sorted back to
-	// front by the view (M4.5 - see ccVSGSceneBuilder::syncEntity).
-	// The bins are indexed by their bin number, so the vector must be filled
-	// up to CC_VSG_TRANSPARENT_BIN.
-	if (auto view = findView(commandGraph))
-	{
-		while (static_cast<int32_t>(view->bins.size()) <= CC_VSG_TRANSPARENT_BIN)
-		{
-			view->bins.push_back(vsg::Bin::create(static_cast<int32_t>(view->bins.size()), vsg::Bin::NO_SORT));
-		}
-
-		view->bins[CC_VSG_TRANSPARENT_BIN] = vsg::Bin::create(CC_VSG_TRANSPARENT_BIN, vsg::Bin::DESCENDING);
-	}
-
 	// ----------------------------------------------------------------------
 	// 2D overlay (M5.1)
-	// A second View added to the *same* RenderGraph: it is therefore recorded
-	// after the 3D view within the same render pass (no additional clear), and
-	// its pipelines have the depth test disabled so that it always ends up on
-	// top of the 3D image.
+	// A second View, drawn on top of the 3D image (its pipelines have the
+	// depth test disabled). It is re-parented into the post-process render
+	// graph by buildCommandGraph() (M7.1), which also builds the offscreen
+	// 3D target + full-screen post pass.
 	// ----------------------------------------------------------------------
 	m_overlayViewMatrix = ccVSGViewMatrix::create();
 	m_overlayViewMatrix->matrix = vsg::dmat4(); // identity: pixel coordinates
 	m_overlayProjection = vsg::Orthographic::create();
 	// the viewport state is shared with the 3D camera so that both stay in sync
-	m_overlayCamera     = vsg::Camera::create(m_overlayProjection, m_overlayViewMatrix, m_camera->viewportState);
-	m_overlayView       = vsg::View::create(m_overlayCamera, m_overlayBuilder.overlayRoot());
+	m_overlayCamera = vsg::Camera::create(m_overlayProjection, m_overlayViewMatrix, m_camera->viewportState);
 
-	// every pipeline of the overlay must be drawn on top of the 3D image: this
-	// also covers the text nodes, whose pipeline is built by VSG itself
-	{
-		auto dss              = vsg::DepthStencilState::create();
-		dss->depthTestEnable  = VK_FALSE;
-		dss->depthWriteEnable = VK_FALSE;
-		m_overlayView->overridePipelineStates = {dss};
-	}
-
-	if (auto renderGraph = findRenderGraph(commandGraph))
-	{
-		renderGraph->addChild(m_overlayView);
-	}
-
-	m_viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
+	// M7.1: build the offscreen 3D target + full-screen post-process pass +
+	// overlay. (Re)creates m_commandGraph and compiles the viewer.
+	buildCommandGraph();
 
 	// CloudCompare camera semantics (virtual trackball, pivot point, ...)
 	m_manipulator = ccVSGCameraManipulator::create(this);
@@ -319,6 +281,275 @@ bool ccVSGWindowInterface::initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, 
 	m_initialized = true;
 
 	return true;
+}
+
+void ccVSGWindowInterface::buildCommandGraph()
+{
+	if (!m_viewer || !m_window || !m_window->windowAdapter || !m_camera || !m_sceneRoot)
+	{
+		return;
+	}
+
+	vsg::ref_ptr<vsg::Window> window = m_window->windowAdapter;
+	vsg::ref_ptr<vsg::Device> device = window->getOrCreateDevice();
+	if (!device)
+	{
+		return;
+	}
+
+	uint32_t width  = window->extent2D().width;
+	uint32_t height = window->extent2D().height;
+	if (width == 0) width = 1;
+	if (height == 0) height = 1;
+
+	// ----------------------------------------------------------------------
+	// Offscreen 3D target: multisampled color + depth, resolved into a
+	// single-sample color image that the post pass samples (M7.1).
+	// ----------------------------------------------------------------------
+	const VkSampleCountFlagBits samples = CC_VSG_POST_SAMPLES;
+
+	auto makeImage = [&](VkFormat format, VkImageUsageFlags usage, VkSampleCountFlagBits imageSamples) -> vsg::ref_ptr<vsg::Image>
+	{
+		vsg::ref_ptr<vsg::Image> image = vsg::Image::create();
+		image->flags         = 0;
+		image->imageType     = VK_IMAGE_TYPE_2D;
+		image->format        = format;
+		image->extent        = VkExtent3D{width, height, 1};
+		image->mipLevels     = 1;
+		image->arrayLayers   = 1;
+		image->samples       = imageSamples;
+		image->tiling        = VK_IMAGE_TILING_OPTIMAL;
+		image->usage         = usage;
+		image->sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+		image->initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		if (image->compile(device) != VK_SUCCESS)
+		{
+			return {};
+		}
+		return image;
+	};
+
+	// color (MSAA) + depth (MSAA) + resolved color (single-sample, sampled)
+	vsg::ref_ptr<vsg::Image> colorMS      = makeImage(VK_FORMAT_R8G8B8A8_UNORM,
+	                                                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+	                                                 samples);
+	vsg::ref_ptr<vsg::Image> depthMS      = makeImage(VK_FORMAT_D32_SFLOAT,
+	                                                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+	                                                 samples);
+	vsg::ref_ptr<vsg::Image> resolveColor = makeImage(VK_FORMAT_R8G8B8A8_UNORM,
+	                                                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+	                                                 VK_SAMPLE_COUNT_1_BIT);
+
+	if (!colorMS || !depthMS || !resolveColor)
+	{
+		std::cerr << "[VSG] buildCommandGraph: failed to allocate the offscreen attachments" << std::endl;
+		return;
+	}
+
+	vsg::ref_ptr<vsg::ImageView> colorMS_iv      = vsg::createImageView(device, colorMS, VK_IMAGE_ASPECT_COLOR_BIT);
+	vsg::ref_ptr<vsg::ImageView> depthMS_iv      = vsg::createImageView(device, depthMS, VK_IMAGE_ASPECT_DEPTH_BIT);
+	vsg::ref_ptr<vsg::ImageView> resolveColor_iv = vsg::createImageView(device, resolveColor, VK_IMAGE_ASPECT_COLOR_BIT);
+
+	if (!colorMS_iv || !depthMS_iv || !resolveColor_iv)
+	{
+		std::cerr << "[VSG] buildCommandGraph: failed to create the offscreen image views" << std::endl;
+		return;
+	}
+
+	// Render pass: 0 = MSAA color, 1 = resolved color (sampled), 2 = MSAA depth.
+	vsg::RenderPass::Attachments attachments(3);
+
+	attachments[0].format        = VK_FORMAT_R8G8B8A8_UNORM;
+	attachments[0].samples       = samples;
+	attachments[0].loadOp        = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachments[0].storeOp       = VK_ATTACHMENT_STORE_OP_STORE;
+	attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[0].stencilStoreOp= VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachments[0].finalLayout   = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+	attachments[1].format        = VK_FORMAT_R8G8B8A8_UNORM;
+	attachments[1].samples       = VK_SAMPLE_COUNT_1_BIT;
+	attachments[1].loadOp        = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[1].storeOp       = VK_ATTACHMENT_STORE_OP_STORE;
+	attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[1].stencilStoreOp= VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachments[1].finalLayout   = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+	attachments[2].format        = VK_FORMAT_D32_SFLOAT;
+	attachments[2].samples       = samples;
+	attachments[2].loadOp        = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachments[2].storeOp       = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[2].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[2].stencilStoreOp= VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachments[2].finalLayout   = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+	vsg::AttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+	vsg::AttachmentReference resolveRef{1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+	vsg::AttachmentReference depthRef{2, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+
+	vsg::RenderPass::Subpasses subpasses(1);
+	subpasses[0].pipelineBindPoint         = VK_PIPELINE_BIND_POINT_GRAPHICS;
+	subpasses[0].colorAttachments.push_back(colorRef);
+	subpasses[0].resolveAttachments.push_back(resolveRef);
+	subpasses[0].depthStencilAttachments.push_back(depthRef);
+
+	// Barriers so the post pass (external) can sample the resolved color:
+	// copied from the vsgrendertotexture offscreen example.
+	vsg::RenderPass::Dependencies dependencies(2);
+	dependencies[0].srcSubpass    = VK_SUBPASS_EXTERNAL;
+	dependencies[0].dstSubpass    = 0;
+	dependencies[0].srcStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[0].dstStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+	dependencies[1].srcSubpass    = 0;
+	dependencies[1].dstSubpass    = VK_SUBPASS_EXTERNAL;
+	dependencies[1].srcStageMask  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	dependencies[1].dstStageMask  = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+
+	vsg::ref_ptr<vsg::RenderPass> renderPass = vsg::RenderPass::create(device, attachments, subpasses, dependencies);
+
+	vsg::ref_ptr<vsg::Framebuffer> framebuffer = vsg::Framebuffer::create(renderPass,
+	                                                                       vsg::ImageViews{colorMS_iv, resolveColor_iv, depthMS_iv},
+	                                                                       width,
+	                                                                       height,
+	                                                                       1);
+
+	// 3D view, rendered into the offscreen target.
+	auto view3D = vsg::View::create(m_camera, m_sceneRoot);
+
+	// Transparent entities: dedicated bin, sorted back-to-front (M4.5).
+	while (static_cast<int32_t>(view3D->bins.size()) <= CC_VSG_TRANSPARENT_BIN)
+	{
+		view3D->bins.push_back(vsg::Bin::create(static_cast<int32_t>(view3D->bins.size()), vsg::Bin::NO_SORT));
+	}
+	view3D->bins[CC_VSG_TRANSPARENT_BIN] = vsg::Bin::create(CC_VSG_TRANSPARENT_BIN, vsg::Bin::DESCENDING);
+
+	auto rg3D = vsg::RenderGraph::create();
+	rg3D->framebuffer = framebuffer;
+	rg3D->renderArea  = VkRect2D{{0, 0}, {width, height}};
+	rg3D->setClearValues(VkClearColorValue{{0.0f, 0.0f, 0.0f, 1.0f}}, VkClearDepthStencilValue{0.0f, 0});
+	rg3D->addChild(view3D);
+
+	// ----------------------------------------------------------------------
+	// Post-process pass: full-screen triangle sampling the resolved color.
+	// ----------------------------------------------------------------------
+	auto postVertexShader   = vsg::ShaderStage::create(VK_SHADER_STAGE_VERTEX_BIT, "main", s_postVertexSource);
+	auto postFragmentShader = vsg::ShaderStage::create(VK_SHADER_STAGE_FRAGMENT_BIT, "main", s_postFragmentSource);
+
+	// Full-screen triangle: clip-space positions + UVs (UV.y flipped so the
+	// offscreen image is not upside down, see the shader comment).
+	vsg::ref_ptr<vsg::vec3Array> positions = vsg::vec3Array::create({
+		vsg::vec3(-1.0f, -1.0f, 0.0f),
+		vsg::vec3( 3.0f, -1.0f, 0.0f),
+		vsg::vec3(-1.0f,  3.0f, 0.0f)});
+	vsg::ref_ptr<vsg::vec2Array> uvs = vsg::vec2Array::create({
+		vsg::vec2(0.0f, 1.0f),
+		vsg::vec2(2.0f, 1.0f),
+		vsg::vec2(0.0f, -1.0f)});
+
+	vsg::DescriptorSetLayoutBindings descriptorBindings{
+		{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
+	vsg::ref_ptr<vsg::DescriptorSetLayout> descriptorSetLayout = vsg::DescriptorSetLayout::create(descriptorBindings);
+
+	vsg::PushConstantRanges pushConstantRanges{{VK_SHADER_STAGE_VERTEX_BIT, 0, 128}};
+	vsg::VertexInputState::Bindings vertexBindingsDescriptions{
+		VkVertexInputBindingDescription{0, sizeof(vsg::vec3), VK_VERTEX_INPUT_RATE_VERTEX},
+		VkVertexInputBindingDescription{1, sizeof(vsg::vec2), VK_VERTEX_INPUT_RATE_VERTEX}};
+	vsg::VertexInputState::Attributes vertexAttributeDescriptions{
+		VkVertexInputAttributeDescription{0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0},
+		VkVertexInputAttributeDescription{1, 1, VK_FORMAT_R32G32_SFLOAT, 0}};
+
+	vsg::ref_ptr<vsg::DepthStencilState> depthStencil = vsg::DepthStencilState::create();
+	depthStencil->depthTestEnable  = VK_FALSE;
+	depthStencil->depthWriteEnable = VK_FALSE;
+
+	vsg::GraphicsPipelineStates pipelineStates{
+		vsg::VertexInputState::create(vertexBindingsDescriptions, vertexAttributeDescriptions),
+		vsg::InputAssemblyState::create(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST),
+		vsg::RasterizationState::create(),
+		vsg::MultisampleState::create(VK_SAMPLE_COUNT_1_BIT),
+		vsg::ColorBlendState::create(),
+		depthStencil};
+
+	vsg::ref_ptr<vsg::PipelineLayout> pipelineLayout =
+		vsg::PipelineLayout::create(vsg::DescriptorSetLayouts{descriptorSetLayout}, pushConstantRanges);
+	vsg::ref_ptr<vsg::GraphicsPipeline> graphicsPipeline =
+		vsg::GraphicsPipeline::create(pipelineLayout,
+		                             vsg::ShaderStages{postVertexShader, postFragmentShader},
+		                             pipelineStates);
+	vsg::ref_ptr<vsg::BindGraphicsPipeline> bindGraphicsPipeline = vsg::BindGraphicsPipeline::create(graphicsPipeline);
+
+	// Sampler + descriptor for the resolved color image.
+	vsg::ref_ptr<vsg::Sampler> sampler = vsg::Sampler::create();
+	sampler->magFilter     = VK_FILTER_LINEAR;
+	sampler->minFilter     = VK_FILTER_LINEAR;
+	sampler->addressModeU  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler->addressModeV  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler->addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	sampler->maxLod        = 1.0f;
+
+	vsg::ref_ptr<vsg::ImageInfo> colorImageInfo = vsg::ImageInfo::create();
+	colorImageInfo->imageView    = resolveColor_iv;
+	colorImageInfo->imageLayout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	colorImageInfo->sampler      = sampler;
+
+	vsg::ref_ptr<vsg::DescriptorImage> texture =
+		vsg::DescriptorImage::create(colorImageInfo, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	vsg::ref_ptr<vsg::DescriptorSet> descriptorSet =
+		vsg::DescriptorSet::create(descriptorSetLayout, vsg::Descriptors{texture});
+	vsg::ref_ptr<vsg::BindDescriptorSet> bindDescriptorSet =
+		vsg::BindDescriptorSet::create(VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, descriptorSet);
+
+	vsg::ref_ptr<vsg::Commands> commands = vsg::Commands::create();
+	commands->addChild(vsg::BindVertexBuffers::create(0, vsg::DataList{positions, uvs}));
+	commands->addChild(vsg::Draw::create(3, 1, 0, 0));
+
+	vsg::ref_ptr<vsg::StateGroup> postScene = vsg::StateGroup::create();
+	postScene->add(bindGraphicsPipeline);
+	postScene->add(bindDescriptorSet);
+	postScene->addChild(commands);
+
+	// Post camera: a clip-space pass-through (the matrices are ignored by the
+	// shader); it only provides the viewport state for the window RG.
+	vsg::ref_ptr<vsg::Orthographic> postProjection = vsg::Orthographic::create(-1.0, 1.0, -1.0, 1.0, 0.0, 1.0);
+	vsg::ref_ptr<vsg::LookAt>       postViewMatrix = vsg::LookAt::create(vsg::dvec3(0.0, 0.0, 1.0),
+	                                                                      vsg::dvec3(0.0, 0.0, 0.0),
+	                                                                      vsg::dvec3(0.0, 1.0, 0.0));
+	vsg::ref_ptr<vsg::Camera>       postCamera     = vsg::Camera::create(postProjection, postViewMatrix, m_camera->viewportState);
+
+	// Window-attached post render graph: clears the swapchain, draws the
+	// full-screen post pass, then the 2D overlay on top.
+	vsg::ref_ptr<vsg::RenderGraph> rgPost = vsg::createRenderGraphForView(window, postCamera, postScene);
+
+	m_overlayView = vsg::View::create(m_overlayCamera, m_overlayBuilder.overlayRoot());
+	{
+		vsg::ref_ptr<vsg::DepthStencilState> overlayDss = vsg::DepthStencilState::create();
+		overlayDss->depthTestEnable  = VK_FALSE;
+		overlayDss->depthWriteEnable = VK_FALSE;
+		m_overlayView->overridePipelineStates = {overlayDss};
+	}
+	rgPost->addChild(m_overlayView);
+
+	// ----------------------------------------------------------------------
+	// Single command graph: offscreen 3D first, then the window post pass.
+	// ----------------------------------------------------------------------
+	vsg::ref_ptr<vsg::CommandGraph> commandGraph = vsg::CommandGraph::create(window);
+	commandGraph->addChild(rg3D);
+	commandGraph->addChild(rgPost);
+	m_commandGraph = commandGraph;
+
+	m_viewer->assignRecordAndSubmitTaskAndPresentation({commandGraph});
+	m_viewer->compile(ccVSGResourceHints());
+
+	m_postExtent = window->extent2D();
 }
 
 vsg::dmat4 ccVSGWindowInterface::viewMatrix() const
