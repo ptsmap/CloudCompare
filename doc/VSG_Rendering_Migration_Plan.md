@@ -1118,12 +1118,12 @@ commandGraph->addChild(overlayGraph);
 - [ ] 双面光照 / 背面剔除开关（M4.6；着色器用 `abs(dot)` 做廉价双面，但无可配置开关）
 
 **M5**
-- [ ] overlay RenderGraph + Orthographic
-- [ ] `vsg::Text` + SDF 字体（标签/消息）
-- [ ] `cc2DLabel` / `cc2DViewportLabel`
-- [ ] 比例尺 / 方向轴 / 状态提示
-- [ ] 标量场色标
-- [ ] `ccImage`
+- [x] overlay RenderGraph + Orthographic（同一 RenderGraph 内第二个 `vsg::View`，深度测试关闭）
+- [x] `vsg::Text` + SDF 字体（标签/消息）—— `ccVSGFontBuilder`（freetype，按需扩展 CJK 码点）
+- [x] `cc2DLabel` / `cc2DViewportLabel`（锚点 + 引线 + 球体标记；ROI 跟随视口补偿）
+- [x] 比例尺 / 方向轴 / 状态提示（**状态提示于本次补齐**：`displayNewMessage()` 原为空实现，现把消息画在覆盖层上）
+- [x] 标量场色标（含直方图 / 对数轴 / 自定义标签）
+- [x] `ccImage`（多图叠加，居中缩放 + 全局 alpha）
 
 **M6**
 - [x] 实体拾取（R32_UINT + CopyImageToBuffer）—— 见 D.15

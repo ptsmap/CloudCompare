@@ -29,7 +29,11 @@
 #include <vsg/nodes/Group.h>
 #include <vsg/nodes/MatrixTransform.h>
 #include <vsg/text/Font.h>
+#include <vsg/text/StandardLayout.h>
 #include <vsg/utils/ShaderSet.h>
+
+// Qt
+#include <QString>
 
 class cc2DLabel;
 class cc2DViewportLabel;
@@ -119,6 +123,23 @@ class ccVSGOverlayBuilder
 	 **/
 	bool updateImages(const std::vector<const ccImage*>& images, int width, int height);
 
+	//! One on-screen message (see ccViewInterface::displayNewMessage)
+	struct Message
+	{
+		QString text;
+		//! ccViewInterface::MessagePosition
+		int position = 0;
+	};
+
+	//! Updates the on-screen messages (M5.4)
+	/** Mirrors the OpenGL backend: the messages are stacked in the lower left
+	    corner (upwards) or in the upper center (downwards); only one message is
+	    supported in the screen center.
+
+	    \return true when the group has been rebuilt
+	 **/
+	bool updateMessages(const std::vector<Message>& messages, int width, int height);
+
 	//! Updates the 2D labels (M5.3)
 	/** Handles the two flavours of CloudCompare 2D labels:
 	    - `cc2DLabel`: the name is displayed next to the projection of its 3D
@@ -179,7 +200,12 @@ class ccVSGOverlayBuilder
 	};
 
 	//! Builds a text node, wrapped in a transform so that it can be moved cheaply
-	vsg::ref_ptr<vsg::Node> createLabel(const char* text, const ccColor::Rgba& color);
+	/** \param hAlign horizontal alignment: the messages are left aligned at the
+	    left border, while everything else is centred on its anchor.
+	 **/
+	vsg::ref_ptr<vsg::Node> createLabel(const char*                    text,
+	                                    const ccColor::Rgba&           color,
+	                                    vsg::StandardLayout::Alignment hAlign = vsg::StandardLayout::CENTER_ALIGNMENT);
 
 	vsg::ref_ptr<vsg::Group>           m_root;
 	vsg::ref_ptr<vsg::MatrixTransform> m_trihedron;
@@ -200,6 +226,11 @@ class ccVSGOverlayBuilder
 	vsg::ref_ptr<vsg::Node> m_scaleBar;
 	quint64                 m_scaleBarSignature = 0;
 	bool                    m_scaleBarMounted   = false;
+
+	//! On-screen messages (M5.4)
+	vsg::ref_ptr<vsg::Node> m_messagesNode;
+	quint64                 m_messagesSignature = 0;
+	bool                    m_messagesMounted   = false;
 
 	//! 2D image overlay (M5.6)
 	vsg::ref_ptr<vsg::Node> m_imageNode;

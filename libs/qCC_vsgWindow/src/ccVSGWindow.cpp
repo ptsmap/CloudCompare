@@ -128,7 +128,7 @@ void ccVSGWindow::closeEvent(QCloseEvent* event)
 	QWidget::closeEvent(event);
 }
 
-void ccVSGWindow::scheduleDeferredAction(std::function<void()> action)
+void ccVSGWindow::scheduleDeferredAction(std::function<void()> action, int delay_ms /*=0*/)
 {
 	if (!action)
 	{
@@ -137,7 +137,7 @@ void ccVSGWindow::scheduleDeferredAction(std::function<void()> action)
 
 	// 'this' is used as the context object: Qt drops the call if this widget
 	// is destroyed before the timer fires
-	QTimer::singleShot(0, this, std::move(action));
+	QTimer::singleShot(delay_ms, this, std::move(action));
 }
 
 QSize ccVSGWindow::getScreenSize() const

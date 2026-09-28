@@ -50,8 +50,10 @@
 #include <QString>
 
 // system
+#include <chrono>
 #include <cstdint>
 #include <functional>
+#include <list>
 #include <vector>
 
 class ccDrawableObject;
@@ -365,7 +367,7 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
       The Qt based view overrides this with a QTimer::singleShot() so that the
       action runs on the next event loop iteration, between two frames.
    **/
-  virtual void scheduleDeferredAction(std::function<void()> action);
+  virtual void scheduleDeferredAction(std::function<void()> action, int delay_ms = 0);
 
   //! Unlinks every entity that points at this view (called before destruction)
   /** The entities keep a raw pointer to their display (see
@@ -509,6 +511,38 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 
 	//! Whether the view can be closed by the user (M6.6, mirrors the GL backend)
 	bool m_unclosable = false;
+
+	// ----------------------------------------------------------------------
+	// On-screen messages (M5.4)
+	// ----------------------------------------------------------------------
+
+	//! A message displayed on the 2D overlay (mirrors the OpenGL backend)
+	struct MessageToDisplay
+	{
+		QString message;
+		//! Absolute time (seconds, see elapsedSeconds()) after which it expires
+		double          messageValidity_sec = 0.0;
+		MessagePosition position            = LOWER_LEFT_MESSAGE;
+		MessageType     type                = CUSTOM_MESSAGE;
+	};
+
+	std::list<MessageToDisplay> m_messagesToDisplay;
+
+	//! Reference time used by the message delays (set on construction)
+	std::chrono::steady_clock::time_point m_startTime = std::chrono::steady_clock::now();
+
+	//! Seconds elapsed since this view was created (used by the message delays)
+	double elapsedSeconds() const;
+
+	//! Refreshes the 2D overlay (deferred, therefore safe from any callback)
+	/** The overlay is rebuilt by updateCamera(), which only runs when the
+	    camera or the viewport changes: the messages have to request it
+	    themselves (M5.4). **/
+	void refreshOverlay();
+
+	//! Drops the messages whose delay has expired
+	/** \return true when at least one message has been removed **/
+	bool purgeExpiredMessages();
 
 	// 3D coordinate display under the cursor (M6.6)
 	bool m_showCursorCoordinates = false;

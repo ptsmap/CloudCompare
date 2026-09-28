@@ -87,7 +87,7 @@ class CCVSGWINDOW_LIB_API ccVSGWindow : public QWidget, public ccVSGWindowInterf
 	    there (see ccVSGWindowInterface::scheduleDeferredAction()). Using this
 	    widget as the timer context also cancels the action if the view is
 	    destroyed before the timer fires. **/
-	void scheduleDeferredAction(std::function<void()> action) override;
+	void scheduleDeferredAction(std::function<void()> action, int delay_ms = 0) override;
 
 	//! Keep the embedded VSG (Vulkan/Metal) surface in sync with the widget.
 	/** On macOS MDI maximize/restore the QWindow hosted by createWindowContainer

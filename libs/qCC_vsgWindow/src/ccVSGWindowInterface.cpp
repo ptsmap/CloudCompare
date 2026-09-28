@@ -601,6 +601,24 @@ void ccVSGWindowInterface::updateCamera()
 			m_overlayNeedsCompile = true;
 		}
 	}
+
+	// the on-screen messages (M5.4): whatever displayNewMessage() recorded
+	{
+		purgeExpiredMessages();
+
+		std::vector<ccVSGOverlayBuilder::Message> overlayMessages;
+		overlayMessages.reserve(m_messagesToDisplay.size());
+
+		for (const MessageToDisplay& mess : m_messagesToDisplay)
+		{
+			overlayMessages.push_back({mess.message, static_cast<int>(mess.position)});
+		}
+
+		if (m_overlayBuilder.updateMessages(overlayMessages, width, height))
+		{
+			m_overlayNeedsCompile = true;
+		}
+	}
 }
 
 void ccVSGWindowInterface::setSceneDB(ccHObject* root)
@@ -698,20 +716,109 @@ void ccVSGWindowInterface::removeFromOwnDB(ccHObject* obj)
 	}
 }
 
-void ccVSGWindowInterface::displayNewMessage(const QString& message,
-                                             MessagePosition pos,
-                                             bool            append /*=false*/,
-                                             int             displayMaxDelay_sec /*=2*/,
-                                             MessageType     type /*=CUSTOM_MESSAGE*/)
+double ccVSGWindowInterface::elapsedSeconds() const
 {
-	// TODO(M5): the VSG backend has no 2D text overlay yet (vsg::Text + SDF
-	// font), so on-screen messages are dropped for now. The interactive tools
-	// call this (e.g. "Segmentation [ON]"), which is why it must exist.
-	Q_UNUSED(message);
-	Q_UNUSED(pos);
-	Q_UNUSED(append);
-	Q_UNUSED(displayMaxDelay_sec);
-	Q_UNUSED(type);
+	return std::chrono::duration<double>(std::chrono::steady_clock::now() - m_startTime).count();
+}
+
+void ccVSGWindowInterface::refreshOverlay()
+{
+	// deferred: updateCamera() must not be run from a render or event callback
+	scheduleDeferredAction([this]() { updateCamera(); });
+}
+
+bool ccVSGWindowInterface::purgeExpiredMessages()
+{
+	const double now = elapsedSeconds();
+
+	bool changed = false;
+	for (auto it = m_messagesToDisplay.begin(); it != m_messagesToDisplay.end();)
+	{
+		if (it->messageValidity_sec <= now)
+		{
+			it = m_messagesToDisplay.erase(it);
+			changed = true;
+		}
+		else
+		{
+			++it;
+		}
+	}
+
+	return changed;
+}
+
+void ccVSGWindowInterface::displayNewMessage(const QString&  message,
+                                            MessagePosition pos,
+                                            bool            append /*=false*/,
+                                            int             displayMaxDelay_sec /*=2*/,
+                                            MessageType     type /*=CUSTOM_MESSAGE*/)
+{
+	// mirrors ccGLWindowInterface::displayNewMessage(): the message is only
+	// stored here, it is drawn by the 2D overlay (M5.4)
+	if (message.isEmpty())
+	{
+		if (!append)
+		{
+			// an empty message removes the ones displayed at the same position
+			for (auto it = m_messagesToDisplay.begin(); it != m_messagesToDisplay.end();)
+			{
+				if (it->position == pos)
+				{
+					it = m_messagesToDisplay.erase(it);
+				}
+				else
+				{
+					++it;
+				}
+			}
+		}
+		else
+		{
+			ccLog::Warning("[VSG][displayNewMessage] Appending an empty message has no effect!");
+		}
+		return;
+	}
+
+	if (!append)
+	{
+		// a non custom message replaces the previous one of the same type
+		if (type != CUSTOM_MESSAGE)
+		{
+			for (auto it = m_messagesToDisplay.begin(); it != m_messagesToDisplay.end();)
+			{
+				if (it->type == type)
+				{
+					it = m_messagesToDisplay.erase(it);
+				}
+				else
+				{
+					++it;
+				}
+			}
+		}
+	}
+	else if (pos == SCREEN_CENTER_MESSAGE)
+	{
+		ccLog::Warning("[VSG][displayNewMessage] Append is not supported for center screen messages!");
+	}
+
+	MessageToDisplay mess;
+	mess.message             = message;
+	mess.messageValidity_sec = elapsedSeconds() + displayMaxDelay_sec;
+	mess.position            = pos;
+	mess.type                = type;
+	m_messagesToDisplay.push_back(mess);
+
+	// the overlay is only refreshed by updateCamera() (i.e. when the camera or
+	// the viewport changes): a message has to trigger its own refresh, both to
+	// appear now and to disappear once its delay has expired
+	refreshOverlay();
+
+	if (displayMaxDelay_sec > 0)
+	{
+		scheduleDeferredAction([this]() { refreshOverlay(); }, displayMaxDelay_sec * 1000);
+	}
 }
 
 void ccVSGWindowInterface::aboutToBeRemoved(ccDrawableObject* obj)
@@ -1080,7 +1187,7 @@ QImage ccVSGWindowInterface::renderToImage(float zoomFactor /*=1.0f*/,
 	return result;
 }
 
-void ccVSGWindowInterface::scheduleDeferredAction(std::function<void()> action)
+void ccVSGWindowInterface::scheduleDeferredAction(std::function<void()> action, int delay_ms /*=0*/)
 {
 	// the plain interface has no Qt context (see ccVSGWindow, which overrides
 	// this with a QTimer::singleShot): the action is simply run right away

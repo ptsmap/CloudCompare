@@ -323,7 +323,9 @@ ccVSGOverlayBuilder::ccVSGOverlayBuilder()
 	createTrihedronLabels();
 }
 
-vsg::ref_ptr<vsg::Node> ccVSGOverlayBuilder::createLabel(const char* str, const ccColor::Rgba& color)
+vsg::ref_ptr<vsg::Node> ccVSGOverlayBuilder::createLabel(const char*                    str,
+                                                         const ccColor::Rgba&           color,
+                                                         vsg::StandardLayout::Alignment hAlign /*=CENTER*/)
 {
 	// m_labelFont is a superset of m_font (ASCII + the extra code points the
 	// labels use, e.g. CJK); it is preferred whenever it is available
@@ -346,7 +348,7 @@ vsg::ref_ptr<vsg::Node> ccVSGOverlayBuilder::createLabel(const char* str, const 
 	layout->horizontal          = vsg::vec3(LabelHeightPx, 0.0f, 0.0f);
 	layout->vertical            = vsg::vec3(0.0f, LabelHeightPx, 0.0f);
 	layout->position            = vsg::vec3(0.0f, 0.0f, 0.0f);
-	layout->horizontalAlignment = vsg::StandardLayout::CENTER_ALIGNMENT;
+	layout->horizontalAlignment = hAlign;
 	layout->verticalAlignment   = vsg::StandardLayout::CENTER_ALIGNMENT;
 	layout->color               = vsg::vec4(static_cast<float>(color.r) / 255.0f,
 	                                        static_cast<float>(color.g) / 255.0f,
@@ -877,6 +879,134 @@ bool ccVSGOverlayBuilder::updateColorScale(const ccScalarField* sf, int width, i
 	m_colorScale = group;
 	m_root->addChild(m_colorScale);
 	m_colorScaleMounted = true;
+
+	return true;
+}
+
+bool ccVSGOverlayBuilder::updateMessages(const std::vector<Message>& messages, int width, int height)
+{
+	// ------------------------------------------------------------------
+	// fingerprint
+	// ------------------------------------------------------------------
+	quint64 signature = 23;
+	auto    mix       = [&signature](quint64 v) { signature = signature * 1000003 + v; };
+
+	mix(static_cast<quint64>(width));
+	mix(static_cast<quint64>(height));
+	for (const Message& message : messages)
+	{
+		mix(static_cast<quint64>(message.position));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+		mix(static_cast<quint64>(qHash(message.text)));
+#else
+		mix(static_cast<quint64>(qHash(message.text)));
+#endif
+	}
+
+	if (signature == m_messagesSignature)
+	{
+		return false;
+	}
+
+	m_messagesSignature = signature;
+
+	if (m_messagesMounted)
+	{
+		unmount(m_root, m_messagesNode);
+		m_messagesMounted = false;
+	}
+	m_messagesNode = nullptr;
+
+	if (messages.empty())
+	{
+		return true;
+	}
+
+	// the message text may contain CJK: extend the font atlas
+	{
+		std::vector<uint32_t> chars;
+		for (const Message& message : messages)
+		{
+			for (uint c : message.text.toUcs4())
+			{
+				chars.push_back(static_cast<uint32_t>(c));
+			}
+		}
+		ensureLabelFont(chars);
+	}
+
+	const ccColor::Rgba textColor = ccGui::Parameters().textDefaultCol;
+
+	// the overlay is an orthographic projection centred on the viewport
+	// (-halfW..halfW, -halfH..halfH), Y axis pointing up, unit = 1 pixel
+	const float halfW = static_cast<float>(width) * 0.5f;
+	const float halfH = static_cast<float>(height) * 0.5f;
+
+	// same 25% margin as the OpenGL backend
+	const float step = LabelHeightPx * 1.25f;
+
+	auto group = vsg::Group::create();
+
+	// number of messages already stacked at each corner
+	int lowerLeftCount  = 0;
+	int upperCenterCount = 0;
+	bool centerTaken     = false;
+
+	for (const Message& message : messages)
+	{
+		double x = 0.0;
+		double y = 0.0;
+		auto   hAlign = vsg::StandardLayout::CENTER_ALIGNMENT;
+
+		switch (message.position)
+		{
+		default:
+		case 0: // LOWER_LEFT_MESSAGE
+			// stacked upwards from the bottom left corner
+			x      = -halfW + 10.0;
+			y      = -halfH + 10.0 + step * static_cast<double>(lowerLeftCount);
+			hAlign = vsg::StandardLayout::LEFT_ALIGNMENT;
+			++lowerLeftCount;
+			break;
+
+		case 1: // UPPER_CENTER_MESSAGE
+			// stacked downwards from the top, centred
+			x      = 0.0f;
+			y      = halfH - 10.0 - step * static_cast<double>(upperCenterCount);
+			hAlign = vsg::StandardLayout::CENTER_ALIGNMENT;
+			++upperCenterCount;
+			break;
+
+		case 2: // SCREEN_CENTER_MESSAGE
+			// only one message is supported there (as in the OpenGL backend)
+			if (centerTaken)
+			{
+				continue;
+			}
+			centerTaken = true;
+			x           = 0.0f;
+			y           = 0.0f;
+			hAlign      = vsg::StandardLayout::CENTER_ALIGNMENT;
+			break;
+		}
+
+		auto node = createLabel(message.text.toUtf8().constData(), textColor, hAlign);
+		if (!node)
+		{
+			continue;
+		}
+
+		if (auto* transform = dynamic_cast<vsg::MatrixTransform*>(node.get()))
+		{
+			transform->matrix = vsg::translate(x, y, 0.0);
+		}
+
+		group->addChild(node);
+	}
+
+	m_messagesNode = group;
+	m_root->addChild(m_messagesNode);
+	m_messagesMounted = true;
 
 	return true;
 }
