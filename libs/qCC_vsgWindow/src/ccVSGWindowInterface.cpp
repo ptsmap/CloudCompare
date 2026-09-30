@@ -559,7 +559,9 @@ void ccVSGWindowInterface::buildCommandGraph()
 	                                                                       1);
 
 	// 3D view, rendered into the offscreen target.
-	auto view3D = vsg::View::create(m_camera, m_sceneRoot);
+	// Kept in m_sceneView: its LODScale drives the LOD levels (M7.3).
+	m_sceneView = vsg::View::create(m_camera, m_sceneRoot);
+	auto view3D = m_sceneView;
 
 	// Transparent entities: dedicated bin, sorted back-to-front (M4.5).
 	while (static_cast<int32_t>(view3D->bins.size()) <= CC_VSG_TRANSPARENT_BIN)
@@ -698,6 +700,20 @@ void ccVSGWindowInterface::buildCommandGraph()
 		m_ssaoUpdaterAdded = true;
 	}
 
+	// M7.3: raise the LOD scale while the camera is moving, so that the
+	// clouds (and the big meshes) fall back to their decimated level.
+	if (!m_lodUpdater)
+	{
+		m_lodUpdater = LODMotionUpdater::create();
+	}
+	// the view is a new object every time the command graph is rebuilt
+	m_lodUpdater->view = m_sceneView;
+	if (!m_lodUpdaterAdded && m_viewer)
+	{
+		m_viewer->addUpdateOperation(m_lodUpdater, vsg::UpdateOperations::ALL_FRAMES);
+		m_lodUpdaterAdded = true;
+	}
+
 	// Post camera: a clip-space pass-through (the matrices are ignored by the
 	// shader); it only provides the viewport state for the window RG.
 	vsg::ref_ptr<vsg::Orthographic> postProjection = vsg::Orthographic::create(-1.0, 1.0, -1.0, 1.0, 0.0, 1.0);
@@ -823,12 +839,49 @@ void ccVSGWindowInterface::setPivotPoint(const CCVector3d& P,
 	redraw(true, false);
 }
 
+namespace
+{
+	//! Monotonic timestamp in milliseconds (LOD motion tracking - M7.3)
+	int64_t nowMs()
+	{
+		return std::chrono::duration_cast<std::chrono::milliseconds>(
+		           std::chrono::steady_clock::now().time_since_epoch())
+		    .count();
+	}
+} // namespace
+
+void LODMotionUpdater::run()
+{
+	if (!view)
+	{
+		return;
+	}
+
+	// vsg::RecordTraversal copies view->LODScale into the view dependent state
+	// on every frame, and multiplies the LOD distance with it: raising it makes
+	// every vsg::LOD fall back to a coarser child.
+	const bool moving = (nowMs() - lastMotionMs.load(std::memory_order_relaxed)) < idleDelayMs;
+	view->LODScale    = moving ? movingLODScale : 1.0;
+}
+
+void ccVSGWindowInterface::noteCameraMotion()
+{
+	if (m_lodUpdater)
+	{
+		m_lodUpdater->lastMotionMs.store(nowMs(), std::memory_order_relaxed);
+	}
+}
+
 void ccVSGWindowInterface::updateCamera()
 {
 	if (!m_camera || !m_viewMatrix || !m_projectionMatrix)
 	{
 		return;
 	}
+
+	// M7.3: the LOD levels stay decimated until the camera has been idle for a
+	// moment (see LODMotionUpdater).
+	noteCameraMotion();
 
 	// ----------------------------------------------------------------------
 	// Point size (part of the viewport parameters)

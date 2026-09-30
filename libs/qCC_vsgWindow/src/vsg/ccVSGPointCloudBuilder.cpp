@@ -29,6 +29,7 @@
 // system
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 ccVSGPointCloudBuilder::ccVSGPointCloudBuilder()
     : m_shaderSet(ccVSGShaders::createPointSpriteShaderSet())
@@ -95,29 +96,86 @@ void ccVSGPointCloudBuilder::updateQuadCorners()
 	m_quadCorners->dirty();
 }
 
-ccVSGBuiltNodes ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const ccColor::Rgba& defaultColor, uint32_t entityId)
+namespace
 {
-	if (!cloud || cloud->size() == 0 || !m_shaderSet || !m_idShaderSet)
+	//! Deterministic 32 bit integer hash (murmur3 finalizer)
+	/** Used to thin the points without any RNG state, so that a given cloud
+	    always produces the very same LOD subsets. **/
+	inline uint32_t hash32(uint32_t x)
 	{
-		return {};
+		x ^= x >> 16;
+		x *= 0x7feb352dU;
+		x ^= x >> 15;
+		x *= 0x846ca68bU;
+		x ^= x >> 16;
+		return x;
 	}
 
-	// scalar field rendering?
-	// NOTE: the colors are resolved on the CPU with ccScalarField::getColor()
-	// so that we follow exactly the CloudCompare color logic (color scale,
-	// ramp steps, out of range color, ...). A GPU color ramp texture would
-	// avoid re-uploading the colors when only the color scale changes - it
-	// can be added later as an optimization.
-	ccScalarField* sf = cloud->getCurrentDisplayedScalarField();
-	const bool     useScalarField = (sf != nullptr) && sf->getColorScale();
+	//! Keeps roughly one point out of 'factor'
+	/** The predicate is 'hash32(i) % factor == 0'. Levels built with factor,
+	    factor^2, ... are therefore strictly nested: a coarser level is always
+	    a subset of a finer one, which keeps the successive LOD levels
+	    coherent with each other (and makes the thinning progressive).
 
-	const unsigned count     = cloud->size();
-	const bool     useColors = !useScalarField && cloud->hasColors();
+	    A hash is used instead of a fixed stride because the points of a cloud
+	    are usually stored in acquisition order: taking one point out of N
+	    would then produce visible stripes instead of thinning the cloud
+	    uniformly. **/
+	std::vector<uint32_t> thinnedIndices(unsigned count, unsigned factor)
+	{
+		std::vector<uint32_t> subset;
+		if (count == 0 || factor <= 1)
+		{
+			return subset;
+		}
+
+		subset.reserve(count / factor + 1);
+		for (unsigned i = 0; i < count; ++i)
+		{
+			if (hash32(i) % factor == 0)
+			{
+				subset.push_back(i);
+			}
+		}
+
+		return subset;
+	}
+} // namespace
+
+ccVSGPointCloudBuilder::PointSet ccVSGPointCloudBuilder::buildPointSet(
+    ccPointCloud*                cloud,
+    const ccColor::Rgba&         defaultColor,
+    uint32_t                     entityId,
+    ccScalarField*               sf,
+    bool                         useScalarField,
+    bool                         useColors,
+    const std::vector<uint32_t>* subset,
+    bool                         withIds)
+{
+	PointSet result;
+
+	if (!cloud)
+	{
+		return result;
+	}
+
+	// 'count' and the chunk boundaries refer to the subset when there is one
+	const unsigned count = subset ? static_cast<unsigned>(subset->size()) : cloud->size();
+	if (count == 0)
+	{
+		return result;
+	}
 
 	auto root = vsg::Group::create();
 	// parallel tree used by the entity picking pass (M6.1): same geometry,
 	// but the fragment stage writes the entity ID (R32_UINT attachment)
 	auto idsRoot = vsg::Group::create();
+
+	// bounding box of the whole point set: the vsg::LOD node needs a bound
+	// that covers every level, not only the (smaller) decimated one
+	double gMinX = 0.0, gMinY = 0.0, gMinZ = 0.0;
+	double gMaxX = 0.0, gMaxY = 0.0, gMaxZ = 0.0;
+	bool   haveBound = false;
 
 	for (unsigned first = 0; first < count; first += static_cast<unsigned>(ChunkSize))
 	{
@@ -132,7 +190,8 @@ ccVSGBuiltNodes ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const ccColor
 
 		for (std::size_t i = 0; i < chunkCount; ++i)
 		{
-			const unsigned  index = first + static_cast<unsigned>(i);
+			const unsigned  index = subset ? (*subset)[static_cast<std::size_t>(first) + i]
+			                               : (first + static_cast<unsigned>(i));
 			const CCVector3 P     = *cloud->getPoint(index);
 
 			(*vertices)[i] = vsg::vec3(static_cast<float>(P.x), static_cast<float>(P.y), static_cast<float>(P.z));
@@ -209,6 +268,27 @@ ccVSGBuiltNodes ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const ccColor
 
 		stateGroup->addChild(draw);
 
+		// merge the chunk bounds into the bounds of the whole point set
+		if (!haveBound)
+		{
+			gMinX = minX;
+			gMinY = minY;
+			gMinZ = minZ;
+			gMaxX = maxX;
+			gMaxY = maxY;
+			gMaxZ = maxZ;
+			haveBound = true;
+		}
+		else
+		{
+			gMinX = std::min(gMinX, minX);
+			gMinY = std::min(gMinY, minY);
+			gMinZ = std::min(gMinZ, minZ);
+			gMaxX = std::max(gMaxX, maxX);
+			gMaxY = std::max(gMaxY, maxY);
+			gMaxZ = std::max(gMaxZ, maxZ);
+		}
+
 		// bounding sphere for frustum culling
 		const vsg::dvec3 center((minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5);
 		const double     radius = 0.5 * std::sqrt((maxX - minX) * (maxX - minX)
@@ -220,6 +300,13 @@ ccVSGBuiltNodes ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const ccColor
 		cullNode->child = stateGroup;
 
 		root->addChild(cullNode);
+
+		// Only the full resolution level is pickable: the picking pass must
+		// stay pixel exact with the finest geometry (M7.3).
+		if (!withIds)
+		{
+			continue;
+		}
 
 		// ---- picking pass (M6.1) ------------------------------------------
 		// Same instanced billboard quads (so that what you see is what you
@@ -259,5 +346,95 @@ ccVSGBuiltNodes ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const ccColor
 		idsRoot->addChild(idCullNode);
 	}
 
-	return {root, idsRoot};
+	result.root = root;
+	if (withIds)
+	{
+		result.idsRoot = idsRoot;
+	}
+
+	if (haveBound)
+	{
+		const vsg::dvec3 gCenter((gMinX + gMaxX) * 0.5, (gMinY + gMaxY) * 0.5, (gMinZ + gMaxZ) * 0.5);
+		const double     gRadius = 0.5 * std::sqrt((gMaxX - gMinX) * (gMaxX - gMinX)
+		                                           + (gMaxY - gMinY) * (gMaxY - gMinY)
+		                                           + (gMaxZ - gMinZ) * (gMaxZ - gMinZ));
+		// +1: point size margin. The LOD test compares this radius to the
+		// distance to the camera, so it must cover every level.
+		result.bound.set(gCenter.x, gCenter.y, gCenter.z, gRadius + 1.0);
+	}
+
+	return result;
+}
+
+ccVSGBuiltNodes ccVSGPointCloudBuilder::build(ccPointCloud* cloud, const ccColor::Rgba& defaultColor, uint32_t entityId)
+{
+	if (!cloud || cloud->size() == 0 || !m_shaderSet || !m_idShaderSet)
+	{
+		return {};
+	}
+
+	// scalar field rendering?
+	// NOTE: the colors are resolved on the CPU with ccScalarField::getColor()
+	// so that we follow exactly the CloudCompare color logic (color scale,
+	// ramp steps, out of range color, ...). A GPU color ramp texture would
+	// avoid re-uploading the colors when only the color scale changes - it
+	// can be added later as an optimization.
+	ccScalarField* sf = cloud->getCurrentDisplayedScalarField();
+	const bool     useScalarField = (sf != nullptr) && sf->getColorScale();
+
+	const unsigned count     = cloud->size();
+	const bool     useColors = !useScalarField && cloud->hasColors();
+
+	// ---------------------------------------------------------------------
+	// Full resolution: it is what is drawn when the cloud is large on screen
+	// and when the camera is idle.
+	// ---------------------------------------------------------------------
+	PointSet high = buildPointSet(cloud, defaultColor, entityId, sf, useScalarField, useColors, nullptr, true);
+
+	// ---------------------------------------------------------------------
+	// M7.3 LOD: a decimated child, selected by vsg::LOD when the cloud is
+	// small on screen or while the camera is moving (the window then raises
+	// vsg::View::LODScale - see ccVSGWindowInterface::noteCameraMotion()).
+	//
+	// The picking pass is NOT decimated: it always uses the full resolution
+	// geometry, so that "what you see is what you pick" still holds (the same
+	// choice was made for the meshes).
+	// ---------------------------------------------------------------------
+	if (m_lodEnabled && count > MinLODPointCount && high.root)
+	{
+		const std::vector<uint32_t> coarse = thinnedIndices(count, LODDecimationFactor);
+
+		if (!coarse.empty())
+		{
+			PointSet low = buildPointSet(cloud, defaultColor, entityId, sf, useScalarField, useColors, &coarse, false);
+
+			if (low.root && !low.root->children.empty())
+			{
+				auto lod = vsg::LOD::create();
+				// the children are ordered from the highest to the lowest
+				// resolution: VSG traverses the first child whose
+				// minimumScreenHeightRatio is satisfied, and only that one.
+				lod->addChild(vsg::LOD::Child{LODSwitchRatio, high.root});
+				// 0.0 == always visible: the low resolution child is the
+				// fallback of every other level.
+				lod->addChild(vsg::LOD::Child{0.0, low.root});
+				// the LOD needs an explicit bound: it is used both by the
+				// screen height test and by the view frustum culling
+				lod->bound = high.bound;
+
+				// Only printed for the clouds that are actually decimated
+				// (i.e. the big ones), so it stays readable in the logs.
+				std::fprintf(stderr,
+				             "[VSG] cloud LOD: %u points -> %u decimated (1 out of %u), ratio %.2f\n",
+				             count,
+				             static_cast<unsigned>(coarse.size()),
+				             LODDecimationFactor,
+				             LODSwitchRatio);
+
+				return {lod, high.idsRoot};
+			}
+		}
+	}
+
+	return {high.root, high.idsRoot};
 }

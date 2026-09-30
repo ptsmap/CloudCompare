@@ -36,9 +36,11 @@
 #include <vsg/app/CommandGraph.h>
 #include <vsg/app/ProjectionMatrix.h>
 #include <vsg/app/View.h>
+#include <vsg/core/Inherit.h>
 #include <vsg/core/ref_ptr.h>
 #include <vsg/maths/mat4.h>
 #include <vsg/nodes/Group.h>
+#include <vsg/threading/OperationQueue.h>
 
 // vsgQt
 #include <vsgQt/Viewer.h>
@@ -50,6 +52,7 @@
 #include <QString>
 
 // system
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -63,6 +66,37 @@ namespace vsgQt
 {
 	class Window;
 }
+
+//! Per frame operation that raises vsg::View::LODScale while the camera moves (M7.3)
+/** vsg::LOD (and vsg::PagedLOD) select their child with
+
+        bound.radius > lodDistance * child.minimumScreenHeightRatio
+
+    where `lodDistance` is multiplied by `viewDependentState->LODScale`,
+    itself refreshed from `vsg::View::LODScale` on every record traversal
+    (see vsg::RecordTraversal::apply(const vsg::View&)). Raising that scale
+    therefore makes every LOD fall back to a coarser child - which is exactly
+    the "decimate the clouds while the camera is moving" behaviour of the
+    OpenGL backend, without having to touch the LOD nodes themselves.
+**/
+struct LODMotionUpdater : public vsg::Inherit<vsg::Operation, LODMotionUpdater>
+{
+	//! View whose LODScale is driven
+	/** Refreshed by buildCommandGraph(), which creates a new vsg::View every
+	    time the command graph is rebuilt. **/
+	vsg::ref_ptr<vsg::View> view;
+
+	//! Timestamp (ms, steady clock) of the last camera change
+	std::atomic<int64_t> lastMotionMs{0};
+
+	//! LODScale applied while the camera is moving
+	double movingLODScale = 8.0;
+
+	//! Delay after which the camera is considered idle again
+	int64_t idleDelayMs = 250;
+
+	void run() override;
+};
 
 //! VulkanSceneGraph 3D view interface
 /** Backend agnostic logic of a 3D view rendered with VulkanSceneGraph.
@@ -536,6 +570,23 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 	vsg::ref_ptr<vsg::Value<vsg::mat4>> m_ssaoInvProj;
 	vsg::ref_ptr<vsg::Value<vsg::mat4>> m_ssaoProj;
 	bool m_ssaoUpdaterAdded = false;
+
+	// ----------------------------------------------------------------------
+	// Level of detail (M7.3)
+	// ----------------------------------------------------------------------
+
+	//! The 3D view of the scene: its LODScale drives the LOD level selection
+	vsg::ref_ptr<vsg::View> m_sceneView;
+
+	//! Per frame operation keeping m_sceneView->LODScale in sync with the
+	//! camera motion (coarse LOD levels while the camera moves)
+	vsg::ref_ptr<LODMotionUpdater> m_lodUpdater;
+	bool                           m_lodUpdaterAdded = false;
+
+	//! Tells the LOD that the camera has just moved
+	/** Called by updateCamera(): the levels stay decimated until the camera has
+	    been idle for LODMotionUpdater::idleDelayMs. **/
+	void noteCameraMotion();
 
 	// ----------------------------------------------------------------------
 	// On-screen messages (M5.4)
