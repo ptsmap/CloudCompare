@@ -87,21 +87,132 @@ void main()
 }
 )";
 
+	// M7.2 SSAO post fragment shader. Samples the resolved 3D color (binding 0)
+	// and the resolved 3D depth (binding 1). It reconstructs the view-space
+	// position from the (reverse-depth) depth buffer using the per-frame
+	// inverse projection (push constant, offset 0) and projects the SSAO kernel
+	// samples back to screen with the projection (push constant, offset 64) to
+	// fetch the occluding depth. The result darkens the ambient term.
 	const char* s_postFragmentSource = R"(
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
 layout(binding = 0, set = 0) uniform sampler2D colorTexture;
+layout(binding = 1, set = 0) uniform sampler2D depthTexture;
+
+layout(push_constant) uniform PC
+{
+    mat4 invProj;   // offset 0  : inverse of the 3D camera projection (per frame)
+    mat4 proj;      // offset 64 : 3D camera projection (per frame)
+} pc;
 
 layout(location = 1) in vec2 uv;
-
 layout(location = 0) out vec4 outColor;
+
+const int SSAMPLES = 16;
+
+float hash(vec2 p)
+{
+    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+// Reverse-depth convention: the depth buffer stores NDC z in [0,1] (near->1,
+// far->0). Reconstruct the clip position and unproject to view space.
+vec3 viewPosFromDepth(vec2 uv, float depth)
+{
+    vec2 clipXY = vec2(2.0 * uv.x - 1.0, 1.0 - 2.0 * uv.y);
+    vec4 clip = vec4(clipXY, depth, 1.0);
+    vec4 v = pc.invProj * clip;
+    return v.xyz / v.w;
+}
 
 void main()
 {
-    outColor = texture(colorTexture, uv);
+    float depth = texture(depthTexture, uv).r;
+    vec3  color = texture(colorTexture, uv).rgb;
+
+    // background (reverse-depth far plane == 0) -> no ambient occlusion
+    if (depth <= 0.0001)
+    {
+        outColor = vec4(color, 1.0);
+        return;
+    }
+
+    vec3 viewPos = viewPosFromDepth(uv, depth);
+    vec3 normal  = normalize(cross(dFdx(viewPos), dFdy(viewPos)));
+    if (normal.z > 0.0) normal = -normal;
+
+    // AO kernel radius / bias scale with distance so the effect stays roughly
+    // screen-consistent across scene scales. TUNE these for your data.
+    float radius    = 0.15 * abs(viewPos.z);
+    float bias      = 0.005 * abs(viewPos.z);
+    float intensity = 1.0;
+
+    vec3 up        = abs(normal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent   = normalize(cross(up, normal));
+    vec3 bitangent = cross(normal, tangent);
+
+    float rnd   = hash(gl_FragCoord.xy);
+    float rot   = rnd * 6.2831853;
+    float cosR  = cos(rot), sinR = sin(rot);
+
+    float occlusion = 0.0;
+    for (int i = 0; i < SSAMPLES; i++)
+    {
+        float fi  = float(i);
+        float r   = (fi + 0.5) / float(SSAMPLES);
+        float phi = fi * 2.39996323; // golden angle
+        vec2  disk = vec2(cos(phi), sin(phi)) * sqrt(r);
+        // per-pixel rotation to break up banding
+        vec2 rd = vec2(disk.x * cosR - disk.y * sinR, disk.x * sinR + disk.y * cosR);
+        vec3 sampleDir = tangent * rd.x + bitangent * rd.y + normal * sqrt(1.0 - r);
+        vec3 samplePos = viewPos + sampleDir * radius;
+
+        vec4  offsetClip = pc.proj * vec4(samplePos, 1.0);
+        if (offsetClip.w <= 0.0) continue;
+        vec3 ndc      = offsetClip.xyz / offsetClip.w;
+        vec2 sampleUV = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+        if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0) continue;
+
+        float sampleDepth = texture(depthTexture, sampleUV).r;
+        if (sampleDepth <= 0.0001) continue;
+
+        vec4  sClip  = vec4(ndc.x, ndc.y, sampleDepth, 1.0);
+        vec4  sViewH = pc.invProj * sClip;
+        float sViewZ = sViewH.z / sViewH.w;
+
+        // reverse depth: nearer geometry => larger depth value
+        float samplePosDepth = ndc.z;
+        float rangeCheck     = smoothstep(0.0, 1.0, radius / (0.0001 + abs(viewPos.z - sViewZ)));
+        if (sampleDepth > samplePosDepth + bias) occlusion += rangeCheck;
+    }
+
+    float ao = clamp(1.0 - (occlusion / float(SSAMPLES)) * intensity, 0.0, 1.0);
+    outColor = vec4(color * ao, 1.0);
 }
 )";
+
+	// M7.2: per-frame updater that pushes the current 3D camera projection (and
+	// its inverse) into the SSAO post-pass push constants. The push-constant
+	// values are read at record time, so updating them each frame keeps the
+	// ambient occlusion correct while the user rotates / zooms (the projection
+	// only changes on resize or FOV / near-far tweaks, but updating every frame
+	// is cheap and always correct).
+	struct SSAOProjectionUpdater : public vsg::Inherit<vsg::Operation, SSAOProjectionUpdater>
+	{
+		vsg::ref_ptr<vsg::Camera> camera;
+		vsg::ref_ptr<vsg::Value<vsg::mat4>> invProj;
+		vsg::ref_ptr<vsg::Value<vsg::mat4>> proj;
+
+		void run() override
+		{
+			if (camera && camera->projectionMatrix)
+			{
+				invProj->value() = vsg::mat4(camera->projectionMatrix->inverse());
+				proj->value()    = vsg::mat4(camera->projectionMatrix->transform());
+			}
+		}
+	};
 
 	//! Collects the visible 2D images of the DB tree (M5.6)
 	/** CloudCompare draws all the visible images, one on top of the other. **/
@@ -339,8 +450,13 @@ void ccVSGWindowInterface::buildCommandGraph()
 	vsg::ref_ptr<vsg::Image> resolveColor = makeImage(VK_FORMAT_R8G8B8A8_UNORM,
 	                                                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
 	                                                 VK_SAMPLE_COUNT_1_BIT);
+	// M7.2 SSAO: a single-sample copy of the MSAA depth, sampled by the post
+	// pass so it can reconstruct view-space position.
+	vsg::ref_ptr<vsg::Image> resolveDepth = makeImage(VK_FORMAT_D32_SFLOAT,
+	                                                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+	                                                 VK_SAMPLE_COUNT_1_BIT);
 
-	if (!colorMS || !depthMS || !resolveColor)
+	if (!colorMS || !depthMS || !resolveColor || !resolveDepth)
 	{
 		std::cerr << "[VSG] buildCommandGraph: failed to allocate the offscreen attachments" << std::endl;
 		return;
@@ -349,15 +465,20 @@ void ccVSGWindowInterface::buildCommandGraph()
 	vsg::ref_ptr<vsg::ImageView> colorMS_iv      = vsg::createImageView(device, colorMS, VK_IMAGE_ASPECT_COLOR_BIT);
 	vsg::ref_ptr<vsg::ImageView> depthMS_iv      = vsg::createImageView(device, depthMS, VK_IMAGE_ASPECT_DEPTH_BIT);
 	vsg::ref_ptr<vsg::ImageView> resolveColor_iv = vsg::createImageView(device, resolveColor, VK_IMAGE_ASPECT_COLOR_BIT);
+	vsg::ref_ptr<vsg::ImageView> resolveDepth_iv = vsg::createImageView(device, resolveDepth, VK_IMAGE_ASPECT_DEPTH_BIT);
 
-	if (!colorMS_iv || !depthMS_iv || !resolveColor_iv)
+	if (!colorMS_iv || !depthMS_iv || !resolveColor_iv || !resolveDepth_iv)
 	{
 		std::cerr << "[VSG] buildCommandGraph: failed to create the offscreen image views" << std::endl;
 		return;
 	}
 
-	// Render pass: 0 = MSAA color, 1 = resolved color (sampled), 2 = MSAA depth.
-	vsg::RenderPass::Attachments attachments(3);
+	// Render pass attachments:
+	//   0 = MSAA color   (3D scene)
+	//   1 = resolved color (single-sample, sampled by the post pass)
+	//   2 = MSAA depth   (3D scene depth test)
+	//   3 = resolved depth (single-sample, sampled by the SSAO post pass, M7.2)
+	vsg::RenderPass::Attachments attachments(4);
 
 	attachments[0].format        = VK_FORMAT_R8G8B8A8_UNORM;
 	attachments[0].samples       = samples;
@@ -386,15 +507,30 @@ void ccVSGWindowInterface::buildCommandGraph()
 	attachments[2].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	attachments[2].finalLayout   = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
+	attachments[3].format        = VK_FORMAT_D32_SFLOAT;
+	attachments[3].samples       = VK_SAMPLE_COUNT_1_BIT;
+	attachments[3].loadOp        = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[3].storeOp       = VK_ATTACHMENT_STORE_OP_STORE;
+	attachments[3].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	attachments[3].stencilStoreOp= VK_ATTACHMENT_STORE_OP_DONT_CARE;
+	attachments[3].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	attachments[3].finalLayout   = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
 	vsg::AttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
 	vsg::AttachmentReference resolveRef{1, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 	vsg::AttachmentReference depthRef{2, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
+	vsg::AttachmentReference resolveDepthRef{3, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
 
 	vsg::RenderPass::Subpasses subpasses(1);
 	subpasses[0].pipelineBindPoint         = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpasses[0].colorAttachments.push_back(colorRef);
 	subpasses[0].resolveAttachments.push_back(resolveRef);
 	subpasses[0].depthStencilAttachments.push_back(depthRef);
+	// M7.2: resolve the multisampled depth into a single-sample image the SSAO
+	// pass can sample. Reverse depth -> nearer == larger value -> MAX keeps the
+	// closest surface (the correct occluder).
+	subpasses[0].depthStencilResolveAttachments.push_back(resolveDepthRef);
+	subpasses[0].depthResolveMode = VK_RESOLVE_MODE_MAX_BIT;
 
 	// Barriers so the post pass (external) can sample the resolved color:
 	// copied from the vsgrendertotexture offscreen example.
@@ -417,7 +553,7 @@ void ccVSGWindowInterface::buildCommandGraph()
 	vsg::ref_ptr<vsg::RenderPass> renderPass = vsg::RenderPass::create(device, attachments, subpasses, dependencies);
 
 	vsg::ref_ptr<vsg::Framebuffer> framebuffer = vsg::Framebuffer::create(renderPass,
-	                                                                       vsg::ImageViews{colorMS_iv, resolveColor_iv, depthMS_iv},
+	                                                                       vsg::ImageViews{colorMS_iv, resolveColor_iv, depthMS_iv, resolveDepth_iv},
 	                                                                       width,
 	                                                                       height,
 	                                                                       1);
@@ -455,11 +591,25 @@ void ccVSGWindowInterface::buildCommandGraph()
 		vsg::vec2(2.0f, 1.0f),
 		vsg::vec2(0.0f, -1.0f)});
 
+	// M7.2: descriptor set 0 holds the resolved 3D color (binding 0) and the
+	// resolved 3D depth (binding 1, sampled with a nearest sampler because many
+	// drivers reject linear filtering of depth textures).
 	vsg::DescriptorSetLayoutBindings descriptorBindings{
-		{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
+		{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+		{1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}};
 	vsg::ref_ptr<vsg::DescriptorSetLayout> descriptorSetLayout = vsg::DescriptorSetLayout::create(descriptorBindings);
 
-	vsg::PushConstantRanges pushConstantRanges{{VK_SHADER_STAGE_VERTEX_BIT, 0, 128}};
+	// Per-frame projection matrices for the SSAO kernel (M7.2). Created once and
+	// refreshed every frame by SSAOProjectionUpdater.
+	if (!m_ssaoInvProj)
+	{
+		m_ssaoInvProj = vsg::Value<vsg::mat4>::create(vsg::mat4(1.0));
+		m_ssaoProj    = vsg::Value<vsg::mat4>::create(vsg::mat4(1.0));
+	}
+
+	// invProj (offset 0) + proj (offset 64) => 128 bytes, within the guaranteed
+	// push-constant limit.
+	vsg::PushConstantRanges pushConstantRanges{{VK_SHADER_STAGE_FRAGMENT_BIT, 0, 128}};
 	vsg::VertexInputState::Bindings vertexBindingsDescriptions{
 		VkVertexInputBindingDescription{0, sizeof(vsg::vec3), VK_VERTEX_INPUT_RATE_VERTEX},
 		VkVertexInputBindingDescription{1, sizeof(vsg::vec2), VK_VERTEX_INPUT_RATE_VERTEX}};
@@ -487,7 +637,7 @@ void ccVSGWindowInterface::buildCommandGraph()
 		                             pipelineStates);
 	vsg::ref_ptr<vsg::BindGraphicsPipeline> bindGraphicsPipeline = vsg::BindGraphicsPipeline::create(graphicsPipeline);
 
-	// Sampler + descriptor for the resolved color image.
+	// Sampler + descriptor for the resolved color image (linear filtering is fine).
 	vsg::ref_ptr<vsg::Sampler> sampler = vsg::Sampler::create();
 	sampler->magFilter     = VK_FILTER_LINEAR;
 	sampler->minFilter     = VK_FILTER_LINEAR;
@@ -496,15 +646,32 @@ void ccVSGWindowInterface::buildCommandGraph()
 	sampler->addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	sampler->maxLod        = 1.0f;
 
+	// Depth must be sampled with a NEAREST sampler (linear filtering of depth
+	// textures is not universally supported, and would average depths anyway).
+	vsg::ref_ptr<vsg::Sampler> depthSampler = vsg::Sampler::create();
+	depthSampler->magFilter     = VK_FILTER_NEAREST;
+	depthSampler->minFilter     = VK_FILTER_NEAREST;
+	depthSampler->addressModeU  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	depthSampler->addressModeV  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	depthSampler->addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	depthSampler->maxLod        = 1.0f;
+
 	vsg::ref_ptr<vsg::ImageInfo> colorImageInfo = vsg::ImageInfo::create();
 	colorImageInfo->imageView    = resolveColor_iv;
 	colorImageInfo->imageLayout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	colorImageInfo->sampler      = sampler;
 
-	vsg::ref_ptr<vsg::DescriptorImage> texture =
+	vsg::ref_ptr<vsg::ImageInfo> depthImageInfo = vsg::ImageInfo::create();
+	depthImageInfo->imageView    = resolveDepth_iv;
+	depthImageInfo->imageLayout  = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+	depthImageInfo->sampler      = depthSampler;
+
+	vsg::ref_ptr<vsg::DescriptorImage> colorTexture =
 		vsg::DescriptorImage::create(colorImageInfo, 0, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+	vsg::ref_ptr<vsg::DescriptorImage> depthTexture =
+		vsg::DescriptorImage::create(depthImageInfo, 1, 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 	vsg::ref_ptr<vsg::DescriptorSet> descriptorSet =
-		vsg::DescriptorSet::create(descriptorSetLayout, vsg::Descriptors{texture});
+		vsg::DescriptorSet::create(descriptorSetLayout, vsg::Descriptors{colorTexture, depthTexture});
 	vsg::ref_ptr<vsg::BindDescriptorSet> bindDescriptorSet =
 		vsg::BindDescriptorSet::create(VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, descriptorSet);
 
@@ -515,7 +682,21 @@ void ccVSGWindowInterface::buildCommandGraph()
 	vsg::ref_ptr<vsg::StateGroup> postScene = vsg::StateGroup::create();
 	postScene->add(bindGraphicsPipeline);
 	postScene->add(bindDescriptorSet);
+	// M7.2: upload the (per-frame updated) projection matrices as push constants.
+	postScene->add(vsg::PushConstants::create(VK_SHADER_STAGE_FRAGMENT_BIT, 0, m_ssaoInvProj));
+	postScene->add(vsg::PushConstants::create(VK_SHADER_STAGE_FRAGMENT_BIT, 64, m_ssaoProj));
 	postScene->addChild(commands);
+
+	// M7.2: keep the SSAO projection push constants in sync with the 3D camera.
+	if (!m_ssaoUpdaterAdded && m_viewer)
+	{
+		auto updater = SSAOProjectionUpdater::create();
+		updater->camera  = m_camera;
+		updater->invProj = m_ssaoInvProj;
+		updater->proj    = m_ssaoProj;
+		m_viewer->addUpdateOperation(updater, vsg::UpdateOperations::ALL_FRAMES);
+		m_ssaoUpdaterAdded = true;
+	}
 
 	// Post camera: a clip-space pass-through (the matrices are ignored by the
 	// shader); it only provides the viewport state for the window RG.

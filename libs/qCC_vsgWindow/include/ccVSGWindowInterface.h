@@ -530,6 +530,13 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 	//! detect a resize and rebuild the command graph (M7.1).
 	VkExtent2D m_postExtent = {0, 0};
 
+	//! M7.2 SSAO: per-frame projection matrices pushed into the post pass so the
+	//! ambient-occlusion kernel matches the current camera. Updated every frame
+	//! by SSAOProjectionUpdater (added once, see buildCommandGraph).
+	vsg::ref_ptr<vsg::Value<vsg::mat4>> m_ssaoInvProj;
+	vsg::ref_ptr<vsg::Value<vsg::mat4>> m_ssaoProj;
+	bool m_ssaoUpdaterAdded = false;
+
 	// ----------------------------------------------------------------------
 	// On-screen messages (M5.4)
 	// ----------------------------------------------------------------------

@@ -115,8 +115,15 @@ QString ccRenderBackendRegistry::selectedBackendName() const
 		return saved;
 	}
 
-	// 3. implicit default: OpenGL when available (safest first-run),
-	//    otherwise whatever backend is registered
+	// 3. implicit default (no env / no persisted selection):
+	//    prefer the VSG backend (the migrated Vulkan backend) when it is
+	//    registered in this build, so that "VSG render mode" startup opens a
+	//    ccVSGWindow by default; fall back to OpenGL only when VSG is absent.
+	if (ccRenderBackend* vsg = backend(QStringLiteral("VSG")))
+	{
+		return vsg->name();
+	}
+
 	if (ccRenderBackend* gl = backend(QStringLiteral("OpenGL")))
 	{
 		return gl->name();
