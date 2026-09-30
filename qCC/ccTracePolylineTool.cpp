@@ -339,7 +339,7 @@ bool       ccTracePolylineTool::start()
 	                                    | ccGLWindowInterface::INTERACT_SIG_RB_CLICKED
 	                                    | ccGLWindowInterface::INTERACT_CTRL_PAN
 	                                    | ccGLWindowInterface::INTERACT_SIG_MOUSE_MOVED);
-	glWin()->setWindowCursor(Qt::CrossCursor);
+	m_associatedWin->setWindowCursor(Qt::CrossCursor);
 
 	m_ui->snapSizeSpinBox->blockSignals(true);
 	m_ui->snapSizeSpinBox->setValue(s_defaultPickingRadius);
@@ -374,7 +374,7 @@ void ccTracePolylineTool::stop(bool accepted)
 		m_associatedWin->setUnclosable(false);
 		m_associatedWin->removeFromOwnDB(m_polyTip);
 		m_associatedWin->setInteractionMode(ccGLWindowInterface::MODE_TRANSFORM_CAMERA);
-		glWin()->setWindowCursor(Qt::ArrowCursor);
+		m_associatedWin->setWindowCursor(Qt::ArrowCursor);
 	}
 
 	s_defaultPickingRadius = m_ui->snapSizeSpinBox->value();
@@ -418,7 +418,7 @@ void ccTracePolylineTool::updatePolyLineTip(int x, int y, Qt::MouseButtons butto
 
 	// we replace the last point by the new one
 	{
-		QPointF   pos2D = glWin()->toCenteredGLCoordinates(x, y);
+		QPointF   pos2D = m_associatedWin->toCenteredViewCoordinates(x, y);
 		CCVector3 P2D(static_cast<PointCoordinateType>(pos2D.x()),
 		              static_cast<PointCoordinateType>(pos2D.y()),
 		              0);
@@ -433,7 +433,7 @@ void ccTracePolylineTool::updatePolyLineTip(int x, int y, Qt::MouseButtons butto
 		const CCVector3* P3D = m_poly3DVertices->getPoint(m_poly3DVertices->size() - 1);
 
 		ccGLCameraParameters camera;
-		glWin()->getGLCameraParameters(camera);
+		m_associatedWin->getGLCameraParameters(camera);
 
 		CCVector3d A2D;
 		camera.project(*P3D, A2D);
@@ -512,7 +512,7 @@ void ccTracePolylineTool::onItemPicked(const PickedItem& pi)
 
 	// we replace the first point of the tip by this new point
 	{
-		QPointF   pos2D = glWin()->toCenteredGLCoordinates(pi.clickPoint.x(), pi.clickPoint.y());
+		QPointF   pos2D = m_associatedWin->toCenteredViewCoordinates(pi.clickPoint.x(), pi.clickPoint.y());
 		CCVector3 P2D(static_cast<PointCoordinateType>(pos2D.x()),
 		              static_cast<PointCoordinateType>(pos2D.y()),
 		              0);

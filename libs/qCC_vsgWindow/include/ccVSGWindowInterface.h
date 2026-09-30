@@ -225,6 +225,27 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 	void zoomGlobal() override;
 
 	// ----------------------------------------------------------------------
+	// Qt widget / viewport helpers (M8 / D.18.4)
+	// ----------------------------------------------------------------------
+	/** The interactive tools (ccOverlayDialog derivatives) used to reach these
+	    through ccOverlayDialog::glWin(), i.e. through a downcast to
+	    ccGLWindowInterface. They are lifted here so that the same tools work
+	    unmodified with the VSG backend. All of them are plain Qt level calls,
+	    except qtWidth()/qtHeight() and toCenteredViewCoordinates() which are
+	    derived from getScreenSize().
+	 **/
+
+	void setWindowCursor(const QCursor& cursor) override;
+	void doGrabMouse() override;
+	void doReleaseMouse() override;
+	QPoint doMapFromGlobal(const QPoint& pos) const override;
+	void doShowMaximized() override;
+
+	int     qtWidth() const override;
+	int     qtHeight() const override;
+	QPointF toCenteredViewCoordinates(int x, int y) const override;
+
+	// ----------------------------------------------------------------------
 	// VSG specifics
 	// ----------------------------------------------------------------------
 
@@ -291,7 +312,7 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
   /** The projection matrix is converted back from the Vulkan reverse depth
       convention (see vulkanToGLProjection()).
    **/
-  void getGLCameraParameters(ccGLCameraParameters& params) const;
+  void getGLCameraParameters(ccGLCameraParameters& params) override;
 
   //! Renders the view to an image (offscreen)
   /** The scene is rendered a second time into an offscreen framebuffer, which

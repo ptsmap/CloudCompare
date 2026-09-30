@@ -101,13 +101,10 @@ class ccGraphicalSegmentationTool : public ccOverlayDialog
 	void currentScalarFieldUpdated();
 
   protected:
-	//! Returns the associated window, downcast to the OpenGL interface
-	/** The interactive polyline still relies on OpenGL only helpers (mouse
-	    grabbing, toCenteredGLCoordinates(), qtWidth()/qtHeight()), so this tool
-	    remains an OpenGL one for now: this returns nullptr for any other
-	    backend (M6.6).
-	 **/
-	ccGLWindowInterface* glWin() const;
+	// (M8 / D.18.4) This tool used to downcast m_associatedWin to
+	// ccGLWindowInterface (glWin()) for the mouse grabbing, the viewport size
+	// and the 2D coordinate conversion. Those are now part of ccViewInterface,
+	// so the tool works with any backend and glWin() is gone.
 
 	void        segmentIn();
 	void        segmentOut();

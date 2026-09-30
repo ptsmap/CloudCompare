@@ -45,6 +45,8 @@
 // Qt
 #include <QApplication>
 #include <QCoreApplication>
+#include <QCursor>
+#include <QWidget>
 
 // system
 #include <algorithm>
@@ -1360,7 +1362,76 @@ void ccVSGWindowInterface::zoomGlobal()
 	redraw();
 }
 
-void ccVSGWindowInterface::getGLCameraParameters(ccGLCameraParameters& params) const
+// ----------------------------------------------------------------------
+// Qt widget / viewport helpers (M8 / D.18.4)
+// ----------------------------------------------------------------------
+// These used to be reachable only through a downcast to ccGLWindowInterface
+// (ccOverlayDialog::glWin()). They are plain Qt level calls (plus two derived
+// from getScreenSize()), so the VSG backend can provide them as is.
+// ----------------------------------------------------------------------
+
+void ccVSGWindowInterface::setWindowCursor(const QCursor& cursor)
+{
+	if (QWidget* w = asWidget())
+	{
+		w->setCursor(cursor);
+	}
+}
+
+void ccVSGWindowInterface::doGrabMouse()
+{
+	if (QWidget* w = asWidget())
+	{
+		w->grabMouse();
+	}
+}
+
+void ccVSGWindowInterface::doReleaseMouse()
+{
+	if (QWidget* w = asWidget())
+	{
+		w->releaseMouse();
+	}
+}
+
+QPoint ccVSGWindowInterface::doMapFromGlobal(const QPoint& pos) const
+{
+	if (const QWidget* w = asWidget())
+	{
+		return w->mapFromGlobal(pos);
+	}
+	return pos;
+}
+
+void ccVSGWindowInterface::doShowMaximized()
+{
+	if (QWidget* w = asWidget())
+	{
+		w->showMaximized();
+	}
+}
+
+int ccVSGWindowInterface::qtWidth() const
+{
+	return getScreenSize().width();
+}
+
+int ccVSGWindowInterface::qtHeight() const
+{
+	return getScreenSize().height();
+}
+
+QPointF ccVSGWindowInterface::toCenteredViewCoordinates(int x, int y) const
+{
+	// Logical pixels: the 2D overlay coordinate system is logical as well
+	// (see devicePixelRatio()), and so is the viewport reported by
+	// getGLCameraParameters().
+	const QSize screenSize = getScreenSize();
+	return QPointF(static_cast<double>(x) - screenSize.width() / 2.0,
+	               screenSize.height() / 2.0 - static_cast<double>(y));
+}
+
+void ccVSGWindowInterface::getGLCameraParameters(ccGLCameraParameters& params)
 {
 	const QSize screenSize = getScreenSize();
 	const int   width      = std::max(screenSize.width(), 1);

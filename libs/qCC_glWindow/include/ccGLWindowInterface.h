@@ -109,15 +109,17 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	virtual qreal           getDevicePixelRatio() const     = 0;
 	virtual QFont           getFont() const                 = 0;
 	virtual QOpenGLContext* getOpenGLContext() const        = 0;
-	virtual void            setWindowCursor(const QCursor&) = 0;
+	// (setWindowCursor / doGrabMouse / doReleaseMouse / doMapFromGlobal /
+	//  doShowMaximized are now declared by ccViewInterface - M8 / D.18.4)
+	virtual void            setWindowCursor(const QCursor&) override       = 0;
 	virtual void            doMakeCurrent() {};
-	virtual QObject*        asQObject()                          = 0;
-	virtual const QObject*  asQObject() const                    = 0;
-	virtual QString         getWindowTitle() const               = 0;
-	virtual void            doGrabMouse()                        = 0;
-	virtual void            doReleaseMouse()                     = 0;
-	virtual QPoint          doMapFromGlobal(const QPoint&) const = 0;
-	virtual void            doShowMaximized()                    = 0;
+	virtual QObject*        asQObject() override                          = 0;
+	virtual const QObject*  asQObject() const override                    = 0;
+	virtual QString         getWindowTitle() const                        = 0;
+	virtual void            doGrabMouse() override                        = 0;
+	virtual void            doReleaseMouse() override                     = 0;
+	virtual QPoint          doMapFromGlobal(const QPoint&) const override = 0;
+	virtual void            doShowMaximized() override                    = 0;
 	virtual void            doResize(int w, int h)               = 0;
 	virtual void            doResize(const QSize&)               = 0;
 	virtual QImage          doGrabFramebuffer()                  = 0;
@@ -161,6 +163,12 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	QPointF toCenteredGLCoordinates(const QPointF& coordinates) const;
 	QPointF toCenteredGLCoordinates(int x, int y) const override;
 	QPointF toCornerGLCoordinates(int x, int y) const override;
+
+	//! Backend agnostic name of toCenteredGLCoordinates() (M8 / D.18.4)
+	QPointF toCenteredViewCoordinates(int x, int y) const override
+	{
+		return toCenteredGLCoordinates(x, y);
+	}
 	void    setupProjectiveViewport(const ccGLMatrixd& cameraMatrix,
 	                                float              fov_deg                = 0.0f,
 	                                bool               viewerBasedPerspective = true,
@@ -602,9 +610,9 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	}
 
 	//! Returns the widget width (in pixels)
-	virtual int qtWidth() const = 0;
+	int qtWidth() const override = 0;
 	//! Returns the widget height (in pixels)
-	virtual int qtHeight() const = 0;
+	int qtHeight() const override = 0;
 	//! Returns the widget size (in pixels)
 	virtual QSize qtSize() const = 0;
 

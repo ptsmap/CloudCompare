@@ -24,6 +24,8 @@
 // Qt
 #include <QCursor>
 #include <QObject>
+#include <QPoint>
+#include <QPointF>
 #include <QSize>
 #include <QString>
 
@@ -33,6 +35,8 @@ class ccViewportParameters;
 class QObject;
 class QWidget;
 class QSize;
+
+struct ccGLCameraParameters;
 
 //! Backend agnostic 3D view interface
 /** This is the root of the 3D view class hierarchy. It only exposes concepts
@@ -213,6 +217,29 @@ class CC_RENDER_CORE_LIB_API ccViewInterface
 	//! Sets viewport parameters
 	virtual void setViewportParameters(const ccViewportParameters& params) = 0;
 
+	//! Returns the widget/viewport width (in pixels)
+	/** \note Lifted from ccGLWindowInterface (M8 / D.18.4): the interactive
+	    tools use it to know whether a click is inside the 3D view.
+	 **/
+	virtual int qtWidth() const = 0;
+
+	//! Returns the widget/viewport height (in pixels)
+	virtual int qtHeight() const = 0;
+
+	//! Converts window (pixel) coordinates to centered ones
+	/** The returned coordinates are expressed in the same unit as the
+	    viewport reported by getGLCameraParameters() (device pixels with the
+	    OpenGL backend, logical ones with the VSG backend), so that both stay
+	    consistent with the 2D overlay / polyline coordinates.
+	 **/
+	virtual QPointF toCenteredViewCoordinates(int x, int y) const = 0;
+
+	//! Returns the camera parameters in the CloudCompare convention
+	/** Used by the interactive tools to convert 3D points to 2D (and back).
+	    \note Not const: the OpenGL backend lazily refreshes its matrices.
+	 **/
+	virtual void getGLCameraParameters(ccGLCameraParameters& params) = 0;
+
 	// ----------------------------------------------------------------------
 	// View control (same vocabulary for all backends)
 	// ----------------------------------------------------------------------
@@ -259,6 +286,30 @@ class CC_RENDER_CORE_LIB_API ccViewInterface
 	{
 		return nullptr;
 	}
+
+	//! Returns this window as a proper Qt widget (const version)
+	virtual const QWidget* asWidget() const
+	{
+		return nullptr;
+	}
+
+	//! Sets the cursor of the underlying Qt widget
+	virtual void setWindowCursor(const QCursor& cursor) = 0;
+
+	//! Grabs the mouse input (Qt level)
+	/** Used by the interactive tools to keep receiving mouse events even when
+	    the cursor leaves the 3D view (see ccGraphicalSegmentationTool).
+	 **/
+	virtual void doGrabMouse() = 0;
+
+	//! Releases the mouse input grabbed by doGrabMouse()
+	virtual void doReleaseMouse() = 0;
+
+	//! Converts a global (screen) position to widget coordinates
+	virtual QPoint doMapFromGlobal(const QPoint& pos) const = 0;
+
+	//! Shows the window maximized
+	virtual void doShowMaximized() = 0;
 
 	// ----------------------------------------------------------------------
 	// Signals

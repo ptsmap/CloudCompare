@@ -305,7 +305,10 @@ void ccPointPropertiesDlg::processPickedPoint(const PickedItem& picked)
 	m_label->displayPointLegend(m_label->size() == 3); // we need to display 'A', 'B' and 'C' for 3-points labels
 	if (m_label->size() == 1 && m_associatedWin)
 	{
-		m_label->setPosition(static_cast<float>(picked.clickPoint.x() + 20) / glWin()->glWidth(), static_cast<float>(picked.clickPoint.y() + 20) / glWin()->glHeight());
+		// (M8 / D.18.4) glWidth()/glHeight() are OpenGL only: the viewport
+		// size is now exposed by ccViewInterface for every backend.
+		m_label->setPosition(static_cast<float>(picked.clickPoint.x() + 20) / m_associatedWin->qtWidth(),
+		                     static_cast<float>(picked.clickPoint.y() + 20) / m_associatedWin->qtHeight());
 	}
 
 	// output info to Console
@@ -335,7 +338,7 @@ void ccPointPropertiesDlg::processClickedPoint(int x, int y)
 		return;
 	}
 
-	QPointF pos2D = glWin()->toCenteredGLCoordinates(x, y);
+	QPointF pos2D = m_associatedWin->toCenteredViewCoordinates(x, y);
 
 	if (m_rect2DLabel->isSelected()) // already closed? we start a new label
 	{
@@ -388,7 +391,7 @@ void ccPointPropertiesDlg::update2DZone(int x, int y, Qt::MouseButtons buttons)
 		return;
 	}
 
-	QPointF pos2D = glWin()->toCenteredGLCoordinates(x, y);
+	QPointF pos2D = m_associatedWin->toCenteredViewCoordinates(x, y);
 
 	cc2DViewportLabel::ROI roi{m_rect2DLabel->roi()[0],
 	                           m_rect2DLabel->roi()[1],

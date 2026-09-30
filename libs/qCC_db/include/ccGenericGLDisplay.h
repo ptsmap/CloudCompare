@@ -184,7 +184,10 @@ class ccGenericGLDisplay : public ccViewInterface
 	                            const QFont&         font  = QFont()) = 0;
 
 	//! Returns the current OpenGL camera parameters
-	virtual void getGLCameraParameters(ccGLCameraParameters& params) = 0;
+	/** \note Declared by ccViewInterface as well (M8 / D.18.4) so that the
+	    interactive tools can call it on any backend.
+	 **/
+	virtual void getGLCameraParameters(ccGLCameraParameters& params) override = 0;
 
 	//! Converts 2D screen coordinates to 'centered' 2D OpenGL context coordinates
 	virtual QPointF toCenteredGLCoordinates(int x, int y) const = 0;

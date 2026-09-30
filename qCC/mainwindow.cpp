@@ -7238,7 +7238,9 @@ void MainWindow::deactivateSectionExtractionMode(bool state)
 
 void MainWindow::activateSegmentationMode()
 {
-	ccGLWindowInterface* win = getActiveGLWindow();
+	// (M8 / D.18.4) the interactive tools are activated on the active 3D view
+	// whatever its backend (the segmentation tool is backend agnostic now)
+	ccViewInterface* win = getActiveViewWindow();
 	if (!win)
 		return;
 
@@ -7325,7 +7327,7 @@ void MainWindow::deactivateSegmentationMode(bool state)
 
 void MainWindow::activateTracePolylineMode()
 {
-	ccGLWindowInterface* win = getActiveGLWindow();
+	ccViewInterface* win = getActiveViewWindow();
 	if (!win)
 	{
 		return;
@@ -7370,7 +7372,7 @@ void MainWindow::deactivateTracePolylineMode(bool)
 
 void MainWindow::activatePointListPickingMode()
 {
-	ccGLWindowInterface* win = getActiveGLWindow();
+	ccViewInterface* win = getActiveViewWindow();
 	if (!win)
 		return;
 
@@ -7403,7 +7405,11 @@ void MainWindow::activatePointListPickingMode()
 	}
 
 	// DGM: we must update marker size spin box value (as it may have changed by the user with the "display dialog")
-	m_plpDlg->markerSizeSpinBox->setValue(win->getDisplayParameters().labelMarkerSize);
+	// (M8 / D.18.4) the per-window display parameters are OpenGL only
+	if (auto* glWin = dynamic_cast<ccGLWindowInterface*>(win))
+	{
+		m_plpDlg->markerSizeSpinBox->setValue(glWin->getDisplayParameters().labelMarkerSize);
+	}
 
 	m_plpDlg->linkWith(win);
 	m_plpDlg->linkWithEntity(entity);
@@ -7436,7 +7442,7 @@ void MainWindow::deactivatePointListPickingMode(bool state)
 
 void MainWindow::activatePointPickingMode()
 {
-	ccGLWindowInterface* win = getActiveGLWindow();
+	ccViewInterface* win = getActiveViewWindow();
 	if (!win)
 	{
 		return;
@@ -7490,7 +7496,7 @@ void MainWindow::activateClippingBoxMode()
 		return;
 	}
 
-	ccGLWindowInterface* win = getActiveGLWindow();
+	ccViewInterface* win = getActiveViewWindow();
 	if (!win)
 	{
 		return;
@@ -7548,7 +7554,7 @@ void MainWindow::activateTranslateRotateMode()
 	if (!haveSelection())
 		return;
 
-	ccGLWindowInterface* win = getActiveGLWindow();
+	ccViewInterface* win = getActiveViewWindow();
 	if (!win)
 		return;
 
@@ -11883,6 +11889,11 @@ void MainWindow::disableAll()
 }
 
 void MainWindow::disableAllBut(ccGLWindowInterface* win)
+{
+	disableAllBut(static_cast<ccViewInterface*>(win));
+}
+
+void MainWindow::disableAllBut(ccViewInterface* win)
 {
 	// we disable all other windows
 	for (QMdiSubWindow* window : m_mdiArea->subWindowList())

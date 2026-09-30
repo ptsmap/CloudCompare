@@ -60,6 +60,11 @@ class CCVSGWINDOW_LIB_API ccVSGWindow : public QWidget, public ccVSGWindowInterf
 		return this;
 	}
 
+	const QWidget* asWidget() const override
+	{
+		return this;
+	}
+
 	// ----------------------------------------------------------------------
 	// ccVSGWindowInterface / view control
 	// ----------------------------------------------------------------------

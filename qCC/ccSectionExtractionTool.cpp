@@ -119,20 +119,26 @@ void ccSectionExtractionTool::setVertDimension(int dim)
 	if (!m_associatedWin)
 		return;
 
-	switch (dim)
+	// (M8 / D.18.4) The predefined views and the constellation update are
+	// still OpenGL only. With another backend we simply keep the current
+	// camera instead of crashing on a null glWin().
+	if (ccGLWindowInterface* glW = glWin())
 	{
-	case 0:
-		glWin()->setView(CC_RIGHT_VIEW);
-		break;
-	case 1:
-		glWin()->setView(CC_FRONT_VIEW);
-		break;
-	case 2:
-	default:
-		glWin()->setView(CC_TOP_VIEW);
-		break;
+		switch (dim)
+		{
+		case 0:
+			glW->setView(CC_RIGHT_VIEW);
+			break;
+		case 1:
+			glW->setView(CC_FRONT_VIEW);
+			break;
+		case 2:
+		default:
+			glW->setView(CC_TOP_VIEW);
+			break;
+		}
+		glW->updateConstellationCenterAndZoom();
 	}
-	glWin()->updateConstellationCenterAndZoom();
 }
 
 void ccSectionExtractionTool::onShortcutTriggered(int key)
@@ -250,7 +256,11 @@ bool ccSectionExtractionTool::linkWith(ccViewInterface* win)
 		setVertDimension(m_UI->vertAxisComboBox->currentIndex());
 
 		// section extraction only works in orthoraphic mode!
-		glWin()->setPerspectiveState(false, true);
+		// (M8 / D.18.4) still OpenGL only - guarded for other backends
+		if (ccGLWindowInterface* glW = glWin())
+		{
+			glW->setPerspectiveState(false, true);
+		}
 	}
 
 	return true;
@@ -367,7 +377,11 @@ bool ccSectionExtractionTool::start()
 
 	// the user must not close this window!
 	m_associatedWin->setUnclosable(true);
-	glWin()->updateConstellationCenterAndZoom();
+	// (M8 / D.18.4) constellation update is still OpenGL only
+	if (ccGLWindowInterface* glW = glWin())
+	{
+		glW->updateConstellationCenterAndZoom();
+	}
 	updateCloudsBox();
 
 	enableSectionEditingMode(true);
@@ -569,7 +583,7 @@ bool ccSectionExtractionTool::addPolyline(ccPolyline* inputPoly, bool alreadyInD
 	{
 		// viewing parameters (for conversion from 2D to 3D)
 		ccGLCameraParameters camera;
-		glWin()->getGLCameraParameters(camera);
+		m_associatedWin->getGLCameraParameters(camera);
 		const double half_w = camera.viewport[2] / 2.0;
 		const double half_h = camera.viewport[3] / 2.0;
 
@@ -710,7 +724,7 @@ void ccSectionExtractionTool::updatePolyLine(int x, int y, Qt::MouseButtons butt
 	if (vertCount < 2)
 		return;
 
-	QPointF   pos2D = glWin()->toCenteredGLCoordinates(x, y);
+	QPointF   pos2D = m_associatedWin->toCenteredViewCoordinates(x, y);
 	CCVector3 P(static_cast<PointCoordinateType>(pos2D.x()),
 	            static_cast<PointCoordinateType>(pos2D.y()),
 	            0);
@@ -756,7 +770,7 @@ void ccSectionExtractionTool::addPointToPolyline(int x, int y)
 	unsigned vertCount = m_editedPolyVertices->size();
 
 	// clicked point (2D)
-	QPointF   pos2D = glWin()->toCenteredGLCoordinates(x, y);
+	QPointF   pos2D = m_associatedWin->toCenteredViewCoordinates(x, y);
 	CCVector3 P(static_cast<PointCoordinateType>(pos2D.x()),
 	            static_cast<PointCoordinateType>(pos2D.y()),
 	            0);
@@ -1038,7 +1052,12 @@ void          ccSectionExtractionTool::generateOrthoSections()
 		const CCVector3*    lastQ            = poly->getPoint(vertCount - 2);
 		const CCVector3*    lastP            = poly->getPoint(vertCount - 1);
 		PointCoordinateType tipLength        = (*lastQ - *lastP).norm();
-		PointCoordinateType defaultArrowSize = glWin()->computeActualPixelSize() * s_defaultArrowSize;
+		// (M8 / D.18.4) computeActualPixelSize() is OpenGL only: the same
+		// value is derived from the viewport parameters, which is what the
+		// VSG backend uses as well.
+		const QSize     screenSize        = m_associatedWin->getScreenSize();
+		PointCoordinateType defaultArrowSize = static_cast<PointCoordinateType>(
+		    m_associatedWin->getViewportParameters().computePixelSize(screenSize.width(), screenSize.height()) * s_defaultArrowSize);
 		defaultArrowSize                     = std::min(defaultArrowSize, tipLength / 2);
 		poly->showArrow(true, poly->size() - 1, defaultArrowSize);
 		m_associatedWin->redraw();

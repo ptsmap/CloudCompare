@@ -246,6 +246,12 @@ class MainWindow : public QMainWindow
 	void enableAll() override;
 	void disableAll() override;
 	void disableAllBut(ccGLWindowInterface* win) override;
+
+	//! Disables all the MDI sub-windows but the given one (any backend)
+	/** Backend agnostic overload (M8 / D.18.4): the interactive tools are now
+	    activated on whatever 3D view is active, which may be a VSG one.
+	 **/
+	void disableAllBut(ccViewInterface* win);
 	void updateUI() override;
 
 	virtual void toggleActiveWindowStereoVision(bool);

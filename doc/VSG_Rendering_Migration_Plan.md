@@ -832,7 +832,7 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 
 ### 里程碑总览与工作量
 
-| 里程碑 | 内容 | 状态（截至 2026-09-27） | 工作量(PW) | 累计 |
+| 里程碑 | 内容 | 状态（截至 2026-10-01） | 工作量(PW) | 累计 |
 |---|---|---|---:|---:|
 | M0 | 技术验证 Spike | ✅ 已完成（含运行时能力查询；**PointSize 结论见 R1 修正**） | 2~3 | 3 |
 | M1 | 骨架与构建 | ✅ 已完成（`build-hbqt` 双后端可编译运行，调试入口可用） | 3~4 | 7 |
@@ -841,16 +841,20 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 | M4 | 网格/折线/传感器 | 🟡 基本完成：网格/折线（`0ec5e855`）+ **传感器 / 粗线 quad / 网格线框 / LOD / 半透明（`7e438499`，见 D.11）**；仍缺材质纹理（M4.3）、像素级线宽、拐角 join | 3~4 | 18 |
 | M5 | 2D 覆盖层 | 🟡 子项全部落地：M5.1 覆盖层 View、M5.2 文字/SDF 字体、M5.3 2D 标签、M5.4 方向轴+比例尺、M5.5 色标、M5.6 图片叠加（视觉验证待 GUI）；细节完善见 D.13.10 | 3 | 21 |
 | M6 | 拾取与离屏 | 🟡 基本完成：`renderToImage()`、点/三角 CPU 拾取、**实体/框选拾取（D.15）**、**深度反投影（D.16）**、**sensor 拾取 / `LABEL_PICKING` / `ccPickingHub` 接线 / 两处崩溃修复（D.17）** 已实现；交互工具端到端的 GUI 验证未做 | 3 | 24 |
-| M7 | 后处理与 LOD | 🟡 部分：LOD→`vsg::LOD` 已随 M4 落地（`7e438499`，屏幕占比切换）；**M7.5 性能调优**：4× MSAA + `ResourceHints`；**M7.1 后处理框架已落地**：3D 渲染进离屏 color+depth 目标（MSAA+resolve），全屏三角形 Pass 采样该 color 写窗口，2D 覆盖层叠加其上（`ccVSGWindowInterface::buildCommandGraph`，M7.1）；SSAO(M7.2)、移动时降细节(M7.3)、PagedLOD 分页(M7.4)未开始 | 4 | 28 |
-| M8 | 插件与收尾 | 🟡 部分：`getActiveViewWindow()`/视图抽象已做；插件 metadata、GL-only 插件跳过、立体降级未做 | 3~4 | 32 |
+| M7 | 后处理与 LOD | 🟡 基本完成（**M7.1** 后处理框架 `8cbbc713`；**M7.2** SSAO `7d2ebffc`；**M7.3** 点云 LOD + 移动降细节 `d80a0c30`；**M7.5** 4× MSAA + `ResourceHints` `21555023`）；**仅剩 M7.4 PagedLOD 分页**（方案标"可选"，已评估延后：无外存测试资产） | 4 | 28 |
+| M8 | 插件与收尾 | ⬜ 基本未开始：`getActiveViewWindow()` 已落地（M8.1 部分）；插件 metadata、GL-only 插件跳过、`ccRenderCommandSink` 迁移、`CCPluginAPI` 解耦、立体降级、文档收尾均未做 —— 详见附录 C 末尾「剩余未完成项汇总」 | 3~4 | 32 |
 | **合计** | | | **26~32 PW** | ≈ **6~8 人月** |
 
 > 若不含后处理（M7.1/M7.2）与分页（M7.4），核心功能对齐约 **20~22 PW（5 人月）**。
 > 图例：✅ 完成 / 🟡 部分完成 / ⬜ 未开始。详细子项见 §7 各里程碑与附录 **D.10 / D.11 / D.12**。
 >
-> **最近三次提交**：`87faa35c` M6.1/M6.2 实体拾取（离屏 R32_UINT ID pass，见 D.15）；
-> `71b7760a` M3.5 点大小 billboard quad + 修复裸文件名被误判为命令行（见 D.14）；
-> `7e438499` M4 收尾（传感器 / 粗线 quad / 线框 / LOD / 半透明，见 D.11）。
+> **最近四次提交**（branch `vsg`，领先 `origin/vsg` 1 个提交，未 push）：
+> `d80a0c30` M7.3 点云 LOD（murmur3 哈希抽稀 1/8）+ 移动降细节（`vsg::View::LODScale`，移动 8.0 / 静止 1.0）；
+> `7d2ebffc` M7.2 SSAO + 默认渲染后端改为优先 VSG（缺 VSG 才回退 OpenGL）；
+> `8cbbc713` M7.1 后处理框架（离屏 color+depth MSAA+resolve → 全屏三角形 pass → 覆盖层叠加）；
+> `21555023` M7.5 性能调优（4× MSAA + `ResourceHints`）。
+>
+> **当前 HEAD**：`d80a0c30`。未完成项见附录 C 末尾「剩余未完成项汇总」。
 
 ---
 
@@ -898,16 +902,18 @@ add_subdirectory( qCC_vsgWindow )     # 或按开关裁剪
 
 ### 9.3 功能验收清单
 
-- [ ] 点云：RGB / 标量场 / 单色 / 法线着色；点大小；可见性；裁剪；LOD
-- [ ] 网格：实体 / 线框 / 点面混合；顶点法线 / 面法线；SF 着色；材质；纹理
-- [ ] 折线、facet、传感器（GBL / Camera）
-- [ ] 2D：标签、视口标签、图片、比例尺、方向轴、色标、屏幕消息
-- [ ] 相机：旋转 / 平移 / 缩放 / pivot / 标准视角 / 透视正交切换 / 多窗口同步
-- [ ] 拾取：实体 / 矩形 / 点 / 三角 / 标签 / 深度反投影
-- [ ] 交互工具：分割、裁剪、变换、配准、量测
-- [ ] 离屏：`renderToImage()`、高清截图
-- [ ] 后处理：SSAO（EDL 可选）
-- [ ] 插件：core 插件全部可用或明确标注
+> 状态截至 2026-10-01（此前该清单长期未维护，全部为未勾选）。图例：✅ 已落地 / 🟡 部分 / ❌ 未做 / ⬜ 未验证。
+
+- 🟡 点云：RGB / 标量场 / 单色 / 法线着色 ✅；点大小 ✅（billboard quad）；LOD ✅（M7.3）；可见性 / 裁剪 ⬜ 未做端到端验证
+- 🟡 网格：实体 ✅ / 线框 ✅ / 顶点法线·面法线 ✅ / SF 着色 ✅；点面混合 ❌；材质 ❌（M4.3）；纹理 ❌（M4.3）
+- 🟡 折线 ✅、传感器（GBL / Camera）✅；facet ❌
+- ✅ 2D：标签、视口标签、图片、比例尺、方向轴、色标、屏幕消息（M5 全部子项已落地；像素级视觉验证未做）
+- ✅ 相机：旋转 / 平移 / 缩放 / pivot / 标准视角 / 透视正交切换 / 多窗口同步
+- ✅ 拾取：实体 / 矩形 / 点 / 三角 / 标签 / 深度反投影
+- 🟡 交互工具：分割 ✅（已完全后端无关）、折线 ✅、点属性 ✅、裁剪盒 🟡（裁剪平面开关仍 GL 专属）、变换 🟡（激活已后端无关，回显仍 GL 专属）、配准 🟡、量测 ⬜ 未验证 —— 见汇总 #12 与 D.18.7
+- ✅ 离屏：`renderToImage()`、高清截图
+- ✅ 后处理：SSAO（M7.2）；EDL / Bilateral ❌ 排后
+- ⬜ 插件：core 插件全部可用或明确标注 —— 未开始（M8.2/M8.3）
 
 ---
 
@@ -1078,35 +1084,35 @@ commandGraph->addChild(overlayGraph);
 ## 附录 C：待办清单（可直接拆解为 Issue）
 
 **M0**
-- [ ] Spike：vsgQt 嵌入 Qt 窗口
-- [ ] Spike：PointSize 支持度（macOS/Windows/Linux）
-- [ ] Spike：wideLines 支持度
-- [ ] Spike：SDF 字体与中文
-- [ ] Spike：深度回读与 [0,1] NDC 反投影
+- [x] Spike：vsgQt 嵌入 Qt 窗口
+- [x] Spike：PointSize 支持度（macOS/Windows/Linux）—— 结论：Metal/MoltenVK 忽略 `gl_PointSize`，改走 billboard quad（R1）
+- [x] Spike：wideLines 支持度 —— 结论：不可用，粗线走 CPU quad 扩展
+- [x] Spike：SDF 字体与中文（freetype + 系统 CJK 字体覆盖）
+- [x] Spike：深度回读与 [0,1] NDC 反投影（reverse depth，见 D.16）
 
 **M1**
-- [ ] 移除 CMake 中 VSG 硬编码路径；`find_package(vsg)` + `find_package(vsgQt)`
-- [ ] 新增 `CC_RENDER_BACKEND` 缓存变量
-- [ ] 新建 `libs/qCC_renderCore`（`ccViewInterface` / `ccRenderBackend` / `ccRenderCapabilities` / `ccRenderCommandSink`）
-- [ ] `ccGLWindowInterface` 继承 `ccViewInterface`（纯重构，视觉回归验证）
-- [ ] 重写 `ccVSGWindow` / `ccVSGWindowInterface`（vsgQt::Window + createWindowContainer）
-- [ ] `qCC` 增加"新建 VSG 视图"调试入口
-- [ ] 加入 `libs/CMakeLists.txt`
+- [x] 移除 CMake 中 VSG 硬编码路径；`find_package(vsg)` + `find_package(vsgQt)`（缺失时自动降级关闭 VSG 后端并告警）
+- [x] 新增 `CC_RENDER_BACKEND` 缓存变量
+- [x] 新建 `libs/qCC_renderCore`（`ccViewInterface` / `ccRenderBackend` / `ccRenderCapabilities` / `ccRenderCommandSink`）
+- [x] `ccGLWindowInterface` 继承 `ccViewInterface`（纯重构，视觉回归验证）
+- [x] 重写 `ccVSGWindow` / `ccVSGWindowInterface`（vsgQt::Window + createWindowContainer）
+- [x] `qCC` 增加"新建 VSG 视图"调试入口
+- [x] 加入 `libs/CMakeLists.txt`
 
 **M2**
-- [ ] `ccVSGCameraManipulator`（派生 `vsg::Trackball`）
-- [ ] `ccViewportParameters` ⇄ `vsg::Camera` 双向同步
-- [ ] Vulkan NDC z∈[0,1] 适配
-- [ ] 滚轮/双击全部语义
-- [ ] 标准视角与多窗口同步
+- [x] `ccVSGCameraManipulator`（派生 `vsg::Trackball`）
+- [x] `ccViewportParameters` ⇄ `vsg::Camera` 双向同步
+- [x] Vulkan NDC z∈[0,1] 适配（reverse depth）
+- [x] 滚轮/双击全部语义（含自判双击，见 D.17）
+- [x] 标准视角与多窗口同步
 
 **M3**
-- [ ] PointCloud ShaderSet（POINT_LIST + 点大小）
+- [x] PointCloud ShaderSet（POINT_LIST + billboard quad 点大小）
 - [x] `ccVSGPointCloudBuilder`（chunk + SharedObjects）
 - [x] RGB / SF(color ramp 纹理) / 单色 / 法线 LUT
 - [x] `ccVSGSceneBuilder` 增量同步与 revision（指纹启发式，非真 revision）
-- [ ] billboard quad 回退路径（按 R1 结论）— **高优，见 D.10.3**
-- [ ] 大点云冒烟与内存预算
+- [x] billboard quad 回退路径（按 R1 结论，`71b7760a`；见 D.10.3 / D.14）
+- [ ] 大点云冒烟与内存预算 —— **未完成**：M7.3 已为 >200 万点点云加 LOD 抽稀，但缺 3000 万级数据集实测与显存预算数据
 
 **M4**
 - [x] `ccVSGMeshBuilder`（非索引 `VertexDraw` + 顶点/面法线）
@@ -1136,19 +1142,45 @@ commandGraph->addChild(overlayGraph);
 
 **M7**
 - [x] 后处理框架（`ccVSGWindowInterface::buildCommandGraph`：离屏 color+depth MSAA+resolve → 全屏三角形采样写窗口 → 覆盖层叠加，M7.1）
-- [ ] SSAO 迁移
-- [ ] LOD → `vsg::LOD`
-- [ ] 分页：`PagedLOD` + `DatabasePager`（可选）
-- [ ] 性能调优（SharedObjects / ResourceHints / MSAA / viewport hint）
+- [x] SSAO 迁移（M7.2，`7d2ebffc`；片元着色器采样 resolved color+depth，reverse-depth 重建 view-space，投影矩阵经 push constant 每帧注入）
+- [x] LOD → `vsg::LOD`（M7.3，`d80a0c30`；网格侧随 M4 已做，本次补点云抽稀层级 + 移动降细节 `LODScale`）
+- [ ] 分页：`PagedLOD` + `DatabasePager`（可选）—— **未完成，已评估延后**：需外存分块数据 + 自定义 `ReaderWriter`，当前无 3000 万级测试资产；路径见 §7.6 与 M7.4 表格
+- [x] 性能调优（M7.5，`21555023`）：4× MSAA + `ResourceHints`；`SharedObjects` / descriptor pool / `DYNAMIC_VIEWPORTSTATE` 未单独立项验证
 
 **M8**
-- [ ] `getActiveViewWindow()` + 旧接口 deprecated
+- [x] 工具激活点改走 `getActiveViewWindow()` + 交互工具后端无关化（D.18.7；分割/折线/点属性/点列表拾取/裁剪盒/变换六个激活函数，另加 `disableAllBut(ccViewInterface*)` 重载）
+- [ ] `getActiveViewWindow()` + 旧接口 deprecated —— **部分完成**：`MainWindow::getActiveViewWindow()`（返 `ccViewInterface*`）已落地并被新代码使用；`getActiveGLWindow()` **尚未**标 deprecated（全仓仍在大量调用，如 `cc3DMouseManager.cpp:173,245,265,284,310,319`）
 - [ ] 插件 metadata `requiresBackends`
-- [ ] 迁移仅用窗口 API 的插件
-- [ ] 自定义 GL drawable → `ccRenderCommandSink`
+- [ ] 迁移仅用窗口 API 的插件（qHPR / qAnimation / qColorimetricSegmenter / qM3C2）
+- [ ] 自定义 GL drawable → `ccRenderCommandSink`（qSRA / qCompass）
 - [ ] `CCPluginAPI` 解耦 `QCC_GL_LIB`
 - [ ] 立体显示降级提示
-- [ ] 文档更新；删除两份旧草稿 md
+- [ ] 文档更新；删除两份旧草稿 md（`VSG_Migration_TODO.md` / `CodeModificationAnalysis.md`）
+
+---
+
+### 剩余未完成项汇总（截至 2026-10-01，branch `vsg`，HEAD `d80a0c30`）
+
+已提交：`d80a0c30` M7.3、`7d2ebffc` M7.2+默认后端、`8cbbc713` M7.1、`21555023` M7.5、`b61eef78` M4.6。
+
+| # | 项 | 归属 | 优先级 | 说明 / 阻塞点 |
+|---|---|---|---|---|
+| 1 | PagedLOD 分页 | M7.4 | 低（方案标"可选"） | 需外存分块 + 自定义 `ReaderWriter`；**当前无 3000 万级测试资产**，已评估延后 |
+| 2 | 大点云冒烟与显存预算 | M3 / M7 | 中 | 与 #1 同数据集依赖；LOD 已备，缺实测数字 |
+| 3 | 材质 / 纹理 | M4.3 | 中 | 无 vsgXchange 时用 `QImage` 解码；未做 |
+| 4 | Facet 渲染；网格"点+面"混合模式 | M4 | 低 | 已知缺口，未排期 |
+| 5 | `getActiveGLWindow()` 标 deprecated + 全仓调用点收敛 | M8.1 | 中 | `getActiveViewWindow()` 已可用，剩调用点替换（约 6 处在 `cc3DMouseManager.cpp`，另需全仓清查） |
+| 6 | 插件 metadata `requiresBackends` + VSG-only 构建自动跳过 GL-only 插件 | M8.2 | 中 | 未开始 |
+| 7 | 迁移仅用窗口 API 的插件 | M8.3 | 中 | 依赖 #5/#6 的接口收敛 |
+| 8 | 自定义 GL drawable → `ccRenderCommandSink` | M8.4 | 中 | qSRA / qCompass |
+| 9 | `CCPluginAPI` 解耦 `QCC_GL_LIB` | M8.5 | 中 | 依赖 #8 |
+| 10 | 立体显示降级提示 | M8.6 | 低 | 一期给"不支持"UI 提示 |
+| 11 | 文档更新 + 删除两份旧草稿 md | M8.7 | 低 | 收尾项 |
+| 12 | 交互工具端到端可用（D.18.4） | M6 / M8 | 中（主体已落地，2026-10-01） | **已推进**：`ccViewInterface` 新增 9 个后端无关方法（Qt 鼠标抓取/光标映射、`qtWidth`·`qtHeight`、`toCenteredViewCoordinates`、`getGLCameraParameters`）；分割工具已完全去掉 `glWin()`；截面/折线/点属性工具可迁部分已迁；`MainWindow` 六个工具激活点改走 `getActiveViewWindow()`（**原先 VSG 下恒 return，工具根本无法启动**）。**剩余**：GUI 端端点选验证；截面工具 `setView`/`setPerspectiveState`/`updateConstellationCenterAndZoom`、裁剪平面开关、变换工具回显仍为 GL 专属降级（见 **D.18.7**） |
+| 13 | EDL / Bilateral 后处理 | M7.2 备注 | 低 | 方案已排后（或仅保留于 OpenGL 后端） |
+| 14 | 视觉回归基线（§9.2） | 验证 | 中 | 固定数据集+视点的截图像素级 diff 未建立；当前仅有 `cube.bin` 无头冒烟 |
+| 15 | `quit()` 后关机挂死 | 缺陷 | **高** | VSG 后端专属：`QCoreApplication::quit()` 后 `exec()` 不返回（GL 后端干净退出）。已排除渲染定时器/窗口 close/`[NSApp stop:]`；疑似 Qt Cocoa dispatcher 重入 `[NSApp run]` 或 vsgQt Metal 层 QWindow 所致。**冒烟脚本用 kill 容忍** |
+| 16 | §9.3 功能验收清单维护 | 文档 | 低 | 该清单长期未更新，本次已按实际状态刷新（见下） |
 
 ---
 
@@ -2047,3 +2079,36 @@ VSG 的 `ButtonMask`（`BUTTON_MASK_1/2/3` = 左/中/右）用 `toQtMouseButtons
 - 全量构建通过（`CloudCompare` + 全部已启用目标）。
 - qCompass / qMPlane / qCloudLayers 只**调用** `linkWith(getActiveGLWindow())`（向上转型即可），未覆写，不受影响；它们未参与本机构建。
 - **运行时待 GUI 验证**：VSG 视图上打开分割/裁剪工具是否能正常接收点击与移动信号。
+
+### D.18.7 工具激活点改为后端无关（M8 / D.18.4，2026-10-01）
+
+上一节遗留的真正阻塞点不在工具内部，而在 **`MainWindow`**：各工具的激活函数都是
+`ccGLWindowInterface* win = getActiveGLWindow(); if (!win) return;` —— VSG 视图下 `win` 恒为 null，
+工具**根本不会被激活**（不崩溃，但不可用）。本次一并解决：
+
+**① 提升 `ccViewInterface`**（`libs/qCC_renderCore/include/ccViewInterface.h`）
+新增纯虚（GL 侧加 `override`，VSG 侧实现）：
+
+| 方法 | 语义 | VSG 实现 |
+|---|---|---|
+| `setWindowCursor` / `doGrabMouse` / `doReleaseMouse` / `doMapFromGlobal` / `doShowMaximized` | 纯 Qt 层调用 | 经 `asWidget()` 转发（新增 `const QWidget* asWidget() const` 重载） |
+| `qtWidth()` / `qtHeight()` | 视口像素尺寸 | `getScreenSize()` |
+| `toCenteredViewCoordinates(int,int)` | 屏幕坐标 → 以中心为原点的 2D 覆盖层坐标 | `(x - w/2, h/2 - y)`，**逻辑像素**（GL 版乘 `devicePixelRatio`，两者各自与 `getGLCameraParameters().viewport` 单位自洽） |
+| `getGLCameraParameters(ccGLCameraParameters&)` | 3D↔2D 换算用相机参数 | 复用 VSG 已有实现（改为非 const，与 GL 一致：GL 惰性刷新矩阵缓存） |
+
+**② 工具改造**
+- `ccGraphicalSegmentationTool`：**`glWin()` 已删除**，全部改走 `m_associatedWin`（鼠标抓取 / `toCenteredViewCoordinates` / `qtWidth`·`qtHeight` / `getGLCameraParameters` / `doMapFromGlobal`）——分割工具成为第一个完全后端无关的交互工具。
+- `ccSectionExtractionTool`：`toCenteredViewCoordinates` / `getGLCameraParameters` 已迁移；`computeActualPixelSize()` 改用 `getViewportParameters().computePixelSize(w,h)`；`setView()` / `setPerspectiveState()` / `updateConstellationCenterAndZoom()` 仍 GL 专属，改为 `if (ccGLWindowInterface* glW = glWin())` 判空降级（不再空指针解引用）。
+- `ccTracePolylineTool`：`setWindowCursor` / `toCenteredViewCoordinates` / `getGLCameraParameters` 已迁移；`SegmentGLParams(ccGenericGLDisplay*)` 本身已对 null 入参安全（退化为不记录段参数）。
+- `ccPointPropertiesDlg`：`glWidth()`/`glHeight()` → `qtWidth()`/`qtHeight()`，`toCenteredGLCoordinates` → `toCenteredViewCoordinates`。
+- `ccPointListPickingDlg` / `ccPointPairRegistrationDlg`：显示参数与 `doShowMaximized` 保持判空降级（原本已判空）。
+
+**③ `MainWindow` 激活点**（`qCC/mainwindow.cpp`）
+`activateSegmentationMode` / `activateTracePolylineMode` / `activatePointListPickingMode` /
+`activatePointPickingMode` / `activateClippingBoxMode` / `activateTranslateRotateMode`
+六个函数改为 `ccViewInterface* win = getActiveViewWindow();`；新增后端无关的
+`disableAllBut(ccViewInterface*)` 重载（原 GL 版转为委托，插件 ABI 不变）；
+`m_plpDlg` 的 `win->getDisplayParameters()` 改为 `dynamic_cast` 判空。
+
+**验证**：全量构建通过；`cube.bin` 无头冒烟 PASS（`active view backend: VSG`、截图 1040×454）。
+**仍待 GUI 验证**：VSG 视图上实际点选/框选的手感（需人工或 GUI 自动化）。
