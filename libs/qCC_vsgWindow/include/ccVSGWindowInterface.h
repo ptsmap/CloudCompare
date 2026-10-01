@@ -59,8 +59,10 @@
 #include <list>
 #include <vector>
 
+class ccBBox;
 class ccDrawableObject;
 class ccHObject;
+class QWindow;
 
 namespace vsgQt
 {
@@ -127,6 +129,16 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 	    \return success
 	**/
 	bool initializeViewer(vsg::ref_ptr<vsgQt::Viewer> viewer, vsgQt::Window* vsgWindow);
+
+	//! Returns the underlying Qt window (the vsgQt::Window embedding the Vulkan surface)
+	/** Only meant for the automated tests: see scripts/vsg_pick_test.py, which
+	    injects a click there because macOS refuses to deliver synthetic HID
+	    events to a process without the Accessibility permission.
+	 **/
+	QWindow* vsgQtWindow() const
+	{
+		return m_window;
+	}
 
 	//! Returns whether the VSG viewer has been successfully initialized
 	bool isInitialized() const
@@ -223,6 +235,27 @@ class CCVSGWINDOW_LIB_API ccVSGWindowInterface : public ccViewInterface
 
 	//! Applies a 1:1 global zoom (mirrors ccGLWindowInterface::zoomGlobal)
 	void zoomGlobal() override;
+
+	// ----------------------------------------------------------------------
+	// Camera orientation (M8 / D.18.5)
+	// ----------------------------------------------------------------------
+	/** Like the Qt helpers below, these used to require a downcast to
+	    ccGLWindowInterface, so the interactive tools silently did nothing
+	    (predefined views, orthographic mode) with the VSG backend. Only the
+	    view matrix / viewport parameters are involved, so they are backend
+	    agnostic.
+
+	    \note Clipping planes are genuinely OpenGL only (they are applied by
+	    the GL shaders): the ccViewInterface default (unsupported / no-op) is
+	    kept on purpose.
+	 **/
+
+	QString getWindowTitle() const override;
+
+	void setView(CC_VIEW_ORIENTATION orientation, bool forceRedraw = true) override;
+	void setPerspectiveState(bool state, bool objectCenteredView) override;
+	bool getPerspectiveState(bool& objectCentered) const override;
+	void updateConstellationCenterAndZoom(const ccBBox* boundingBox = nullptr) override;
 
 	// ----------------------------------------------------------------------
 	// Qt widget / viewport helpers (M8 / D.18.4)

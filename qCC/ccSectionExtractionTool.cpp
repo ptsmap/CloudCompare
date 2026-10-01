@@ -119,26 +119,21 @@ void ccSectionExtractionTool::setVertDimension(int dim)
 	if (!m_associatedWin)
 		return;
 
-	// (M8 / D.18.4) The predefined views and the constellation update are
-	// still OpenGL only. With another backend we simply keep the current
-	// camera instead of crashing on a null glWin().
-	if (ccGLWindowInterface* glW = glWin())
+	// (M8 / D.18.5) backend agnostic: ccViewInterface::setView()
+	switch (dim)
 	{
-		switch (dim)
-		{
-		case 0:
-			glW->setView(CC_RIGHT_VIEW);
-			break;
-		case 1:
-			glW->setView(CC_FRONT_VIEW);
-			break;
-		case 2:
-		default:
-			glW->setView(CC_TOP_VIEW);
-			break;
-		}
-		glW->updateConstellationCenterAndZoom();
+	case 0:
+		m_associatedWin->setView(CC_RIGHT_VIEW);
+		break;
+	case 1:
+		m_associatedWin->setView(CC_FRONT_VIEW);
+		break;
+	case 2:
+	default:
+		m_associatedWin->setView(CC_TOP_VIEW);
+		break;
 	}
+	m_associatedWin->updateConstellationCenterAndZoom();
 }
 
 void ccSectionExtractionTool::onShortcutTriggered(int key)
@@ -256,11 +251,8 @@ bool ccSectionExtractionTool::linkWith(ccViewInterface* win)
 		setVertDimension(m_UI->vertAxisComboBox->currentIndex());
 
 		// section extraction only works in orthoraphic mode!
-		// (M8 / D.18.4) still OpenGL only - guarded for other backends
-		if (ccGLWindowInterface* glW = glWin())
-		{
-			glW->setPerspectiveState(false, true);
-		}
+		// (M8 / D.18.5) backend agnostic
+		m_associatedWin->setPerspectiveState(false, true);
 	}
 
 	return true;
@@ -377,11 +369,8 @@ bool ccSectionExtractionTool::start()
 
 	// the user must not close this window!
 	m_associatedWin->setUnclosable(true);
-	// (M8 / D.18.4) constellation update is still OpenGL only
-	if (ccGLWindowInterface* glW = glWin())
-	{
-		glW->updateConstellationCenterAndZoom();
-	}
+	// (M8 / D.18.5) backend agnostic
+	m_associatedWin->updateConstellationCenterAndZoom();
 	updateCloudsBox();
 
 	enableSectionEditingMode(true);

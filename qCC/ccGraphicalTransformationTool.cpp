@@ -28,6 +28,7 @@
 #include <ccDBRoot.h>
 #include <ccLog.h>
 #include <ccMesh.h>
+#include <ccViewSignalEmitter.h>
 #include <ccPlane.h>
 #include <ccPolyline.h>
 
@@ -786,13 +787,14 @@ bool ccGraphicalTransformationTool::start()
 	m_associatedWin->setPickingMode(ccGLWindowInterface::NO_PICKING, Qt::OpenHandCursor);
 	// the user must not close this window!
 	m_associatedWin->setUnclosable(true);
-	// TODO(M6): 'rotation' / 'translation' are still OpenGL only (they echo the
-	// GL camera/entity transforms)
-	auto* glEmitter = qobject_cast<ccGLWindowSignalEmitter*>(m_associatedWin->signalEmitter());
-	if (glEmitter)
+	// (M8 / D.18.5) rotation() / translation() now live in the backend
+	// agnostic ccViewSignalEmitter (and the VSG manipulator emits them in
+	// 'transform entities' mode), so any backend drives the tool
+	auto* emitter = qobject_cast<ccViewSignalEmitter*>(m_associatedWin->signalEmitter());
+	if (emitter)
 	{
-		connect(glEmitter, &ccGLWindowSignalEmitter::rotation, this, &ccGraphicalTransformationTool::glRotate);
-		connect(glEmitter, &ccGLWindowSignalEmitter::translation, this, &ccGraphicalTransformationTool::glTranslate);
+		connect(emitter, &ccViewSignalEmitter::rotation, this, &ccGraphicalTransformationTool::glRotate);
+		connect(emitter, &ccViewSignalEmitter::translation, this, &ccGraphicalTransformationTool::glTranslate);
 	}
 	m_associatedWin->displayNewMessage(QString(), ccGLWindowInterface::UPPER_CENTER_MESSAGE); // clear the area
 	pauseButton->setChecked(false);

@@ -29,6 +29,7 @@
 #include <QSize>
 #include <QString>
 
+class ccBBox;
 class ccDrawableObject;
 class ccHObject;
 class ccViewportParameters;
@@ -37,6 +38,27 @@ class QWidget;
 class QSize;
 
 struct ccGLCameraParameters;
+
+//! Predefined view orientations
+/** \note It used to be declared by ccGLUtils.h (qCC_glWindow) only, which made
+    it impossible to declare ccViewInterface::setView() - and therefore to
+    switch to a predefined view without a downcast to ccGLWindowInterface
+    (M8 / D.18.5). It is kept at file scope (and not nested in the class, unlike
+    PICKING_MODE and friends) so that the existing unqualified uses
+    (CC_TOP_VIEW, ccMainAppInterface::setView(CC_VIEW_ORIENTATION), ...) keep
+    compiling unchanged.
+**/
+enum CC_VIEW_ORIENTATION
+{
+	CC_TOP_VIEW,    /**< Top view (eye: +Z) **/
+	CC_BOTTOM_VIEW, /**< Bottom view **/
+	CC_FRONT_VIEW,  /**< Front view **/
+	CC_BACK_VIEW,   /**< Back view **/
+	CC_LEFT_VIEW,   /**< Left view **/
+	CC_RIGHT_VIEW,  /**< Right view **/
+	CC_ISO_VIEW_1,  /**< Isometric view 1: front, right and top **/
+	CC_ISO_VIEW_2,  /**< Isometric view 2: back, left and top **/
+};
 
 //! Backend agnostic 3D view interface
 /** This is the root of the 3D view class hierarchy. It only exposes concepts
@@ -133,6 +155,8 @@ class CC_RENDER_CORE_LIB_API ccViewInterface
 		PIVOT_ALWAYS_SHOW,
 	};
 
+
+
 	// ----------------------------------------------------------------------
 	// Backend information
 	// ----------------------------------------------------------------------
@@ -144,6 +168,13 @@ class CC_RENDER_CORE_LIB_API ccViewInterface
 
 	//! Returns the capabilities of the underlying render backend
 	virtual const ccRenderCapabilities& renderCapabilities() const = 0;
+
+	//! Returns the title of this view (as displayed by its MDI sub window)
+	/** \note It used to be declared by ccGLWindowInterface only, which forced
+	    the backend agnostic code to downcast (and, worse, some places did a
+	    static_cast - see M8 / D.18.5).
+	 **/
+	virtual QString getWindowTitle() const = 0;
 
 	// ----------------------------------------------------------------------
 	// Scene
@@ -239,6 +270,59 @@ class CC_RENDER_CORE_LIB_API ccViewInterface
 	    \note Not const: the OpenGL backend lazily refreshes its matrices.
 	 **/
 	virtual void getGLCameraParameters(ccGLCameraParameters& params) = 0;
+
+	// ----------------------------------------------------------------------
+	// Camera orientation (M8 / D.18.5)
+	// ----------------------------------------------------------------------
+	/** These used to be ccGLWindowInterface only: the interactive tools
+	    (section extraction, clipping box, ...) had to downcast to
+	    ccGLWindowInterface and silently did nothing with another backend.
+	 **/
+
+	//! Sets the camera to a predefined view (top, bottom, etc.)
+	virtual void setView(CC_VIEW_ORIENTATION orientation, bool redraw = true) = 0;
+
+	//! Sets perspective mode
+	/** \param state              whether perspective mode is enabled
+	    \param objectCenteredView whether the view is object- or viewer-centered
+	                              (forced to true in orthographic mode)
+	 **/
+	virtual void setPerspectiveState(bool state, bool objectCenteredView) = 0;
+
+	//! Returns perspective mode
+	virtual bool getPerspectiveState(bool& objectCentered) const = 0;
+
+	//! Centers and zooms on a given bounding box
+	/** If no bounding box is given, the bounding box of the currently
+	    displayed 'scene graph' is used.
+	 **/
+	virtual void updateConstellationCenterAndZoom(const ccBBox* boundingBox = nullptr) = 0;
+
+	// ----------------------------------------------------------------------
+	// Near / far clipping planes (M8 / D.18.5)
+	// ----------------------------------------------------------------------
+	/** Only the OpenGL backend implements them for now: the default
+	    implementation is a no-op and clippingPlanesSupported() returns false,
+	    so that callers can degrade gracefully instead of crashing.
+	 **/
+
+	//! Whether this backend supports near/far clipping planes
+	virtual bool clippingPlanesSupported() const
+	{
+		return false;
+	}
+
+	//! Enables/disables the near and far clipping planes
+	virtual void setClippingPlanesEnabled(bool enabled)
+	{
+		Q_UNUSED(enabled);
+	}
+
+	//! Whether the near and far clipping planes are enabled
+	virtual bool clippingPlanesEnabled() const
+	{
+		return false;
+	}
 
 	// ----------------------------------------------------------------------
 	// View control (same vocabulary for all backends)

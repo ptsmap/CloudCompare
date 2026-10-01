@@ -23,6 +23,7 @@
 #include <ccBBox.h>
 #include <ccDrawableObject.h>
 #include <ccGLMatrix.h>
+#include <ccGLUtils.h>
 #include <ccGenericMesh.h>
 #include <ccGenericPointCloud.h>
 #include <ccHObject.h>
@@ -1318,17 +1319,92 @@ void ccVSGWindowInterface::aboutToBeRemoved(ccDrawableObject* obj)
 
 void ccVSGWindowInterface::zoomGlobal()
 {
+	updateConstellationCenterAndZoom(nullptr);
+}
+
+// ----------------------------------------------------------------------
+// Camera orientation (M8 / D.18.5)
+// ----------------------------------------------------------------------
+// Only ccViewportParameters is involved, so these mirror the OpenGL backend
+// without any VSG specific concept.
+// ----------------------------------------------------------------------
+
+QString ccVSGWindowInterface::getWindowTitle() const
+{
+	const QWidget* w = asWidget();
+	if (!w)
+	{
+		return QString();
+	}
+
+	// the title is usually set on the MDI sub window, not on the view itself
+	// (see MainWindow::createVSGViewDebug)
+	if (!w->windowTitle().isEmpty())
+	{
+		return w->windowTitle();
+	}
+
+	return w->parentWidget() ? w->parentWidget()->windowTitle() : QString();
+}
+
+void ccVSGWindowInterface::setView(CC_VIEW_ORIENTATION orientation, bool forceRedraw)
+{
+	// mirrors ccGLWindowInterface::setView(): only the view matrix is
+	// changed. The vertical direction is (0, 0, 1) - the default of
+	// ccGLUtils::GenerateViewMat() - because the VSG manipulator has no
+	// "locked rotation axis" mode.
+	m_viewportParams.viewMat = ccGLUtils::GenerateViewMat(orientation);
+
+	updateCamera();
+
+	if (forceRedraw)
+	{
+		redraw();
+	}
+}
+
+void ccVSGWindowInterface::setPerspectiveState(bool state, bool objectCenteredView)
+{
+	// mirrors ccGLWindowInterface::setPerspectiveState()
+	m_viewportParams.perspectiveView    = state;
+	m_viewportParams.objectCenteredView = objectCenteredView;
+
+	if (!m_viewportParams.perspectiveView)
+	{
+		// object-centered mode is forced for orthographic views
+		m_viewportParams.objectCenteredView = true;
+	}
+
+	updateCamera();
+	redraw();
+}
+
+bool ccVSGWindowInterface::getPerspectiveState(bool& objectCentered) const
+{
+	objectCentered = m_viewportParams.objectCenteredView;
+	return m_viewportParams.perspectiveView;
+}
+
+void ccVSGWindowInterface::updateConstellationCenterAndZoom(const ccBBox* boundingBox)
+{
 	// mirrors ccGLWindowInterface::updateConstellationCenterAndZoom()
 
 	// bounding box of the visible objects
 	ccBBox zoomedBox;
-	if (m_globalDBRoot)
+	if (boundingBox)
 	{
-		zoomedBox = m_globalDBRoot->getBB_recursive(false, true);
+		zoomedBox = *boundingBox;
 	}
-	if (m_winDBRoot)
+	else
 	{
-		zoomedBox += m_winDBRoot->getBB_recursive(false, true);
+		if (m_globalDBRoot)
+		{
+			zoomedBox = m_globalDBRoot->getBB_recursive(false, true);
+		}
+		if (m_winDBRoot)
+		{
+			zoomedBox += m_winDBRoot->getBB_recursive(false, true);
+		}
 	}
 	if (!zoomedBox.isValid())
 	{
@@ -1998,6 +2074,16 @@ void ccVSGWindowInterface::doPicking(int x, int y)
 		// switch.
 		break;
 	}
+
+	// Automated testing (see doEntityPicking()): what the click actually hit
+	fprintf(stderr,
+	        "[VSG][trace] pick: mode=%d at (%d,%d) -> %s (index=%d)\n",
+	        static_cast<int>(m_pickingMode),
+	        x,
+	        y,
+	        nearestEntity ? qPrintable(nearestEntity->getName()) : "<nothing>",
+	        nearestElementIndex);
+	fflush(stderr);
 }
 
 bool ccVSGWindowInterface::renderIdPass(std::vector<uint32_t>& ids, uint32_t& width, uint32_t& height)
@@ -2335,4 +2421,14 @@ void ccVSGWindowInterface::doEntityPicking(int x, int y)
 	default:
 		break;
 	}
+
+	// Automated testing: scripts/vsg_pick_test.py clicks in the 3D view and
+	// greps this line to check what the click actually hit
+	fprintf(stderr,
+	        "[VSG][trace] pick: mode=%d at (%d,%d) -> %s\n",
+	        static_cast<int>(m_pickingMode),
+	        x,
+	        y,
+	        pickedEntity ? qPrintable(pickedEntity->getName()) : "<nothing>");
+	fflush(stderr);
 }

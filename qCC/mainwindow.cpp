@@ -2188,7 +2188,9 @@ void MainWindow::doActionCreateGBLSensor()
 				// ccIndexedTransformation trans;
 				// sensor->addPosition(trans,0);
 
-				ccGLWindowInterface* win = static_cast<ccGLWindowInterface*>(cloud->getDisplay());
+				// (M8 / D.18.5) backend agnostic: setDisplay_recursive() and
+				// updateConstellationCenterAndZoom() both take a ccViewInterface
+				ccViewInterface* win = cloud->getDisplay();
 				if (win)
 				{
 					sensor->setDisplay_recursive(win);
@@ -2252,15 +2254,16 @@ void MainWindow::doActionCreateCameraSensor()
 	}
 	spDlg.updateCamSensor(sensor);
 
-	ccGLWindowInterface* win = nullptr;
+	// (M8 / D.18.5) backend agnostic
+	ccViewInterface* win = nullptr;
 	if (ent)
 	{
 		ent->addChild(sensor);
-		win = static_cast<ccGLWindowInterface*>(ent->getDisplay());
+		win = ent->getDisplay();
 	}
 	else
 	{
-		win = getActiveGLWindow();
+		win = getActiveViewWindow();
 	}
 
 	if (win)
@@ -3998,7 +4001,8 @@ void MainWindow::doActionMerge()
 
 void MainWindow::zoomOn(ccHObject* object)
 {
-	ccGLWindowInterface* win = static_cast<ccGLWindowInterface*>(object->getDisplay());
+	// (M8 / D.18.5) backend agnostic
+	ccViewInterface* win = object->getDisplay();
 	if (win)
 	{
 		ccBBox box = object->getDisplayBB_recursive(false, win);
@@ -7156,6 +7160,8 @@ void MainWindow::activateSectionExtractionMode()
 	}
 
 	// add clouds
+	// (M8 / D.18.5) only used for getGlFilter() below, which is OpenGL only:
+	// a dynamic_cast keeps the VSG backend safe (firstDisplay stays null)
 	ccGLWindowInterface* firstDisplay = nullptr;
 	{
 		unsigned validCount = 0;
@@ -7167,7 +7173,7 @@ void MainWindow::activateSectionExtractionMode()
 				{
 					if (!firstDisplay && entity->getDisplay())
 					{
-						firstDisplay = static_cast<ccGLWindowInterface*>(entity->getDisplay());
+						firstDisplay = dynamic_cast<ccGLWindowInterface*>(entity->getDisplay());
 					}
 
 					++validCount;
@@ -7756,7 +7762,8 @@ void            MainWindow::doActionSaveViewportAsCamera()
 
 void MainWindow::zoomOnSelectedEntities()
 {
-	ccGLWindowInterface* win = nullptr;
+	// (M8 / D.18.5) backend agnostic
+	ccViewInterface* win = nullptr;
 
 	ccHObject tempGroup("TempGroup");
 	size_t    selNum = m_selectedEntities.size();
@@ -7767,7 +7774,7 @@ void MainWindow::zoomOnSelectedEntities()
 		if (i == 0 || !win)
 		{
 			// take the first valid window as reference
-			win = static_cast<ccGLWindowInterface*>(entity->getDisplay());
+			win = entity->getDisplay();
 		}
 
 		if (win)
@@ -8270,7 +8277,8 @@ void MainWindow::clearSelectedEntitiesProperty(ccEntityAction::CLEAR_PROPERTY pr
 
 void MainWindow::setView(CC_VIEW_ORIENTATION view)
 {
-	ccGLWindowInterface* win = getActiveGLWindow();
+	// (M8 / D.18.5) setView() is now declared by ccViewInterface
+	ccViewInterface* win = getActiveViewWindow();
 	if (win)
 	{
 		win->setView(view);
@@ -10652,9 +10660,22 @@ void MainWindow::createPointCloudFromClipboard()
 
 void MainWindow::toggleClippingPlanes()
 {
-	ccGLWindowInterface* win = getActiveGLWindow();
+	// (M8 / D.18.5) any backend can now be targeted: the clipping planes are
+	// applied by the OpenGL shaders, so another backend reports them as
+	// unsupported instead of silently doing nothing
+	ccViewInterface* win = getActiveViewWindow();
 	if (!win)
 	{
+		return;
+	}
+
+	if (!win->clippingPlanesSupported())
+	{
+		ccLog::Warning(QString("[Clipping planes] Not supported by the '%1' render backend").arg(win->backendName()));
+
+		m_UI->actionToggleClippingPlanes->blockSignals(true);
+		m_UI->actionToggleClippingPlanes->setChecked(false);
+		m_UI->actionToggleClippingPlanes->blockSignals(false);
 		return;
 	}
 
@@ -12351,7 +12372,9 @@ void MainWindow::createVSGViewDebug()
 	        &ccViewSignalEmitter::entitySelectionChanged,
 	        this,
 	        [=](ccHObject* entity)
-	        { m_ccRoot->selectEntity(entity); });
+	        {
+		        m_ccRoot->selectEntity(entity);
+	        });
 
 	connect(vsgWindow->signalEmitter(),
 	        &ccViewSignalEmitter::entitiesSelectionChanged,

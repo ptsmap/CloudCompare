@@ -155,6 +155,16 @@ CCVector3d ccVSGCameraManipulator::convertMousePositionToOrientation(int32_t x, 
 	return v;
 }
 
+int32_t ccVSGCameraManipulator::toViewCoord(int32_t c) const
+{
+	const double dpr = m_view ? m_view->devicePixelRatio() : 1.0;
+	if (dpr <= 0.0)
+	{
+		return c;
+	}
+	return static_cast<int32_t>(std::lround(static_cast<double>(c) / dpr));
+}
+
 void ccVSGCameraManipulator::doPan(int32_t dx, int32_t dy)
 {
 	if (!m_view)
@@ -171,6 +181,17 @@ void ccVSGCameraManipulator::doPan(int32_t dx, int32_t dy)
 	CCVector3d u(static_cast<double>(dx) * pixSize,
 	             -static_cast<double>(dy) * pixSize,
 	             0.0);
+
+	// M8 / D.18.5: 'transform entities' mode - the displacement is forwarded
+	// to the interactive tools (ccGraphicalTransformationTool) instead of
+	// moving the camera (see ccGLWindowInterface::processMouseMoveEvent)
+	if (m_view->getInteractionMode() & ccViewInterface::INTERACT_TRANSFORM_ENTITIES)
+	{
+		// apply the inverse view matrix (same as the OpenGL backend)
+		params.viewMat.transposed().applyRotation(u);
+		Q_EMIT m_view->signalEmitter()->translation(u);
+		return;
+	}
 
 	if (params.objectCenteredView)
 	{
@@ -211,6 +232,11 @@ void ccVSGCameraManipulator::apply(vsg::ButtonPressEvent& event)
 	// VSG has no 'double click' event: the OpenGL backend gets one from Qt and
 	// uses it to set the pivot point under the cursor (M6.4)
 	m_ignoreNextPicking = false;
+
+	// vsgQt::Window hands us device pixel coordinates: convert them back to
+	// logical ones once, here (see toViewCoord())
+	event.x = toViewCoord(event.x);
+	event.y = toViewCoord(event.y);
 
 	if (isDoubleClick(event))
 	{
@@ -274,6 +300,11 @@ void ccVSGCameraManipulator::apply(vsg::ButtonPressEvent& event)
 
 void ccVSGCameraManipulator::apply(vsg::ButtonReleaseEvent& event)
 {
+	// vsgQt::Window hands us device pixel coordinates: convert them back to
+	// logical ones once, here (see toViewCoord())
+	event.x = toViewCoord(event.x);
+	event.y = toViewCoord(event.y);
+
 	if (m_ignoreNextPicking)
 	{
 		// the second click of a double click is not a picking request (the
@@ -311,6 +342,11 @@ void ccVSGCameraManipulator::apply(vsg::MoveEvent& event)
 	{
 		return;
 	}
+
+	// vsgQt::Window hands us device pixel coordinates: convert them back to
+	// logical ones once, here (see toViewCoord())
+	event.x = toViewCoord(event.x);
+	event.y = toViewCoord(event.y);
 
 	// M6.6: mirror the OpenGL backend, which emits mouseMoved() on every move
 	// (hover included), before any button test
@@ -350,7 +386,20 @@ void ccVSGCameraManipulator::apply(vsg::MoveEvent& event)
 
 		// unconstrained rotation following the mouse position (as CloudCompare does)
 		ccGLMatrixd rotMat = ccGLMatrixd::FromToRotation(m_lastOrientation, currentOrientation);
-		m_view->rotateBaseViewMat(rotMat);
+
+		// M8 / D.18.5: 'transform entities' mode - the rotation is forwarded to
+		// the interactive tools instead of rotating the camera (see
+		// ccGLWindowInterface::processMouseMoveEvent)
+		if (m_view->getInteractionMode() & ccViewInterface::INTERACT_TRANSFORM_ENTITIES)
+		{
+			const ccViewportParameters& params = m_view->viewportParameters();
+			rotMat                             = params.viewMat.transposed() * rotMat * params.viewMat;
+			Q_EMIT m_view->signalEmitter()->rotation(rotMat);
+		}
+		else
+		{
+			m_view->rotateBaseViewMat(rotMat);
+		}
 
 		m_lastOrientation = currentOrientation;
 	}

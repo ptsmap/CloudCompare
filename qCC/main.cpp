@@ -20,6 +20,7 @@
 // Qt
 #include <QDir>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPixmap>
 #include <QSettings>
 #include <QSplashScreen>
@@ -493,10 +494,92 @@ int main(int argc, char** argv)
 					                   fflush(stderr);
 
 					                   QCoreApplication::quit();
-				                   });
-			}
-		}
-#endif
+					                   });
+					                   }
+
+					                   // Automated testing: expose the 3D view rectangle in global (screen)
+					                   // coordinates, so that a GUI automation script knows where to click to
+					                   // exercise the picking end to end (see scripts/vsg_pick_test.py).
+					                   if (qEnvironmentVariableIsSet("CC_VSG_VIEW"))
+					                   {
+					                   QTimer::singleShot(4000, [mainWindow]()
+					                   {
+					                   ccViewInterface* view = mainWindow->getActiveViewWindow();
+					                   QWidget*         w    = view ? view->asWidget() : nullptr;
+					                   if (!w)
+					                   {
+					                   fprintf(stderr, "[VSG] view rect: <no view>\n");
+					                   fflush(stderr);
+					                   return;
+					                   }
+
+					                   const QPoint topLeft = w->mapToGlobal(QPoint(0, 0));
+					                   fprintf(stderr,
+					                           "[VSG] view rect: x=%d y=%d w=%d h=%d\n",
+					                           topLeft.x(),
+					                           topLeft.y(),
+					                           w->width(),
+					                           w->height());
+					                   fflush(stderr);
+					                   });
+					                   }
+
+					                   // Automated testing: inject a click in the 3D view (see
+					                   // scripts/vsg_pick_test.py). CC_VSG_PICK="rx,ry" with rx/ry in [0,1]:
+					                   // the relative position of the click inside the 3D view.
+					                   //
+					                   // The click is delivered as a QMouseEvent to the vsgQt::Window (i.e.
+					                   // through the very same Qt path the window server uses) instead of
+					                   // being posted as a HID event: macOS silently drops synthetic HID
+					                   // events coming from a process that is not trusted for Accessibility.
+					                   if (qEnvironmentVariableIsSet("CC_VSG_PICK"))
+					                   {
+					                   const QStringList pickParts = QString(qEnvironmentVariable("CC_VSG_PICK")).split(',');
+					                   if (pickParts.size() == 2)
+					                   {
+					                   const double relX = pickParts[0].toDouble();
+					                   const double relY = pickParts[1].toDouble();
+
+					                   QTimer::singleShot(6000, [mainWindow, relX, relY]()
+					                   {
+					                   auto* vsgView = dynamic_cast<ccVSGWindowInterface*>(mainWindow->getActiveViewWindow());
+					                   QWindow* w    = vsgView ? vsgView->vsgQtWindow() : nullptr;
+					                   if (!w)
+					                   {
+					                   fprintf(stderr, "[VSG] pick: no VSG window to click in\n");
+					                   fflush(stderr);
+					                   return;
+					                   }
+
+					                   const QPointF pos(relX * w->width(), relY * w->height());
+					                   const QPointF screen(w->mapToGlobal(QPoint(static_cast<int>(pos.x()), static_cast<int>(pos.y()))));
+
+					                   fprintf(stderr, "[VSG] pick: clicking at (%d,%d) of a %dx%d view\n",
+					                   static_cast<int>(pos.x()), static_cast<int>(pos.y()), w->width(), w->height());
+					                   fflush(stderr);
+
+					                   QMouseEvent press(QEvent::MouseButtonPress,
+					                   pos,
+					                   pos,
+					                   screen,
+					                   Qt::LeftButton,
+					                   Qt::LeftButton,
+					                   Qt::NoModifier);
+					                   QCoreApplication::sendEvent(w, &press);
+
+					                   QMouseEvent release(QEvent::MouseButtonRelease,
+					                   pos,
+					                   pos,
+					                   screen,
+					                   Qt::LeftButton,
+					                   Qt::NoButton,
+					                   Qt::NoModifier);
+					                   QCoreApplication::sendEvent(w, &release);
+					                   });
+					                   }
+					                   }
+					                   }
+					                   #endif
 
 		// open the files the system asked to open during startup
 		// (a FileOpen event, e.g. double-clicked in the macOS Finder)

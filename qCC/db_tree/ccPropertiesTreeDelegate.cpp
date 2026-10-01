@@ -1857,8 +1857,12 @@ void ccPropertiesTreeDelegate::setEditorData(QWidget* editor, const QModelIndex&
 			return;
 		}
 
-		ccGLWindowInterface* win = static_cast<ccGLWindowInterface*>(m_currentObject->getDisplay());
-		int                  pos = (win ? comboBox->findText(win->getWindowTitle()) : 0);
+		// (M8 / D.18.5) the display may be backed by any render backend: a
+		// static_cast to ccGLWindowInterface on a VSG view is undefined
+		// behaviour (it crashed on the very first virtual call). getWindowTitle()
+		// is declared by ccViewInterface, so nothing GL specific is needed here.
+		ccViewInterface* win = m_currentObject->getDisplay();
+		int             pos  = (win ? comboBox->findText(win->getWindowTitle()) : 0);
 
 		comboBox->setCurrentIndex(std::max(pos, 0)); // 0 = "NONE"
 		break;
@@ -2450,7 +2454,8 @@ void ccPropertiesTreeDelegate::spawnColorRampEditor()
 	ccScalarField* sf = (cloud ? static_cast<ccScalarField*>(cloud->getCurrentDisplayedScalarField()) : nullptr);
 	if (sf)
 	{
-		ccGLWindowInterface*      glWindow     = static_cast<ccGLWindowInterface*>(cloud->getDisplay());
+		// (M8 / D.18.5) backend agnostic: only asWidget() is needed
+		ccViewInterface*      glWindow     = cloud->getDisplay();
 		ccColorScaleEditorDialog* editorDialog = new ccColorScaleEditorDialog(ccColorScalesManager::GetUniqueInstance(),
 		                                                                      MainWindow::TheInstance(),
 		                                                                      sf->getColorScale(),
@@ -3083,7 +3088,8 @@ void ccPropertiesTreeDelegate::objectDisplayChanged(const QString& newDisplayTit
 
 	QString actualDisplayTitle;
 
-	ccGLWindowInterface* win = static_cast<ccGLWindowInterface*>(m_currentObject->getDisplay());
+	// (M8 / D.18.5) backend agnostic (see the OBJECT_CURRENT_DISPLAY editor)
+	ccViewInterface* win = m_currentObject->getDisplay();
 	if (win)
 	{
 		actualDisplayTitle = win->getWindowTitle();

@@ -17,6 +17,7 @@
 // ##########################################################################
 
 // Local
+#include "ccGLMatrix.h"
 #include "qCC_db.h"
 
 // CCCoreLib
@@ -133,4 +134,21 @@ Q_SIGNALS:
 	/** See ccViewInterface::INTERACT_SIG_BUTTON_RELEASED (M6.6).
 	 **/
 	void buttonReleased();
+
+	//! Signal emitted when the selected entities are translated by the user
+	/** See ccViewInterface::INTERACT_TRANSFORM_ENTITIES (the 'transform'
+	    interactive tool).
+
+	    \note It used to be declared by ccGLWindowSignalEmitter only (M8 /
+	    D.18.5), so the transformation tool could not be driven by a VSG view.
+	 **/
+	void translation(const CCVector3d& t);
+
+	//! Signal emitted when the selected entities are rotated by the user
+	/** \param rotMat rotation applied to the current viewport (4x4 OpenGL matrix)
+
+	    \note It used to be declared by ccGLWindowSignalEmitter only (M8 /
+	    D.18.5).
+	 **/
+	void rotation(const ccGLMatrixd& rotMat);
 };

@@ -1176,7 +1176,7 @@ commandGraph->addChild(overlayGraph);
 | 9 | `CCPluginAPI` 解耦 `QCC_GL_LIB` | M8.5 | 中 | 依赖 #8 |
 | 10 | 立体显示降级提示 | M8.6 | 低 | 一期给"不支持"UI 提示 |
 | 11 | 文档更新 + 删除两份旧草稿 md | M8.7 | 低 | 收尾项 |
-| 12 | 交互工具端到端可用（D.18.4） | M6 / M8 | 中（主体已落地，2026-10-01） | **已推进**：`ccViewInterface` 新增 9 个后端无关方法（Qt 鼠标抓取/光标映射、`qtWidth`·`qtHeight`、`toCenteredViewCoordinates`、`getGLCameraParameters`）；分割工具已完全去掉 `glWin()`；截面/折线/点属性工具可迁部分已迁；`MainWindow` 六个工具激活点改走 `getActiveViewWindow()`（**原先 VSG 下恒 return，工具根本无法启动**）。**剩余**：GUI 端端点选验证；截面工具 `setView`/`setPerspectiveState`/`updateConstellationCenterAndZoom`、裁剪平面开关、变换工具回显仍为 GL 专属降级（见 **D.18.7**） |
+| 12 | 交互工具端到端可用（D.18.4） | M6 / M8 | 中（主体已落地，2026-10-01） | **已推进**：`ccViewInterface` 新增 9 个后端无关方法（Qt 鼠标抓取/光标映射、`qtWidth`·`qtHeight`、`toCenteredViewCoordinates`、`getGLCameraParameters`）；分割工具已完全去掉 `glWin()`；截面/折线/点属性工具可迁部分已迁；`MainWindow` 六个工具激活点改走 `getActiveViewWindow()`（**原先 VSG 下恒 return，工具根本无法启动**）。**剩余（已于同日收尾，见 D.18.8）**：截面工具 `setView`/`setPerspectiveState`/`updateConstellationCenterAndZoom`、裁剪平面开关、变换工具回显三项 GL 专属降级**已全部解决**（API 提升 + VSG 实现 + `rotation`/`translation` 信号提升）；**GUI 端端点选已自动化验证并 PASS**（`scripts/vsg_pick_test.py`），过程中修掉三个真实缺陷（VSG 视图默认 `NO_PICKING`、Retina 下坐标差 DPR 倍、`static_cast<ccGLWindowInterface*>` 野指针 SIGSEGV）。仍残余：裁剪平面 VSG 明确不支持（报 warning 而非静默）；配准/量测等工具未逐个做 GUI 手感验证 |
 | 13 | EDL / Bilateral 后处理 | M7.2 备注 | 低 | 方案已排后（或仅保留于 OpenGL 后端） |
 | 14 | 视觉回归基线（§9.2） | 验证 | 中 | 固定数据集+视点的截图像素级 diff 未建立；当前仅有 `cube.bin` 无头冒烟 |
 | 15 | `quit()` 后关机挂死 | 缺陷 | **高** | VSG 后端专属：`QCoreApplication::quit()` 后 `exec()` 不返回（GL 后端干净退出）。已排除渲染定时器/窗口 close/`[NSApp stop:]`；疑似 Qt Cocoa dispatcher 重入 `[NSApp run]` 或 vsgQt Metal 层 QWindow 所致。**冒烟脚本用 kill 容忍** |
@@ -2112,3 +2112,43 @@ VSG 的 `ButtonMask`（`BUTTON_MASK_1/2/3` = 左/中/右）用 `toQtMouseButtons
 
 **验证**：全量构建通过；`cube.bin` 无头冒烟 PASS（`active view backend: VSG`、截图 1040×454）。
 **仍待 GUI 验证**：VSG 视图上实际点选/框选的手感（需人工或 GUI 自动化）。
+
+### D.18.8 剩余 GL 专属降级收尾 + GUI 端端点选自动化验证（M8，2026-10-01）
+
+**① 继续提升 `ccViewInterface`**（`libs/qCC_renderCore/include/ccViewInterface.h`）
+
+- `CC_VIEW_ORIENTATION` 从 `ccGLUtils.h`（qCC_glWindow）上移到 `ccViewInterface.h`，且**放在文件作用域**（不嵌进类）：既有的非限定用法（`CC_TOP_VIEW`、`ccMainAppInterface::setView(CC_VIEW_ORIENTATION)`、各工具的 `setView()`）一行都不用改。`ccGLUtils.h` 改为 include 该头文件。
+- 新增纯虚（GL 加 `override`，VSG 实现）：
+
+| 方法 | VSG 实现 |
+|---|---|
+| `setView(CC_VIEW_ORIENTATION, bool)` | `ccGLUtils::GenerateViewMat()` 只改 view 矩阵（VSG 无 locked rotation axis，竖直方向取默认 (0,0,1)） |
+| `setPerspectiveState(bool, bool)` | 直改 `ccViewportParameters`；正交模式强制 object-centered（与 GL 同） |
+| `getPerspectiveState(bool&) const` | 返回 `perspectiveView` / `objectCenteredView` |
+| `updateConstellationCenterAndZoom(const ccBBox*)` | 与 `zoomGlobal()` 合并为同一实现（后者委托前者，bbox 为空时取整个 DB） |
+| `getWindowTitle()` | 取 widget 标题，为空则取 MDI 子窗口标题（GL 版就是 `QWidget::windowTitle()`） |
+
+- 裁剪平面：`clippingPlanesSupported()`（默认 false）/ `setClippingPlanesEnabled()`（默认 no-op）/ `clippingPlanesEnabled()`；GL 覆写为真实实现并返回 supported=true，**VSG 保留默认**——裁剪平面是 GL shader 实现的，属真正的后端能力差异，不再假装支持。
+- 信号：`translation(const CCVector3d&)` / `rotation(const ccGLMatrixd&)` 从 `ccGLWindowSignalEmitter` 提升到 `ccViewSignalEmitter`；VSG 操控器在 `INTERACT_TRANSFORM_ENTITIES` 下发射（旋转 `viewMatᵀ · rotMat · viewMat`，平移按视口旋转后的像素位移，与 GL 同式）；`ccGraphicalTransformationTool` 改接 `ccViewSignalEmitter`。
+
+**② 工具 / 主窗改造**
+
+- `ccSectionExtractionTool`：预定义视角（`setView`）、正交切换（`setPerspectiveState(false,true)`）、`updateConstellationCenterAndZoom()` 三处全部后端无关（D.18.7 遗留的判空降级已去掉）。
+- `ccClippingBoxTool::setView()` 同样后端无关；`linkWith()` 的裁剪平面开关改走 `m_associatedWin`。
+- `MainWindow::setView()` 改 `getActiveViewWindow()`；`MainWindow::toggleClippingPlanes()` 改 `getActiveViewWindow()` + `clippingPlanesSupported()`，不支持时给警告并保持未勾选（不再静默失效）。
+
+**③ 自动化验证暴露并修掉的三个真实缺陷**
+
+| # | 缺陷 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | VSG 视图点击**完全不拾取** | `ccGLWindow` 构造函数里有 `setPickingMode(DEFAULT_PICKING)`，`ccVSGWindow` 漏了 ⇒ 视图一直是 `NO_PICKING`，`doPicking()` 开头直接 return | `ccVSGWindow` 构造函数补默认拾取模式 + 交互模式（`MODE_TRANSFORM_CAMERA`） |
+| 2 | Retina 上拾取与轨迹球**坐标差 DPR 倍** | `vsgQt::Window::convert_coord()` 把 Qt 坐标**乘** `devicePixelRatio` 交给 VSG，而 CC 侧（`getScreenSize()`、拾取、2D 覆盖层、轨迹球）全是**逻辑像素** | 操控器新增 `toViewCoord()`，在 `ButtonPress` / `ButtonRelease` / `Move` 三个 `apply()` 入口统一换算回逻辑像素 |
+| 3 | 点选命中后 **SIGSEGV**（PC 跳到堆地址） | `ccPropertiesTreeDelegate` 里 `static_cast<ccGLWindowInterface*>(obj->getDisplay())`：VSG 视图被强转成 GL 窗口，第一次虚调用 `getWindowTitle()` 就跳进野指针 | 改用 `ccViewInterface*`（`getWindowTitle()` 已提升）；顺带清理 `mainwindow.cpp` 5 处同类强转——`zoomOn` / `zoomOnSelectedEntities` / sensor 挂载改 `ccViewInterface*`，截面工具的 `firstDisplay` 用 `dynamic_cast`（它要调 GL 专属 `getGlFilter()`） |
+
+**④ GUI 端端点选自动化验证**
+
+新增 `scripts/vsg_pick_test.py`（退出码 0/1/127）：启动真实 GUI（VSG 后端 + `cube.bin`），等 3D 视图上报屏幕矩形，点击视图中心，断言 `[VSG][trace] pick:` 行命中实体，覆盖整条链路
+`事件 → 操控器 → requestPicking()（延迟到下一帧）→ 离屏 R32_UINT ID pass + 回读 → entitySelectionChanged → DB 树选中`。
+
+- **macOS 限制**：合成 HID 事件（`CGEventPost`）要求「辅助功能」权限，脚本进程没有时系统**静默丢弃**（并弹权限窗），因此默认走 **Qt 层注入**：新增调试钩子 `CC_VSG_PICK="rx,ry"`（`main.cpp` 里经 `QTimer` 把 `QMouseEvent` 投递给 `vsgQt::Window`，走的是窗口系统同一条 Qt 路径）；`--hid` 可切回真实 HID 点击（需先手工授权）。
+- 结果：**PASS** —— `[VSG][trace] pick: mode=1 at (520,227) -> Mesh`；`scripts/vsg_smoke_test.sh` 回归同样 PASS。

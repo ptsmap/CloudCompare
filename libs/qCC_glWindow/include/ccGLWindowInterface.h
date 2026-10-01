@@ -272,7 +272,9 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	    \param state whether perspective mode is enabled or not
 	    \param objectCenteredView whether view is object- or viewer-centered (forced to true in ortho. mode)
 	**/
-	void setPerspectiveState(bool state, bool objectCenteredView);
+	// (setPerspectiveState / getPerspectiveState are now declared by
+	//  ccViewInterface - M8 / D.18.5)
+	void setPerspectiveState(bool state, bool objectCenteredView) override;
 
 	//! Toggles perspective mode
 	/** If perspective is activated, the user must specify if it should be
@@ -281,7 +283,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	void togglePerspective(bool objectCentered);
 
 	//! Returns perspective mode
-	bool getPerspectiveState(bool& objectCentered) const;
+	bool getPerspectiveState(bool& objectCentered) const override;
 
 	//! Shortcut: returns whether object-based perspective mode is enabled
 	bool objectPerspectiveEnabled() const;
@@ -312,7 +314,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	    bounding box is used.
 	    \param boundingBox bounding box to zoom on
 	**/
-	void updateConstellationCenterAndZoom(const ccBBox* boundingBox = nullptr);
+	void updateConstellationCenterAndZoom(const ccBBox* boundingBox = nullptr) override;
 
 	//! Returns the visible objects bounding-box
 	void getVisibleObjectsBB(ccBBox& box) const;
@@ -345,7 +347,7 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	void setBaseViewMat(ccGLMatrixd& mat);
 
 	//! Sets camera to a predefined view (top, bottom, etc.)
-	void setView(CC_VIEW_ORIENTATION orientation, bool redraw = true);
+	void setView(CC_VIEW_ORIENTATION orientation, bool redraw = true) override;
 
 	//! Sets camera to a custom view (forward and up directions must be specified)
 	void setCustomView(const CCVector3d& forward, const CCVector3d& up, bool forceRedraw = true);
@@ -453,12 +455,18 @@ class CCGLWINDOW_LIB_API ccGLWindowInterface : public ccGenericGLDisplay
 	float getFov() const;
 
 	//! Whether to allow near and far clipping planes or not
-	void setClippingPlanesEnabled(bool enabled);
+	void setClippingPlanesEnabled(bool enabled) override;
 
 	//! Whether to near and far clipping planes are enabled or not
-	inline bool clippingPlanesEnabled() const
+	inline bool clippingPlanesEnabled() const override
 	{
 		return m_clippingPlanesEnabled;
+	}
+
+	//! The OpenGL backend is the only one implementing them (M8 / D.18.5)
+	bool clippingPlanesSupported() const override
+	{
+		return true;
 	}
 
 	//! Sets near clipping plane depth (or disable it if NaN)

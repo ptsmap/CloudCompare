@@ -21,21 +21,14 @@
 // qCC_db
 #include <ccIncludeGL.h> //Always first!
 
+// qCC_renderCore
+#include <ccViewInterface.h>
+
 // Qt
 #include <QImage>
 
-//! View orientation
-enum CC_VIEW_ORIENTATION
-{
-	CC_TOP_VIEW,    /**< Top view (eye: +Z) **/
-	CC_BOTTOM_VIEW, /**< Bottom view **/
-	CC_FRONT_VIEW,  /**< Front view **/
-	CC_BACK_VIEW,   /**< Back view **/
-	CC_LEFT_VIEW,   /**< Left view **/
-	CC_RIGHT_VIEW,  /**< Right view **/
-	CC_ISO_VIEW_1,  /**< Isometric view 1: front, right and top **/
-	CC_ISO_VIEW_2,  /**< Isometric view 2: back, left and top **/
-};
+// NOTE: CC_VIEW_ORIENTATION now lives in ccViewInterface.h (M8 / D.18.5) so
+// that ccViewInterface::setView() can be declared for every render backend.
 
 class CCGLWINDOW_LIB_API ccGLUtils
 {

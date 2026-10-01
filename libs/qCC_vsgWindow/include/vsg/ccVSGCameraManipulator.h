@@ -92,6 +92,16 @@ class CCVSGWINDOW_LIB_API ccVSGCameraManipulator : public vsg::Inherit<vsg::Visi
 	//! Replicates ccGLWindowInterface::convertMousePositionToOrientation()
 	CCVector3d convertMousePositionToOrientation(int32_t x, int32_t y);
 
+	//! Converts a VSG (device pixel) coordinate into a view (logical pixel) one
+	/** vsgQt::Window scales the Qt coordinates by devicePixelRatio() when it
+	    builds the VSG events (see vsgQt/Window.h::convert_coord), while
+	    everything in CloudCompare - getScreenSize(), the picking, the 2D
+	    overlay, the trackball - works in logical pixels. Not converting them
+	    back makes the picking and the rotation wrong by a factor of the DPR on
+	    a Retina display (M8 / D.18.5).
+	 **/
+	int32_t toViewCoord(int32_t c) const;
+
 	void doPan(int32_t dx, int32_t dy);
 	void doZoom(double factor);
 

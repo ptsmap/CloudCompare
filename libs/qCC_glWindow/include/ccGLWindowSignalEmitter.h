@@ -89,13 +89,9 @@ class CCGLWINDOW_LIB_API ccGLWindowSignalEmitter : public ccViewSignalEmitter
 	//! Signal emitted when the camera position is changed
 	void cameraPosChanged(const CCVector3d&);
 
-	//! Signal emitted when the selected object is translated by the user
-	void translation(const CCVector3d& t);
-
-	//! Signal emitted when the selected object is rotated by the user
-	/** \param rotMat rotation applied to current viewport (4x4 OpenGL matrix)
-	 **/
-	void rotation(const ccGLMatrixd& rotMat);
+	// NOTE: translation() / rotation() now live in ccViewSignalEmitter (the
+	// backend agnostic base class) so that the transformation tool can be
+	// driven by a VSG view as well (M8 / D.18.5).
 
 	// NOTE: leftButtonClicked() / rightButtonClicked() / middleButtonClicked() /
 	// mouseMoved() / buttonReleased() (M6.6) now live in ccViewSignalEmitter

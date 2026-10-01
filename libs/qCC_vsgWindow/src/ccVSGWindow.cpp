@@ -42,6 +42,14 @@ ccVSGWindow::ccVSGWindow(QWidget* parent /*=nullptr*/, bool silentInitialization
 
 	setObjectName(QStringLiteral("ccVSGWindow"));
 
+	// default picking mode: ccGLWindow sets it in its own constructor
+	// (ccGLWindow.cpp), and without it a VSG view stays in NO_PICKING - i.e.
+	// clicking in the 3D view never selected anything (M8 / D.18.5).
+	setPickingMode(DEFAULT_PICKING);
+
+	// default interaction mode (same default as ccGLWindow)
+	setInteractionMode(MODE_TRANSFORM_CAMERA);
+
 	vsg::ref_ptr<vsg::WindowTraits> traits = vsg::WindowTraits::create();
 	traits->windowTitle = "CloudCompare (VSG)";
 	traits->width       = static_cast<uint32_t>(std::max(width(), 640));
